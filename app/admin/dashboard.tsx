@@ -39,7 +39,7 @@ export default function AdminDashboard() {
     const checkAuth = async () => {
       const session = await getSession();
       if (!session || session.role !== 'admin') {
-        router.replace('/login');
+        router.replace('/');
       } else {
         setAdminName(session.fullName || 'Admin');
       }
@@ -68,10 +68,10 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleLogout = async () => {
-    await clearSession();
-    router.replace('/login');
-  };
+    const handleLogout = async () => {
+      await clearSession();
+      router.replace('/');
+    };
 
   if (loading) {
     return (

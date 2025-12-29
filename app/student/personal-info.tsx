@@ -38,7 +38,7 @@ export default function PersonalInfoForm() {
       try {
         const prn = await getUserPrn();
         if (!prn) {
-          router.replace('/login?role=student' as any);
+          router.replace('/' as any);
           return;
         }
         setFormData(prev => ({ ...prev, prn }));

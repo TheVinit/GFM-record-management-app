@@ -433,7 +433,7 @@ export default function TeacherDashboard() {
   const checkAuth = async () => {
     const session = await getSession();
     if (!session || (session.role !== 'teacher' && session.role !== 'admin')) {
-      router.replace('/login');
+      router.replace('/');
     } else {
       setTeacherPrn(session.prn);
       setUserRole(session.role);
@@ -522,7 +522,7 @@ export default function TeacherDashboard() {
           <Text style={styles.collegeName}>GFM Record</Text>
           <Text style={styles.tagline}>{userRole === 'admin' ? 'Management Portal' : 'Faculty Portal'}</Text>
         </View>
-      <TouchableOpacity onPress={async () => { await clearSession(); router.replace('/login'); }} style={styles.logoutBtn}>
+      <TouchableOpacity onPress={async () => { await clearSession(); router.replace('/'); }} style={styles.logoutBtn}>
         <Ionicons name="log-out-outline" size={20} color="#fff" />
         <Text style={styles.logoutText}>Logout</Text>
       </TouchableOpacity>
@@ -1323,6 +1323,7 @@ const DetailItem = ({ label, value, fullWidth, color }: { label: string, value: 
 const AcademicManagement = ({ students, filters, onViewDetails, onViewAcademicDetails }: any) => {
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
+  const [selectedSemForMarks, setSelectedSemForMarks] = useState<number>(filters.sem === 'All' ? 3 : filters.sem);
   const [courses, setCourses] = useState<CourseDef[]>([]);
   const [marks, setMarks] = useState<Record<number, any>>({});
   const [sgpa, setSgpa] = useState('');
@@ -1334,7 +1335,7 @@ const AcademicManagement = ({ students, filters, onViewDetails, onViewAcademicDe
       loadCoursesAndMarks();
       loadAllAcademicStats();
     }
-  }, [filters, students, selectedStudent]); 
+  }, [filters, students, selectedStudent, selectedSemForMarks]); 
 
   const loadAllAcademicStats = async () => {
     const statsMap: Record<string, any> = {};
@@ -1349,35 +1350,37 @@ const AcademicManagement = ({ students, filters, onViewDetails, onViewAcademicDe
     setAcademicStats(statsMap);
   };
 
-const loadCoursesAndMarks = async () => {
-  if (!filters) return;
-  const c = await getAllCoursesDef();
-  const deptToUse = selectedStudent ? selectedStudent.branch : filters.dept;
-  const filteredCourses = c.filter(course => 
-    (deptToUse === 'All' || course.department === deptToUse) && 
-    (filters.sem === 'All' || course.semester === filters.sem)
-  );
-  setCourses(filteredCourses);
+  const loadCoursesAndMarks = async () => {
+    if (!filters) return;
+    const c = await getAllCoursesDef();
+    const deptToUse = selectedStudent ? selectedStudent.branch : filters.dept;
+    const semToUse = selectedStudent ? selectedSemForMarks : filters.sem;
+    
+    const filteredCourses = c.filter(course => 
+      (deptToUse === 'All' || course.department === deptToUse) && 
+      (semToUse === 'All' || course.semester === semToUse)
+    );
+    setCourses(filteredCourses);
 
-  if (selectedStudent) {
-    const existing = await getAcademicRecordsByStudent(selectedStudent.prn);
-    const marksMap: Record<number, any> = {};
-    existing.forEach(r => {
-      if (filters.sem === 'All' || r.semester === filters.sem) {
-        marksMap[r.courseDefId] = r;
+    if (selectedStudent) {
+      const existing = await getAcademicRecordsByStudent(selectedStudent.prn);
+      const marksMap: Record<number, any> = {};
+      existing.forEach(r => {
+        if (semToUse === 'All' || r.semester === semToUse) {
+          marksMap[r.courseDefId] = r;
+        }
+      });
+      setMarks(marksMap);
+      const semRecord = semToUse === 'All' ? existing[existing.length - 1] : existing.find(r => r.semester === semToUse);
+      if (semRecord) {
+        setSgpa(semRecord.sgpa?.toString() || '');
+        setCgpa(semRecord.cgpa?.toString() || '');
+      } else {
+        setSgpa('');
+        setCgpa('');
       }
-    });
-    setMarks(marksMap);
-    const semRecord = filters.sem === 'All' ? existing[existing.length - 1] : existing.find(r => r.semester === filters.sem);
-    if (semRecord) {
-      setSgpa(semRecord.sgpa.toString());
-      setCgpa(semRecord.cgpa.toString());
-    } else {
-      setSgpa('');
-      setCgpa('');
     }
-  }
-};
+  };
 
 const calculateSGPA = () => {
   const gradePoints: Record<string, number> = {
@@ -1538,12 +1541,28 @@ return (
   <Modal visible={modalOpen} transparent animationType="slide">
     <View style={styles.modalOverlay}>
       <View style={[styles.modalBody, { width: '95%', maxWidth: 800 }]}>
-        <View style={styles.modalHeader}>
-          <Text style={styles.modalTitle}>Enter Marks: {selectedStudent?.fullName}</Text>
-          <TouchableOpacity onPress={() => setModalOpen(false)}>
-            <Ionicons name="close" size={24} color={COLORS.text} />
-          </TouchableOpacity>
-        </View>
+          <View style={styles.modalHeader}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.modalTitle}>Enter Marks: {selectedStudent?.fullName}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10 }}>
+                <Text style={[styles.filterLabel, { marginBottom: 0, marginRight: 10 }]}>Select Semester:</Text>
+                <View style={[styles.pickerWrapper, { width: 120, height: 35 }]}>
+                  <Picker
+                    selectedValue={selectedSemForMarks}
+                    onValueChange={(val) => setSelectedSemForMarks(Number(val))}
+                    style={{ height: 35 }}
+                  >
+                    {[1, 2, 3, 4, 5, 6, 7, 8].map(s => (
+                      <Picker.Item key={s} label={`Sem ${s}`} value={s} />
+                    ))}
+                  </Picker>
+                </View>
+              </View>
+            </View>
+            <TouchableOpacity onPress={() => setModalOpen(false)}>
+              <Ionicons name="close" size={24} color={COLORS.text} />
+            </TouchableOpacity>
+          </View>
 
         <ScrollView style={{ maxHeight: 500 }}>
           <View style={[styles.tableRow, styles.tableHeader]}>
@@ -1641,28 +1660,29 @@ return (
 const FeeManagement = ({ students, filters, handleVerify }: any) => {
 const [stats, setStats] = useState<any>(null);
 const [feeData, setFeeData] = useState<any[]>([]);
-const [feeStatusFilter, setFeeStatusFilter] = useState<'All' | 'Paid' | 'Remaining'>('All');
+  const [feeStatusFilter, setFeeStatusFilter] = useState<'All' | 'Paid' | 'Not Paid / Remaining'>('All');
 
-useEffect(() => {
-  if (filters) {
-    loadFeeData();
-  }
-}, [filters]);
+  useEffect(() => {
+    if (filters) {
+      loadFeeData();
+    }
+  }, [filters]);
 
-const loadFeeData = async () => {
-  if (!filters) return;
-  const s = await getFeeAnalytics(filters.dept, filters.year, filters.div);
-  const data = await getFeePaymentsByFilter(filters.dept, filters.year, filters.div);
-  setStats(s);
-  setFeeData(data);
-};
+  const loadFeeData = async () => {
+    if (!filters) return;
+    const s = await getFeeAnalytics(filters.dept, filters.year, filters.div);
+    const data = await getFeePaymentsByFilter(filters.dept, filters.year, filters.div);
+    setStats(s);
+    setFeeData(data);
+  };
 
-const filteredFeeData = feeData.filter(f => {
-  if (feeStatusFilter === 'All') return true;
-  if (feeStatusFilter === 'Paid') return (f.lastBalance || 0) <= 0;
-  if (feeStatusFilter === 'Remaining') return (f.lastBalance || 0) > 0;
-  return true;
-});
+  const filteredFeeData = feeData.filter(f => {
+    if (feeStatusFilter === 'All') return true;
+    if (feeStatusFilter === 'Paid') return (f.lastBalance || 0) <= 0;
+    if (feeStatusFilter === 'Not Paid / Remaining') return (f.lastBalance || 0) > 0;
+    return true;
+  });
+
 
 const exportFeeCSV = (onlyDefaulters = false) => {
   let csv = 'PRN,Name,Year,Total Fee,Paid,Balance\n';
@@ -1707,17 +1727,17 @@ return (
       <View style={styles.moduleHeader}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 15 }}>
           <Text style={styles.moduleTitle}>Fee Management</Text>
-          <View style={[styles.pickerWrapper, { width: 150 }]}>
-            <Picker
-              selectedValue={feeStatusFilter}
-              onValueChange={setFeeStatusFilter}
-              style={styles.picker}
-            >
-              <Picker.Item label="All Fees" value="All" />
-              <Picker.Item label="Paid" value="Paid" />
-              <Picker.Item label="Remaining" value="Remaining" />
-            </Picker>
-          </View>
+            <View style={[styles.pickerWrapper, { width: 150 }]}>
+              <Picker
+                selectedValue={feeStatusFilter}
+                onValueChange={setFeeStatusFilter}
+                style={styles.picker}
+              >
+                <Picker.Item label="All Fees" value="All" />
+                <Picker.Item label="Paid" value="Paid" />
+                <Picker.Item label="Not Paid / Remaining" value="Not Paid / Remaining" />
+              </Picker>
+            </View>
         </View>
         <View style={{ flexDirection: 'row', gap: 10 }}>
           <TouchableOpacity style={[styles.actionBtn, { backgroundColor: COLORS.success }]} onPress={() => exportFeeCSV(false)}>
@@ -1749,10 +1769,10 @@ return (
               <Text style={[styles.tableCell, { width: 80 }]}>{f.yearOfStudy}</Text>
               <Text style={[styles.tableCell, { width: 80 }]}>₹{f.totalFee || 0}</Text>
               <Text style={[styles.tableCell, { width: 80, color: COLORS.success }]}>₹{f.paidAmount || 0}</Text>
-              <Text style={[styles.tableCell, { width: 80, color: (f.lastBalance || 0) > 0 ? COLORS.error : COLORS.success }]}>₹{f.lastBalance || 0}</Text>
-              <Text style={[styles.tableCell, { width: 80, color: (f.lastBalance || 0) > 0 ? COLORS.warning : COLORS.success }]}>
-                {(f.lastBalance || 0) > 0 ? 'Remaining' : (f.totalFee > 0 ? 'Paid' : 'Unpaid')}
-              </Text>
+                <Text style={[styles.tableCell, { width: 80, color: (f.lastBalance || 0) > 0 ? COLORS.error : COLORS.success }]}>₹{f.lastBalance || 0}</Text>
+                <Text style={[styles.tableCell, { width: 80, color: (f.lastBalance || 0) > 0 ? COLORS.warning : COLORS.success }]}>
+                  {(f.lastBalance || 0) > 0 ? (f.paidAmount > 0 ? 'Remaining' : 'Not Paid') : (f.totalFee > 0 ? 'Paid' : 'Not Paid')}
+                </Text>
                 <View style={{ width: 120, flexDirection: 'row', gap: 5, alignItems: 'center' }}>
                   {f.receiptUri && (
                     <TouchableOpacity onPress={() => Alert.alert('Receipt', 'Viewing receipt: ' + f.receiptUri)}>

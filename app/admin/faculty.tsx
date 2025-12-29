@@ -34,12 +34,12 @@ export default function ManageFaculty() {
     loadFaculty();
   }, []);
 
-  const checkAuth = async () => {
-    const session = await getSession();
-    if (!session || session.role !== 'admin') {
-      router.replace('/login');
-    }
-  };
+    const checkAuth = async () => {
+      const session = await getSession();
+      if (!session || session.role !== 'admin') {
+        router.replace('/');
+      }
+    };
 
   const loadFaculty = async () => {
     setLoading(true);

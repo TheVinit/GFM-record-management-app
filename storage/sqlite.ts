@@ -966,10 +966,10 @@ export const getFeePaymentsByFilter = async (dept: string, year: string, div: st
     LEFT JOIN (
       SELECT * FROM fee_payments 
       WHERE id IN (SELECT MAX(id) FROM fee_payments GROUP BY prn)
-    ) f ON s.prn = f.prn
+    ) f ON s.prn = f.prn AND (f.academicYear = ? OR ? = 'All')
     WHERE 1=1
   `;
-  const params: any[] = [];
+  const params: any[] = [year, year];
 
   if (dept !== 'All') {
     query += ' AND s.branch = ?';
@@ -999,13 +999,13 @@ export const getFeeAnalytics = async (dept: string, year: string, div: string) =
       SUM(COALESCE(f.remainingBalance, 50000)) as totalRemainingAmount
     FROM students s
     LEFT JOIN (
-      SELECT prn, remainingBalance 
+      SELECT prn, remainingBalance, academicYear
       FROM fee_payments 
       WHERE id IN (SELECT MAX(id) FROM fee_payments GROUP BY prn)
-    ) f ON s.prn = f.prn
+    ) f ON s.prn = f.prn AND (f.academicYear = ? OR ? = 'All')
     WHERE 1=1
   `;
-  const params: any[] = [];
+  const params: any[] = [year, year];
 
   if (dept !== 'All') {
     query += ' AND s.branch = ?';

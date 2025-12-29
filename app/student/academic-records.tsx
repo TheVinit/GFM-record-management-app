@@ -19,7 +19,7 @@ export default function AcademicRecordsScreen() {
     try {
       const session = await getSession();
       if (!session) {
-        router.replace('/login');
+        router.replace('/');
         return;
       }
       const data = await getAcademicRecordsByStudent(session.prn);
