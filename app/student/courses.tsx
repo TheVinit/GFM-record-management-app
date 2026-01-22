@@ -13,7 +13,7 @@ import {
   SafeAreaView
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getSession } from '../../services/session.service';
 import {
   StudentActivity,
   getStudentActivities,
@@ -38,6 +38,7 @@ export default function CoursesScreen() {
   const [duration, setDuration] = useState('');
   const [semester, setSemester] = useState('3');
   const [completionDate, setCompletionDate] = useState(new Date().toISOString().split('T')[0]);
+  const [description, setDescription] = useState('');
   const [certificateUri, setCertificateUri] = useState('');
   const [certificateFileInfo, setCertificateFileInfo] = useState<{ name: string, type: string } | null>(null);
 
@@ -47,9 +48,13 @@ export default function CoursesScreen() {
 
   const loadData = async () => {
     try {
-      const userPrn = await AsyncStorage.getItem('userPrn');
-      if (!userPrn) return;
+      const session = await getSession();
+      if (!session || !session.prn) {
+        Alert.alert('Session Error', 'Please login again');
+        return;
+      }
 
+      const userPrn = session.prn;
       setPrn(userPrn);
       const data = await getStudentActivities(userPrn);
       setCourses(data.filter(a => a.type === 'Courses'));
@@ -115,14 +120,17 @@ export default function CoursesScreen() {
           }
         }
 
-      const course: StudentActivity = {
-        prn,
-        semester: parseInt(semester),
-        activityName: `${courseName.trim()} (${platform.trim()}, ${duration.trim()})`,
-        type: 'Courses',
-        activityDate: completionDate,
-        certificateUri: finalCertificateUri
-      };
+        const academicYear = getAcademicYearFromSemester(parseInt(semester));
+        const course: StudentActivity = {
+          prn,
+          semester: parseInt(semester),
+          academicYear,
+          activityName: `${courseName.trim()} (${platform.trim()}, ${duration.trim()})`,
+          type: 'Courses',
+          activityDate: completionDate,
+          description: description.trim(),
+          certificateUri: finalCertificateUri
+        };
 
       await saveStudentActivity(course);
       Alert.alert('Success', 'Course added successfully!');
@@ -143,6 +151,7 @@ export default function CoursesScreen() {
     setDuration('');
     setSemester('3');
     setCompletionDate(new Date().toISOString().split('T')[0]);
+    setDescription('');
     setCertificateUri('');
   };
 
@@ -204,6 +213,16 @@ export default function CoursesScreen() {
               placeholder="YYYY-MM-DD"
             />
 
+            <Text style={styles.label}>Description</Text>
+            <TextInput
+              style={[styles.input, styles.textArea]}
+              value={description}
+              onChangeText={setDescription}
+              placeholder="Brief description of the course"
+              multiline
+              numberOfLines={3}
+            />
+
             <TouchableOpacity style={styles.uploadButton} onPress={pickCertificate}>
               <Ionicons name="cloud-upload-outline" size={24} color="#4CAF50" />
               <Text style={styles.uploadText}>
@@ -232,11 +251,14 @@ export default function CoursesScreen() {
                     <Text style={styles.courseDetails}>{item.platform} • {item.duration}</Text>
                     <Text style={styles.completionDate}>Completed: {item.completionDate}</Text>
                   </View>
-                  <View style={[styles.statusBadge, item.verificationStatus === 'Verified' ? styles.verifiedBadge : styles.pendingBadge]}>
-                    <Text style={styles.statusBadgeText}>{item.verificationStatus || 'Pending'}</Text>
+                    <View style={[styles.statusBadge, item.verificationStatus === 'Verified' ? styles.verifiedBadge : styles.pendingBadge]}>
+                      <Text style={styles.statusBadgeText}>{item.verificationStatus || 'Pending'}</Text>
+                    </View>
                   </View>
-                </View>
-                {item.certificateUri && (
+                  {item.description && (
+                    <Text style={styles.courseDescription}>{item.description}</Text>
+                  )}
+                  {item.certificateUri && (
                   <TouchableOpacity 
                     style={styles.viewCertificate}
                     onPress={() => {
@@ -302,6 +324,10 @@ const styles = StyleSheet.create({
   },
   label: { fontSize: 14, fontWeight: '600', color: '#555', marginBottom: 8, marginTop: 12 },
   input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 12, fontSize: 16 },
+  textArea: {
+    height: 80,
+    textAlignVertical: 'top'
+  },
   uploadButton: { 
     flexDirection: 'row', 
     alignItems: 'center', 
@@ -337,6 +363,7 @@ const styles = StyleSheet.create({
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between' },
   courseName: { fontSize: 17, fontWeight: 'bold', color: '#333' },
   courseDetails: { fontSize: 13, color: '#666', marginTop: 2 },
+  courseDescription: { fontSize: 14, color: '#555', marginTop: 8, lineHeight: 20 },
   completionDate: { fontSize: 12, color: '#888', marginTop: 4 },
   statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
   verifiedBadge: { backgroundColor: '#E8F5E9' },

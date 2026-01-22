@@ -1,9 +1,10 @@
-import { supabase, supabaseAdmin } from './supabase';
-import { saveSession, clearSession, getSession } from './session.service';
+import { clearSQLite } from '../storage/sqlite';
+import { clearSession, getSession, saveSession } from './session.service';
+import { supabase } from './supabase';
 
 export interface AuthStatus {
   isLoggedIn: boolean;
-  role: 'student' | 'teacher' | 'admin' | null;
+  role: 'student' | 'teacher' | 'admin' | 'attendance_taker' | null;
   prn: string | null;
   email: string | null;
 }
@@ -26,118 +27,140 @@ export const checkLoginStatus = async (): Promise<AuthStatus> => {
   };
 };
 
+// SINGLETON LOCK for Auth
+let isLoggingIn = false;
+
+// GLOBAL AUTH EXECUTION GUARD (User Requested Pattern)
+let loginInProgress = false;
+let loginDone = false;
+
+export async function runAuthOnce(fn: () => Promise<void>) {
+  if (loginDone || loginInProgress) return;
+  loginInProgress = true;
+  try {
+    await fn();
+  } finally {
+    loginInProgress = false; // Reset progress flag
+    loginDone = true;        // Mark as done permanently for this session
+  }
+}
+
 export const login = async (identifier: string, pass: string) => {
-  console.log(`🔑 [AuthService] Attempting unified login for: ${identifier}`);
-  
-  let email = identifier;
-  
-  // 1. If identifier is not an email, lookup email by PRN/Code
-  if (!identifier.includes('@')) {
-    const { data: lookupData, error: lookupError } = await supabase
-      .rpc('lookup_email', { identifier });
-    
-    if (lookupError) {
-      console.error('Lookup error:', lookupError);
-      throw new Error("Invalid PRN or Code");
-    }
-    
-    if (!lookupData || lookupData.length === 0) {
-      throw new Error("User not found");
-    }
-    
-    email = lookupData[0].email;
+  if (isLoggingIn) {
+    console.warn('⚠️ Login already in progress. Ignoring duplicate call.');
+    return; 
   }
 
-  // 2. Login with email and password
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email,
-    password: pass
-  });
+  isLoggingIn = true;
+  console.log(`🔑 [AuthService] Attempting login for: ${identifier}`);
+  
+  try {
+    let profile = null;
+    
+    // Try to find user by PRN first, then by email
+    if (!identifier.includes('@')) {
+      console.log(`🔍 [AuthService] Looking up by PRN: ${identifier}`);
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, email, role, prn, full_name, department, password, first_login')
+        .eq('prn', identifier)
+        .maybeSingle();
+      
+      if (error) {
+        console.error('PRN lookup error:', error);
+        throw error;
+      }
+      profile = data;
+    } else {
+      console.log(`🔍 [AuthService] Looking up by email: ${identifier}`);
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, email, role, prn, full_name, department, password, first_login')
+        .eq('email', identifier)
+        .maybeSingle();
+      
+      if (error) {
+        console.error('Email lookup error:', error);
+        throw error;
+      }
+      profile = data;
+    }
 
-  if (error) throw error;
-  if (!data.user) throw new Error("No user found");
+    if (!profile) {
+      console.error(`❌ [AuthService] No profile found for ${identifier}`);
+      throw new Error('User not found. Please check your PRN or Email.');
+    }
 
-  // 3. Fetch profile to get role and details
-  const { data: profile, error: profileError } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', data.user.id)
-    .single();
+    // Verify password
+    if (profile.password !== pass) {
+      console.error(`❌ [AuthService] Invalid password for ${identifier}`);
+      throw new Error('Invalid password.');
+    }
 
-  if (profileError) throw profileError;
+    console.log(`✅ [AuthService] Login successful for ${profile.email} (${profile.role})`);
+    
+    // Clear local stale cache before saving new session
+    await clearSQLite();
+    
+    await saveSession({
+      id: profile.id,
+      email: profile.email,
+      role: profile.role,
+      prn: profile.prn,
+      isProfileComplete: true,
+      fullName: profile.full_name,
+      department: profile.department,
+      password: profile.password,
+      firstLogin: profile.first_login ?? true
+    });
 
-  await saveSession({
-    id: data.user.id,
-    email: data.user.email!,
-    role: profile.role,
-    prn: profile.prn,
-    isProfileComplete: true 
-  });
-
-  return { id: data.user.id, email: data.user.email, role: profile.role, prn: profile.prn };
+    return { id: profile.id, email: profile.email, role: profile.role, prn: profile.prn };
+  } finally {
+    isLoggingIn = false;
+  }
 };
 
 export const loginWithEmail = async (email: string, pass: string) => {
   return login(email, pass);
 };
 
-export const loginWithCode = async (email: string, code: string, role: 'teacher' | 'admin') => {
-  console.log(`🔑 [AuthService] Attempting login with ${role} code for email: ${email}`);
+export const loginWithCode = async (email: string, passwordValue: string, role: 'teacher' | 'admin' | 'attendance_taker') => {
+  console.log(`🔑 [AuthService] Attempting login with ${role} password for email: ${email}`);
   
   const { data: profile, error: lookupError } = await supabase
     .from('profiles')
-    .select('id, role, teacher_code, admin_code')
+    .select('id, email, role, prn, full_name, department, password')
     .eq('email', email)
     .single();
 
   if (lookupError || !profile) throw new Error("User not found");
   if (profile.role !== role) throw new Error(`User is not an ${role}`);
   
-  const storedCode = role === 'teacher' ? profile.teacher_code : profile.admin_code;
-  if (storedCode !== code) throw new Error("Invalid code");
+  if (profile.password !== passwordValue) throw new Error("Invalid password");
 
-  return loginWithEmail(email, code); 
+  await clearSQLite();
+  
+  await saveSession({
+    id: profile.id,
+    email: profile.email,
+    role: profile.role,
+    prn: profile.prn,
+    isProfileComplete: true,
+    fullName: profile.full_name,
+    department: profile.department
+  });
+
+  return { id: profile.id, email: profile.email, role: profile.role, prn: profile.prn };
 };
 
 export const adminCreateUser = async (email: string, prn: string | null, role: 'student' | 'teacher', code: string | null, fullName: string) => {
-  const { data, error } = await supabaseAdmin.auth.admin.createUser({
-    email,
-    password: code || 'GFMRecord@123', 
-    email_confirm: true,
-    user_metadata: { role, full_name: fullName }
-  });
-
-  if (error) throw error;
-
-  const { error: profileError } = await supabase.from('profiles').insert({
-    id: data.user.id,
-    email,
-    prn,
-    role,
-    teacher_code: role === 'teacher' ? code : null,
-    full_name: fullName
-  });
-
-  if (profileError) throw profileError;
-  return data.user;
-};
+  // Admin operations must not run in the frontend app.
+  // Please use scripts/create_admin.ts or scripts/fix-admin.ts with the service role key.
+  throw new Error('adminCreateUser is not available in the client app. Use server-side script.');
+}
 
 export const loginWithPRN = async (prn: string, pass: string) => {
-  console.log(`🔑 [AuthService] Attempting login for PRN: ${prn}`);
-  
-  // 1. Find email for this PRN
-  const { data: profile, error: lookupError } = await supabase
-    .from('profiles')
-    .select('email')
-    .eq('prn', prn)
-    .single();
-
-  if (lookupError || !profile) {
-    throw new Error("Invalid PRN");
-  }
-
-  // 2. Login with email and password
-  return loginWithEmail(profile.email, pass);
+  return login(prn, pass);
 };
 
 export const resetPassword = async (email: string) => {
@@ -148,8 +171,8 @@ export const resetPassword = async (email: string) => {
 };
 
 export const logout = async () => {
-  await supabase.auth.signOut();
   await clearSession();
+  await clearSQLite();
 };
 
 export const markProfileComplete = async (userId: string) => {

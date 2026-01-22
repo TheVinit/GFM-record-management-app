@@ -9,11 +9,13 @@ import {
   Alert,
   ActivityIndicator,
   Modal,
-  Image
+  Image,
+  SafeAreaView,
+  Linking
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import * as DocumentPicker from 'expo-document-picker';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getSession } from '../../services/session.service';
 import {
   StudentActivity,
   getStudentActivities,
@@ -23,22 +25,23 @@ import {
 import { uploadToCloudinary } from '../../services/cloudinaryservices';
 import { Ionicons } from '@expo/vector-icons';
 
-export default function NonTechnicalActivitiesScreen() {
+export default function ExtraCurricularScreen() {
   const [prn, setPrn] = useState('');
   const [activities, setActivities] = useState<StudentActivity[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [certificateModalVisible, setCertificateModalVisible] = useState(false);
-  const [selectedCertificate, setSelectedCertificate] = useState('');
 
   // Form fields
-  const [semester, setSemester] = useState(1);
   const [activityName, setActivityName] = useState('');
+  const [semester, setSemester] = useState(1);
   const [activityDate, setActivityDate] = useState(new Date().toISOString().split('T')[0]);
   const [description, setDescription] = useState('');
   const [certificateUri, setCertificateUri] = useState('');
   const [certificatePreview, setCertificatePreview] = useState('');
   const [certificateFileInfo, setCertificateFileInfo] = useState<{ name: string, type: string } | null>(null);
+
+  const [certificateModalVisible, setCertificateModalVisible] = useState(false);
+  const [selectedCertificate, setSelectedCertificate] = useState('');
 
   const semesters = [1, 2, 3, 4, 5, 6, 7, 8];
 
@@ -47,12 +50,21 @@ export default function NonTechnicalActivitiesScreen() {
   }, []);
 
   const loadData = async () => {
+    setLoading(true);
     try {
-      const userPrn = await AsyncStorage.getItem('userPrn');
-      if (!userPrn) return;
+      const session = await getSession();
+      if (!session || !session.prn) {
+        Alert.alert('Session Error', 'Please login again');
+        return;
+      }
 
+      const userPrn = session.prn;
       setPrn(userPrn);
+      
+      // FETCH FROM SUPABASE (Source of Truth)
       const data = await getStudentActivities(userPrn);
+      
+      // Filter for Extra-curricular
       setActivities(data.filter(a => a.type === 'Extra-curricular'));
     } catch (error) {
       console.error('Error loading activities:', error);
@@ -69,32 +81,25 @@ export default function NonTechnicalActivitiesScreen() {
         copyToCacheDirectory: true
       });
 
-    if (result.assets && result.assets[0]) {
-      const file = result.assets[0];
-      
-      if (file.size && file.size > 1024 * 1024) {
-        Alert.alert('Error', 'File size must be less than 1MB');
-        return;
+      if (result.assets && result.assets[0]) {
+        const file = result.assets[0];
+        if (file.size && file.size > 5 * 1024 * 1024) {
+          Alert.alert('Error', 'File size must be less than 5MB');
+          return;
+        }
+
+        setCertificateUri(file.uri);
+        setCertificatePreview(file.uri);
+        setCertificateFileInfo({
+          name: file.name || 'certificate.jpg',
+          type: file.mimeType || 'image/jpeg'
+        });
+        Alert.alert('Success', 'Certificate attached');
       }
-
-      setCertificateUri(file.uri);
-      setCertificatePreview(file.uri);
-      setCertificateFileInfo({
-        name: file.name || 'certificate.jpg',
-        type: file.mimeType || 'image/jpeg'
-      });
-      Alert.alert('Success', 'Certificate selected successfully');
-    }
-
     } catch (error) {
       console.error('Error picking certificate:', error);
       Alert.alert('Error', 'Failed to upload certificate');
     }
-  };
-
-  const viewCertificate = (uri: string) => {
-    setSelectedCertificate(uri);
-    setCertificateModalVisible(true);
   };
 
   const validateForm = (): boolean => {
@@ -102,13 +107,31 @@ export default function NonTechnicalActivitiesScreen() {
       Alert.alert('Error', 'Please enter activity name');
       return false;
     }
-
-    if (description.length > 500) {
-      Alert.alert('Error', 'Description must be less than 500 characters');
+    if (!activityDate.trim()) {
+      Alert.alert('Error', 'Please enter activity date');
       return false;
     }
-
+    // Simple date format validation YYYY-MM-DD
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRegex.test(activityDate)) {
+      Alert.alert('Error', 'Please enter date in YYYY-MM-DD format');
+      return false;
+    }
     return true;
+  };
+
+  const viewCertificate = (uri: string) => {
+    if (!uri) return;
+    const isPdf = uri.toLowerCase().endsWith('.pdf') || uri.includes('/raw/upload/');
+    if (isPdf) {
+      Linking.openURL(uri).catch(err => {
+        console.error("Error opening PDF:", err);
+        Alert.alert("Error", "Could not open PDF. Please try again.");
+      });
+    } else {
+      setSelectedCertificate(uri);
+      setCertificateModalVisible(true);
+    }
   };
 
   const saveActivity = async () => {
@@ -140,18 +163,24 @@ export default function NonTechnicalActivitiesScreen() {
         const activity: StudentActivity = {
           prn,
           semester,
+          academicYear,
           activityName: activityName.trim(),
           type: 'Extra-curricular',
           activityDate,
+          description: description.trim(),
           certificateUri: finalCertificateUri
         };
 
+        // 1. INSERT INTO SUPABASE
         await saveStudentActivity(activity);
         
         Alert.alert('Success', 'Extra-curricular activity added successfully!');
 
+      // 2. RESET FORM
       resetForm();
-      loadData();
+      
+      // 3. RE-FETCH FROM SUPABASE (Ensure UI matches database)
+      await loadData();
     } catch (error) {
       console.error('Error saving activity:', error);
       Alert.alert('Error', 'Failed to save activity. Please check your connection.');

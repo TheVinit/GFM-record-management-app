@@ -10,8 +10,8 @@ import {
   ActivityIndicator,
   Alert,
   Modal,
-  Dimensions,
-  Platform
+  Platform,
+  useWindowDimensions
 } from 'react-native';
 import { 
   getStudentInfo, 
@@ -23,45 +23,33 @@ import {
   getInternships 
 } from '../../storage/sqlite';
 import { logout } from '../../services/auth.service';
-import { getSession } from '../../services/session.service';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getSession, saveSession } from '../../services/session.service';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { jsPDF } from 'jspdf';
 import { populateTemplate } from '../../services/pdf-template.service';
 import { COLORS } from '../../constants/colors';
+import { ChangePasswordModal } from '../../components/ChangePasswordModal';
 
-// Ensure jsPDF can find html2canvas if needed
 if (typeof window !== 'undefined') {
-  (window as any).html2canvas = require('html2canvas');
+  const h2c = require('html2canvas');
+  (window as any).html2canvas = h2c.default || h2c;
 }
 
-const { width } = Dimensions.get('window');
-
 const isWeb = Platform.OS === 'web';
-
-// Correct URLs for the current project or reliable placeholders
-const LOGO_LEFT = "https://csvywizljbjpobeeadne.supabase.co/storage/v1/object/public/document-uploads/JSPM-logo-removebg-preview-1766666378755.png";
-const LOGO_RIGHT = "https://csvywizljbjpobeeadne.supabase.co/storage/v1/object/public/document-uploads/jspm_group_logo-1766666412340.jpeg";
-// Fallback placeholders if Supabase images are missing
+const LOGO_LEFT_IMG = require('../../assets/images/left.png');
+const LOGO_RIGHT_IMG = require('../../assets/images/right.jpeg');
 const FALLBACK_LOGO = "https://via.placeholder.com/80?text=LOGO";
 
-// Helper to convert Image URL to Base64 with timeout and error handling
-const getBase64Image = (url: string, timeout = 5000): Promise<string> => {
+const getBase64Image = (source: any, timeout = 5000): Promise<string> => {
   return new Promise((resolve) => {
-    if (typeof window === 'undefined' || !url) return resolve('');
-    
-    // Check if it's already a base64 or data URL
-    if (url.startsWith('data:')) return resolve(url);
-
-    const img = new Image();
+    if (typeof window === 'undefined' || !source) return resolve('');
+    if (typeof source === 'string' && source.startsWith('data:')) return resolve(source);
+    let url = typeof source === 'string' ? source : Image.resolveAssetSource(source)?.uri;
+    if (!url) return resolve('');
+    const img = document.createElement('img');
     img.setAttribute('crossOrigin', 'anonymous');
-    
-    const timer = setTimeout(() => {
-      img.src = ""; // Stop loading
-      resolve(url); // Return original URL as fallback
-    }, timeout);
-
+    const timer = setTimeout(() => { img.src = ""; resolve(url || ''); }, timeout);
     img.onload = () => {
       clearTimeout(timer);
       const canvas = document.createElement('canvas');
@@ -69,49 +57,146 @@ const getBase64Image = (url: string, timeout = 5000): Promise<string> => {
       canvas.height = img.height;
       const ctx = canvas.getContext('2d');
       ctx?.drawImage(img, 0, 0);
-      try {
-        resolve(canvas.toDataURL('image/png'));
-      } catch (e) {
-        resolve(url);
-      }
+      try { resolve(canvas.toDataURL('image/png')); } catch (e) { resolve(url || ''); }
     };
-    img.onerror = () => {
-      clearTimeout(timer);
-      resolve(url.includes('supabase.co') ? FALLBACK_LOGO : url);
-    };
+    img.onerror = () => { clearTimeout(timer); resolve(url?.includes('supabase.co') ? FALLBACK_LOGO : (url || '')); };
     img.src = url;
   });
 };
 
 export default function StudentDashboard() {
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const isLargeScreen = width >= 768;
+  const isXLargeScreen = width >= 1024;
+  
   const [profile, setProfile] = useState<Student | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [profileModalVisible, setProfileModalVisible] = useState(false);
-  const [viewMode, setViewMode] = useState<'details' | 'template'>('template');
   const [htmlContent, setHtmlContent] = useState('');
   const [templateLoading, setTemplateLoading] = useState(false);
+  const [incompleteModalVisible, setIncompleteModalVisible] = useState(false);
+  const [missingFields, setMissingFields] = useState<string[]>([]);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [sessionData, setSessionData] = useState<{ email: string; password: string } | null>(null);
+  const [viewMode, setViewMode] = useState<'details' | 'template'>('details');
 
   const checkAuth = async () => {
     const session = await getSession();
-    if (!session || session.role !== 'student') {
-      router.replace('/login');
-      return null;
-    }
+    if (!session || session.role !== 'student') { router.replace('/'); return null; }
     return session;
+  };
+
+  const checkProfileCompletion = (data: Student): string[] => {
+    const requiredFields = [
+      { key: 'fullName', label: 'Full Name' },
+      { key: 'gender', label: 'Gender' },
+      { key: 'dob', label: 'Date of Birth' },
+      { key: 'phone', label: 'Phone Number' },
+      { key: 'email', label: 'Email' },
+      { key: 'permanentAddress', label: 'Permanent Address' },
+      { key: 'fatherName', label: 'Father/Guardian Name' },
+      { key: 'branch', label: 'Branch' },
+      { key: 'yearOfStudy', label: 'Year of Study' },
+      { key: 'division', label: 'Division' },
+    ];
+    const missing: string[] = [];
+    requiredFields.forEach(field => {
+      const value = (data as any)[field.key];
+      if (!value || value.toString().trim() === '') missing.push(field.label);
+    });
+    return missing;
+  };
+
+  const prepareTemplateHtml = async (studentData: Student) => {
+    setTemplateLoading(true);
+    try {
+      const academicRecords = await getAcademicRecordsByStudent(studentData.prn);
+      const fees = await getFeePayments(studentData.prn);
+      const technical = await getStudentActivities(studentData.prn);
+      const achievements = await getAchievements(studentData.prn);
+      const internships = await getInternships(studentData.prn);
+
+      let totalPaid = 0, lastBalance = 0;
+      fees.forEach(f => { totalPaid += (f.amountPaid || 0); lastBalance = f.remainingBalance || 0; });
+
+      const combined = [
+        ...technical.map(t => ({ date: t.activityDate, type: t.type === 'Co-curricular' ? 'Technical' : (t.type === 'Extra-curricular' ? 'Non-Technical' : t.type), name: t.activityName, status: t.verificationStatus })),
+        ...achievements.map(a => ({ date: a.achievementDate, type: a.type || 'Technical', name: a.achievementName, status: a.verificationStatus }))
+      ];
+
+      const b64LogoLeft = await getBase64Image(LOGO_LEFT_IMG);
+      const b64LogoRight = await getBase64Image(LOGO_RIGHT_IMG);
+      const b64Photo = await getBase64Image(studentData.photoUri || 'https://via.placeholder.com/150');
+
+      const dataMap = {
+        college_logo_left: b64LogoLeft,
+        college_logo_right: b64LogoRight,
+        report_title: "Professional Student Progress Report",
+        gen_date: new Date().toLocaleDateString(),
+        filters_used: `${studentData.branch} | ${studentData.yearOfStudy} | Div: ${studentData.division}`,
+        student_photo: b64Photo,
+        full_name: (studentData.fullName || '').toUpperCase(),
+        prn: studentData.prn,
+        branch: studentData.branch || '',
+        year: studentData.yearOfStudy || '',
+        division: studentData.division || '',
+        dob: studentData.dob || '',
+        gender: studentData.gender || '',
+        email: studentData.email || '',
+        phone: studentData.phone || '',
+        aadhar: studentData.aadhar || '',
+        category: studentData.category || '',
+        permanent_addr: studentData.permanentAddress || '',
+        temp_addr: studentData.temporaryAddress || studentData.permanentAddress || '',
+        father_name: studentData.fatherName || '',
+        mother_name: studentData.motherName || '',
+        father_phone: studentData.fatherPhone || 'N/A',
+        annual_income: `₹${studentData.annualIncome || '0'}`,
+        ssc_school: studentData.sscSchool || 'N/A',
+        ssc_total: studentData.sscMaxMarks ? studentData.sscMaxMarks.toString() : 'N/A',
+        ssc_obtained: studentData.sscMarks ? studentData.sscMarks.toString() : 'N/A',
+        ssc_perc: studentData.sscPercentage ? studentData.sscPercentage.toString() : '0',
+        hsc_diploma_label: (studentData.admissionType === 'DSE' || !!studentData.diplomaCollege) ? 'Diploma' : 'HSC (12th)',
+        hsc_diploma_college: (studentData.admissionType === 'DSE' || !!studentData.diplomaCollege) ? (studentData.diplomaCollege || 'N/A') : (studentData.hscCollege || 'N/A'),
+        hsc_diploma_total: (studentData.admissionType === 'DSE' || !!studentData.diplomaCollege) ? (studentData.diplomaMaxMarks || 'N/A') : (studentData.hscMaxMarks || 'N/A'),
+        hsc_diploma_obtained: (studentData.admissionType === 'DSE' || !!studentData.diplomaCollege) ? (studentData.diplomaMarks || 'N/A') : (studentData.hscMarks || 'N/A'),
+        hsc_diploma_perc: (studentData.admissionType === 'DSE' || !!studentData.diplomaCollege) ? (studentData.diplomaPercentage || '0') : (studentData.hscPercentage || '0'),
+        sgpa: academicRecords.length > 0 ? academicRecords[academicRecords.length - 1].sgpa?.toString() || 'N/A' : 'N/A',
+        cgpa: academicRecords.length > 0 ? academicRecords[academicRecords.length - 1].cgpa?.toString() || 'N/A' : 'N/A',
+        total_fee: fees.length > 0 ? (fees[0].totalFee || 0).toString() : '0',
+        paid_fee: totalPaid.toString(),
+        balance_fee: lastBalance.toString(),
+        academic_table: `<table><thead><tr><th>Sem</th><th>Course</th><th>MSE</th><th>ESE</th><th>Grade</th></tr></thead><tbody>${academicRecords.length > 0 ? academicRecords.map(r => `<tr><td>${r.semester}</td><td>${r.courseName}</td><td>${r.mseMarks || 0}</td><td>${r.eseMarks || 0}</td><td>${r.grade}</td></tr>`).join('') : '<tr><td colspan="5" style="text-align:center">No records</td></tr>'}</tbody></table>`,
+        fee_table: `<table><thead><tr><th>Year</th><th>Paid</th><th>Balance</th><th>Status</th></tr></thead><tbody>${fees.length > 0 ? fees.map(f => `<tr><td>${f.academicYear}</td><td>₹${f.amountPaid}</td><td>₹${f.remainingBalance}</td><td>${f.verificationStatus}</td></tr>`).join('') : '<tr><td colspan="4" style="text-align:center">No records</td></tr>'}</tbody></table>`,
+        activities_table: `<table><thead><tr><th>Category</th><th>Name</th><th>Date</th><th>Status</th></tr></thead><tbody>${combined.length > 0 ? combined.map(a => `<tr><td><strong>${a.type}</strong></td><td>${a.name}</td><td>${a.date}</td><td class="status-${(a.status || 'Pending').toLowerCase()}">${a.status || 'Pending'}</td></tr>`).join('') : '<tr><td colspan="4" style="text-align:center">No records</td></tr>'}</tbody></table>`,
+        internships_table: `<table><thead><tr><th>Company</th><th>Role</th><th>Status</th></tr></thead><tbody>${internships.length > 0 ? internships.map(i => `<tr><td>${i.companyName}</td><td>${i.role}</td><td>${i.verificationStatus}</td></tr>`).join('') : '<tr><td colspan="3" style="text-align:center">No records</td></tr>'}</tbody></table>`,
+        view_receipt_btn: '',
+        view_certificate_btn: ''
+      };
+
+      setHtmlContent(populateTemplate(dataMap, false));
+    } catch (e) {
+      console.error('Template preparation error:', e);
+    } finally {
+      setTemplateLoading(false);
+    }
   };
 
   const fetchProfile = async () => {
     try {
       const session = await checkAuth();
       if (session) {
-        if (!session.isProfileComplete) {
-          router.replace('/student/personal-info');
-          return;
-        }
+        setSessionData({ email: session.email, password: session.password || '' });
+        if (session.firstLogin && session.role === 'student') setShowPasswordModal(true);
         const data = await getStudentInfo(session.prn);
         setProfile(data);
+        if (data) await prepareTemplateHtml(data);
+        if (data && !session.firstLogin) {
+          const missing = checkProfileCompletion(data);
+          if (missing.length > 0) { setMissingFields(missing); setIncompleteModalVisible(true); }
+        }
       }
     } catch (error) {
       console.error('Error fetching profile:', error);
@@ -122,135 +207,40 @@ export default function StudentDashboard() {
     }
   };
 
+  const handlePasswordChangeSuccess = async () => {
+    setShowPasswordModal(false);
+    const session = await getSession();
+    if (session) {
+      session.firstLogin = false;
+      await saveSession(session);
+      if (profile) {
+        const missing = checkProfileCompletion(profile);
+        if (missing.length > 0) { setMissingFields(missing); setIncompleteModalVisible(true); }
+      }
+    }
+  };
+
   const downloadReport = async () => {
     if (!profile || !isWeb) return;
     setTemplateLoading(true);
     try {
-      const b64LogoLeft = await getBase64Image(LOGO_LEFT);
-      const b64LogoRight = await getBase64Image(LOGO_RIGHT);
-      const b64Photo = await getBase64Image(profile.photoUri || 'https://via.placeholder.com/150');
-      
-      const academicRecords = await getAcademicRecordsByStudent(profile.prn);
-      const fees = await getFeePayments(profile.prn);
-      const technical = await getStudentActivities(profile.prn);
-      const achievements = await getAchievements(profile.prn);
-      const internships = await getInternships(profile.prn);
-
-      let totalPaid = 0;
-      let lastBalance = 0;
-      fees.forEach(f => {
-        totalPaid += (f.amountPaid || 0);
-        lastBalance = f.remainingBalance || 0;
-      });
-
-      // Unified Activities Table with labels
-      const combined = [
-        ...technical.map(t => ({ 
-          date: t.activityDate, 
-          type: t.type === 'Co-curricular' ? 'Technical' : (t.type === 'Extra-curricular' ? 'Non-Technical' : t.type), 
-          name: t.activityName, 
-          status: t.verificationStatus 
-        })),
-        ...achievements.map(a => ({ 
-          date: a.achievementDate, 
-          type: a.type || 'Technical', 
-          name: a.achievementName, 
-          status: a.verificationStatus 
-        }))
-      ];
-
-      const dataMap = {
-        college_logo_left: b64LogoLeft,
-        college_logo_right: b64LogoRight,
-        report_title: "Professional Student Progress Report",
-        gen_date: new Date().toLocaleDateString(),
-        filters_used: `${profile.branch} | ${profile.yearOfStudy} | Div: ${profile.division}`,
-        student_photo: b64Photo,
-        full_name: profile.fullName.toUpperCase(),
-        prn: profile.prn,
-        branch: profile.branch,
-        year: profile.yearOfStudy,
-        division: profile.division,
-        dob: profile.dob,
-        gender: profile.gender,
-        email: profile.email,
-        phone: profile.phone,
-        aadhar: profile.aadhar,
-        category: profile.category,
-        permanent_addr: profile.permanentAddress,
-        temp_addr: profile.temporaryAddress || profile.permanentAddress,
-        father_name: profile.fatherName,
-        mother_name: profile.motherName,
-        father_phone: profile.fatherPhone || 'N/A',
-        annual_income: `₹${profile.annualIncome || '0'}`,
-        ssc_school: profile.sscSchool || 'N/A',
-        ssc_total: profile.sscMaxMarks ? profile.sscMaxMarks.toString() : 'N/A',
-        ssc_obtained: profile.sscMarks ? profile.sscMarks.toString() : 'N/A',
-        ssc_perc: profile.sscPercentage ? profile.sscPercentage.toString() : '0',
-        hsc_diploma_label: (profile.admissionType === 'DSE' || !!profile.diplomaCollege) ? 'Diploma' : 'HSC (12th)',
-        hsc_diploma_college: (profile.admissionType === 'DSE' || !!profile.diplomaCollege) ? (profile.diplomaCollege || 'N/A') : (profile.hscCollege || 'N/A'),
-        hsc_diploma_total: (profile.admissionType === 'DSE' || !!profile.diplomaCollege) ? (profile.diplomaMaxMarks || 'N/A') : (profile.hscMaxMarks || 'N/A'),
-        hsc_diploma_obtained: (profile.admissionType === 'DSE' || !!profile.diplomaCollege) ? (profile.diplomaMarks || 'N/A') : (profile.hscMarks || 'N/A'),
-        hsc_diploma_perc: (profile.admissionType === 'DSE' || !!profile.diplomaCollege) ? (profile.diplomaPercentage || '0') : (profile.hscPercentage || '0'),
-        sgpa: academicRecords.length > 0 ? academicRecords[academicRecords.length - 1].sgpa.toString() : 'N/A',
-        cgpa: academicRecords.length > 0 ? academicRecords[academicRecords.length - 1].cgpa.toString() : 'N/A',
-        total_fee: fees.length > 0 ? (fees[0].totalFee || 0).toString() : '0',
-        paid_fee: totalPaid.toString(),
-        balance_fee: lastBalance.toString(),
-        academic_table: `<table><thead><tr><th>Sem</th><th>Course</th><th>Total</th><th>Grade</th></tr></thead><tbody>${academicRecords.map(r => `<tr><td>${r.semester}</td><td>${r.courseName}</td><td>${r.totalMarks}</td><td>${r.grade}</td></tr>`).join('')}</tbody></table>`,
-        fee_table: `<table><thead><tr><th>Year</th><th>Paid</th><th>Balance</th><th>Status</th></tr></thead><tbody>${fees.map(f => `<tr><td>${f.academicYear}</td><td>₹${f.amountPaid}</td><td>₹${f.remainingBalance}</td><td>${f.verificationStatus}</td></tr>`).join('')}</tbody></table>`,
-        activities_table: `<table><thead><tr><th>Category</th><th>Name</th><th>Date</th><th>Status</th></tr></thead><tbody>${combined.map(a => `<tr><td><strong>${a.type}</strong></td><td>${a.name}</td><td>${a.date}</td><td class="status-${(a.status || 'Pending').toLowerCase()}">${a.status || 'Pending'}</td></tr>`).join('')}</tbody></table>`,
-        internships_table: `<table><thead><tr><th>Company</th><th>Role</th><th>Status</th></tr></thead><tbody>${internships.map(i => `<tr><td>${i.companyName}</td><td>${i.role}</td><td>${i.verificationStatus}</td></tr>`).join('')}</tbody></table>`,
-        view_receipt_btn: '',
-        view_certificate_btn: ''
-      };
-
-      const html = populateTemplate(dataMap, false);
+      if (!htmlContent) await prepareTemplateHtml(profile);
       const container = document.createElement('div');
-      container.style.position = 'fixed';
-      container.style.top = '0';
-      container.style.left = '-10000px';
-      container.style.width = '210mm';
-      container.style.backgroundColor = 'white';
-      container.style.zIndex = '-9999';
-      container.innerHTML = html;
+      container.style.cssText = 'position:fixed;top:0;left:-10000px;width:210mm;background:white;z-index:-9999';
+      container.innerHTML = htmlContent;
       document.body.appendChild(container);
-
-      // Ensure all images are loaded
       const images = container.getElementsByTagName('img');
-      await Promise.all(Array.from(images).map(img => {
-        if (img.complete) return Promise.resolve();
-        return new Promise(resolve => {
-          img.onload = resolve;
-          img.onerror = resolve;
-        });
-      }));
-      
+      await Promise.all(Array.from(images).map(img => img.complete ? Promise.resolve() : new Promise(r => { img.onload = r; img.onerror = r; })));
       await new Promise(r => setTimeout(r, 800));
-
       const html2canvas = (window as any).html2canvas;
       const canvas = await html2canvas(container, { scale: 2, useCORS: true, backgroundColor: '#ffffff', windowWidth: 800 });
       const imgData = canvas.toDataURL('image/jpeg', 0.98);
       const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4', compress: true });
-      
-      const pdfWidth = 210;
-      const pdfHeight = 297;
-      const imgWidth = pdfWidth;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      
-      let heightLeft = imgHeight;
-      let position = 0;
-
+      const pdfWidth = 210, pdfHeight = 297, imgWidth = pdfWidth, imgHeight = (canvas.height * imgWidth) / canvas.width;
+      let heightLeft = imgHeight, position = 0;
       doc.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'FAST');
       heightLeft -= pdfHeight;
-
-      while (heightLeft > 0) {
-        position = heightLeft - imgHeight;
-        doc.addPage();
-        doc.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'FAST');
-        heightLeft -= pdfHeight;
-      }
-
+      while (heightLeft > 0) { position = heightLeft - imgHeight; doc.addPage(); doc.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'FAST'); heightLeft -= pdfHeight; }
       doc.save(`${profile.prn}_Student_Profile.pdf`);
       document.body.removeChild(container);
       Alert.alert('Success', 'Profile downloaded successfully!');
@@ -262,511 +252,253 @@ export default function StudentDashboard() {
     }
   };
 
-  const loadTemplateData = async () => {
-    if (!profile) return;
-    setTemplateLoading(true);
-    try {
-      const b64LogoLeft = await getBase64Image(LOGO_LEFT);
-      const b64LogoRight = await getBase64Image(LOGO_RIGHT);
-      const b64Photo = await getBase64Image(profile.photoUri || 'https://via.placeholder.com/150');
-
-      const academicRecords = await getAcademicRecordsByStudent(profile.prn);
-      const fees = await getFeePayments(profile.prn);
-      const technical = await getStudentActivities(profile.prn);
-      const achievements = await getAchievements(profile.prn);
-      const internships = await getInternships(profile.prn);
-
-      let totalPaid = 0;
-      let lastBalance = 0;
-      fees.forEach(f => {
-        totalPaid += (f.amountPaid || 0);
-        lastBalance = f.remainingBalance || 0;
-      });
-
-      let academicTable = '<table><thead><tr><th>Sem</th><th>Course</th><th>ISE</th><th>MSE</th><th>ESE</th><th>Total</th><th>Grade</th></tr></thead><tbody>';
-      if (academicRecords.length > 0) {
-        academicRecords.forEach(r => {
-          academicTable += `<tr><td>${r.semester}</td><td>${r.courseName}</td><td>${r.iseMarks || 0}</td><td>${r.mseMarks || 0}</td><td>${r.eseMarks || 0}</td><td>${r.totalMarks}</td><td>${r.grade}</td></tr>`;
-        });
-      } else {
-        academicTable += '<tr><td colspan="7">No records found</td></tr>';
-      }
-      academicTable += '</tbody></table>';
-
-      let feeTable = '<table><thead><tr><th>Year</th><th>Inst.</th><th>Paid</th><th>Balance</th><th>Status</th></tr></thead><tbody>';
-      if (fees.length > 0) {
-        fees.forEach(f => {
-          feeTable += `<tr><td>${f.academicYear}</td><td>${f.installmentNumber}</td><td>₹${f.amountPaid}</td><td>₹${f.remainingBalance}</td><td>${f.verificationStatus}</td></tr>`;
-        });
-      } else {
-        feeTable += '<tr><td colspan="5">No fee records</td></tr>';
-      }
-      feeTable += '</tbody></table>';
-      
-        const combined = [
-          ...technical.map(t => ({ 
-            date: t.activityDate, 
-            type: t.type === 'Co-curricular' ? 'Technical' : (t.type === 'Extra-curricular' ? 'Non-Technical' : t.type), 
-            name: t.activityName, 
-            status: t.verificationStatus 
-          })),
-          ...achievements.map(a => ({ 
-            date: a.achievementDate, 
-            type: a.type || 'Technical', 
-            name: a.achievementName, 
-            status: a.verificationStatus 
-          }))
-        ];
-        
-        // Group and label activities correctly
-        const activitiesTable = `
-          <table>
-            <thead>
-              <tr>
-                <th>Category</th>
-                <th>Activity/Achievement Name</th>
-                <th>Date</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${combined.length > 0 ? combined.map(a => `
-                <tr>
-                  <td><strong>${a.type}</strong></td>
-                  <td>${a.name}</td>
-                  <td>${a.date}</td>
-                  <td class="status-${(a.status || 'Pending').toLowerCase()}">${a.status || 'Pending'}</td>
-                </tr>
-              `).join('') : '<tr><td colspan="4" style="text-align:center">No records found</td></tr>'}
-            </tbody>
-          </table>
-        `;
-
-      const internshipsTable = `<table><thead><tr><th>Company</th><th>Role</th><th>Status</th></tr></thead><tbody>${internships.length > 0 ? internships.map(i => `<tr><td>${i.companyName}</td><td>${i.role}</td><td>${i.verificationStatus}</td></tr>`).join('') : '<tr><td colspan="3">No records</td></tr>'}</tbody></table>`;
-
-      const dataMap = {
-        college_logo_left: b64LogoLeft,
-        college_logo_right: b64LogoRight,
-        report_title: "Student Academic Progress Report",
-        gen_date: new Date().toLocaleDateString(),
-        filters_used: `${profile.branch} | ${profile.yearOfStudy} | Div: ${profile.division}`,
-        student_photo: b64Photo,
-        full_name: profile.fullName.toUpperCase(),
-        prn: profile.prn,
-        branch: profile.branch,
-        year: profile.yearOfStudy,
-        division: profile.division,
-        dob: profile.dob,
-        gender: profile.gender,
-        email: profile.email,
-        phone: profile.phone,
-        aadhar: profile.aadhar,
-        category: profile.category,
-        permanent_addr: profile.permanentAddress,
-        temp_addr: profile.temporaryAddress || profile.permanentAddress,
-        father_name: profile.fatherName,
-        mother_name: profile.motherName,
-        father_phone: profile.fatherPhone || 'N/A',
-        annual_income: `₹${profile.annualIncome || '0'}`,
-        ssc_school: profile.sscSchool || 'N/A',
-        ssc_total: profile.sscMaxMarks ? profile.sscMaxMarks.toString() : 'N/A',
-        ssc_obtained: profile.sscMarks ? profile.sscMarks.toString() : 'N/A',
-        ssc_perc: profile.sscPercentage ? profile.sscPercentage.toString() : '0',
-        hsc_diploma_label: (profile.admissionType === 'DSE' || !!profile.diplomaCollege) ? 'Diploma' : 'HSC (12th)',
-        hsc_diploma_college: (profile.admissionType === 'DSE' || !!profile.diplomaCollege) ? (profile.diplomaCollege || 'N/A') : (profile.hscCollege || 'N/A'),
-        hsc_diploma_total: (profile.admissionType === 'DSE' || !!profile.diplomaCollege) ? (profile.diplomaMaxMarks || 'N/A') : (profile.hscMaxMarks || 'N/A'),
-        hsc_diploma_obtained: (profile.admissionType === 'DSE' || !!profile.diplomaCollege) ? (profile.diplomaMarks || 'N/A') : (profile.hscMarks || 'N/A'),
-        hsc_diploma_perc: (profile.admissionType === 'DSE' || !!profile.diplomaCollege) ? (profile.diplomaPercentage || '0') : (profile.hscPercentage || '0'),
-        sgpa: academicRecords.length > 0 ? academicRecords[academicRecords.length - 1].sgpa.toString() : 'N/A',
-        cgpa: academicRecords.length > 0 ? academicRecords[academicRecords.length - 1].cgpa.toString() : 'N/A',
-        total_fee: fees.length > 0 ? (fees[0].totalFee || 0).toString() : '0',
-        paid_fee: totalPaid.toString(),
-        balance_fee: lastBalance.toString(),
-        academic_table: academicTable,
-        fee_table: feeTable,
-        activities_table: activitiesTable,
-        internships_table: internshipsTable,
-        view_receipt_btn: '',
-        view_certificate_btn: ''
-      };
-
-      setHtmlContent(populateTemplate(dataMap, false));
-
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setTemplateLoading(false);
-    }
-  };
-
-
-  useEffect(() => {
-    fetchProfile();
-  }, []);
-
-  useEffect(() => {
-    if (viewMode === 'template' && !htmlContent) {
-      loadTemplateData();
-    }
-  }, [viewMode, profile]);
-
-  const onRefresh = () => {
-    setRefreshing(true);
-    fetchProfile();
-  };
+  useEffect(() => { fetchProfile(); }, []);
+  const onRefresh = () => { setRefreshing(true); fetchProfile(); };
 
   const handleLogout = () => {
-    if (Platform.OS === 'web') {
-      if (confirm('Are you sure you want to logout?')) {
-        performLogout();
-      }
-    } else {
-      Alert.alert('Logout', 'Are you sure you want to logout?', [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Logout',
-          style: 'destructive',
-          onPress: performLogout
-        }
-      ]);
-    }
+    if (Platform.OS === 'web') { if (confirm('Are you sure you want to logout?')) performLogout(); }
+    else Alert.alert('Logout', 'Are you sure you want to logout?', [{ text: 'Cancel', style: 'cancel' }, { text: 'Logout', style: 'destructive', onPress: performLogout }]);
   };
 
   const performLogout = async () => {
-    try {
-      await logout();
-      router.replace('/' as any);
-    } catch (error) {
-      if (Platform.OS === 'web') {
-        alert('Failed to logout');
-      } else {
-        Alert.alert('Error', 'Failed to logout');
-      }
-    }
+    try { await logout(); router.replace('/' as any); }
+    catch (error) { if (Platform.OS === 'web') alert('Failed to logout'); else Alert.alert('Error', 'Failed to logout'); }
   };
 
   const modules = [
-    {
-      id: 'academic-records',
-      title: 'Academic Records',
-      icon: '📊',
-      color: '#FF9800',
-      route: '/student/academic-records'
-    },
-    {
-      id: 'fees',
-      title: 'Fee Payments',
-      icon: '💳',
-      color: '#4CAF50',
-      route: '/student/fee-payments'
-    },
-    {
-      id: 'activities',
-      title: 'Activities',
-      icon: '🚀',
-      color: '#2196F3',
-      route: '/student/activities'
-    },
-    {
-      id: 'achievements',
-      title: 'Achievements',
-      icon: '🎖️',
-      color: '#9C27B0',
-      route: '/student/achievements'
-    },
-    {
-      id: 'internships',
-      title: 'Internships',
-      icon: '💼',
-      color: '#F44336',
-      route: '/student/internships'
-    },
-    {
-      id: 'documents',
-      title: 'Documents',
-      icon: '📄',
-      color: '#607D8B',
-      route: '/student/documents'
-    }
+    { id: 'academic-records', title: 'Academic Records', icon: 'school-outline', color: COLORS.primary, route: '/student/academic-records' },
+    { id: 'fees', title: 'Fee Payments', icon: 'card-outline', color: COLORS.secondary, route: '/student/fee-payments' },
+    { id: 'activities', title: 'Activities', icon: 'trophy-outline', color: COLORS.accent, route: '/student/activities' },
+    { id: 'achievements', title: 'Achievements', icon: 'ribbon-outline', color: COLORS.warning, route: '/student/achievements' },
+    { id: 'internships', title: 'Internships', icon: 'briefcase-outline', color: COLORS.error, route: '/student/internships' },
+    { id: 'documents', title: 'Documents', icon: 'document-text-outline', color: COLORS.textSecondary, route: '/student/documents' }
   ];
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#007AFF" />
-        <Text style={styles.loadingText}>Loading dashboard...</Text>
-      </View>
-    );
-  }
+  const getModuleCardWidth = () => {
+    if (isXLargeScreen) return (width - 80) / 3 - 12;
+    if (isLargeScreen) return (width - 64) / 2 - 8;
+    return '100%';
+  };
 
-  if (!profile) {
-    return (
-      <View style={styles.errorContainer}>
-        <Text style={styles.errorEmoji}>😕</Text>
-        <Text style={styles.errorText}>No profile data found</Text>
-        <TouchableOpacity
-          style={styles.completeProfileButton}
-          onPress={() => router.push('/student/personal-info' as any)}
-        >
-          <Text style={styles.completeProfileText}>Complete Profile</Text>
+  const styles = createStyles(width, isLargeScreen, isXLargeScreen);
+
+  if (loading) return (
+    <View style={styles.loadingContainer}>
+      <View style={styles.loadingContent}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+        <Text style={styles.loadingText}>Loading your dashboard...</Text>
+      </View>
+    </View>
+  );
+
+  if (!profile) return (
+    <View style={styles.errorContainer}>
+      <View style={styles.errorContent}>
+        <View style={styles.errorIcon}><Ionicons name="person-outline" size={48} color={COLORS.primary} /></View>
+        <Text style={styles.errorTitle}>Profile Not Found</Text>
+        <Text style={styles.errorText}>Please complete your profile to access the dashboard</Text>
+        <TouchableOpacity style={styles.primaryButton} onPress={() => router.push('/student/personal-info' as any)}>
+          <Text style={styles.primaryButtonText}>Complete Profile</Text>
+          <Ionicons name="arrow-forward" size={20} color={COLORS.white} />
         </TouchableOpacity>
       </View>
-    );
-  }
+    </View>
+  );
 
   return (
     <>
-      <ScrollView
-        style={styles.container}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-      >
-        {/* Header with Profile Button */}
+      <ScrollView style={styles.container} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[COLORS.primary]} />}>
         <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.profileButton}
-            onPress={() => setProfileModalVisible(true)}
-          >
-            <Image
-              source={{
-                uri: profile.photoUri || 'https://via.placeholder.com/120'
-              }}
-              style={styles.profileImage}
-            />
-            <View style={styles.profileOverlay}>
-              <Ionicons name="eye" size={24} color="#fff" />
+          <View style={styles.headerTop}>
+            <View style={styles.headerBrand}>
+              <Ionicons name="school" size={isLargeScreen ? 28 : 24} color={COLORS.white} />
+              <Text style={styles.brandName}>GFM Record</Text>
             </View>
-          </TouchableOpacity>
-
-          <View style={styles.headerInfo}>
-            <Text style={styles.welcomeText}>Welcome Back!</Text>
-            <Text style={styles.studentName}>{profile.fullName || 'Student'}</Text>
-            <Text style={styles.studentPrn}>PRN: {profile.prn}</Text>
+            <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+              <Ionicons name="log-out-outline" size={20} color={COLORS.white} />
+              {isLargeScreen && <Text style={styles.logoutText}>Logout</Text>}
+            </TouchableOpacity>
           </View>
-
-          <TouchableOpacity
-            style={styles.logoutButton}
-            onPress={handleLogout}
-          >
-            <Ionicons name="log-out-outline" size={24} color="#fff" />
-          </TouchableOpacity>
-        </View>
-
-        {/* Quick Info Cards */}
-        <View style={styles.quickInfoContainer}>
-          <View style={styles.quickInfoCard}>
-            <Text style={styles.quickInfoLabel}>Branch</Text>
-            <Text style={styles.quickInfoValue}>{profile.branch || 'N/A'}</Text>
-          </View>
-          <View style={styles.quickInfoCard}>
-            <Text style={styles.quickInfoLabel}>Category</Text>
-            <Text style={styles.quickInfoValue}>{profile.category || 'N/A'}</Text>
+          
+          <View style={styles.profileSection}>
+            <TouchableOpacity style={styles.profileImageContainer} onPress={() => setProfileModalVisible(true)}>
+              <Image source={{ uri: profile.photoUri || 'https://via.placeholder.com/120' }} style={styles.profileImage} />
+              <View style={styles.viewBadge}><Ionicons name="eye" size={14} color={COLORS.white} /></View>
+            </TouchableOpacity>
+            <View style={styles.profileInfo}>
+              <Text style={styles.welcomeLabel}>Welcome back,</Text>
+              <Text style={styles.profileName}>{profile.fullName || 'Student'}</Text>
+              <View style={styles.prnBadge}><Text style={styles.prnText}>PRN: {profile.prn}</Text></View>
+            </View>
           </View>
         </View>
 
-        {/* Modules Grid */}
-        <View style={styles.modulesContainer}>
-          <Text style={styles.sectionTitle}>Modules</Text>
+        <View style={styles.statsContainer}>
+          <View style={styles.statCard}>
+            <View style={[styles.statIconBg, { backgroundColor: `${COLORS.primary}15` }]}><Ionicons name="school-outline" size={isLargeScreen ? 26 : 22} color={COLORS.primary} /></View>
+            <Text style={styles.statLabel}>Branch</Text>
+            <Text style={styles.statValue}>{profile.branch || 'N/A'}</Text>
+          </View>
+          <View style={styles.statCard}>
+            <View style={[styles.statIconBg, { backgroundColor: `${COLORS.secondary}15` }]}><Ionicons name="calendar-outline" size={isLargeScreen ? 26 : 22} color={COLORS.secondary} /></View>
+            <Text style={styles.statLabel}>Year</Text>
+            <Text style={styles.statValue}>{profile.yearOfStudy || 'N/A'}</Text>
+          </View>
+          <View style={styles.statCard}>
+            <View style={[styles.statIconBg, { backgroundColor: `${COLORS.accent}15` }]}><Ionicons name="grid-outline" size={isLargeScreen ? 26 : 22} color={COLORS.accent} /></View>
+            <Text style={styles.statLabel}>Division</Text>
+            <Text style={styles.statValue}>{profile.division || 'N/A'}</Text>
+          </View>
+        </View>
+
+        <View style={styles.modulesSection}>
+          <Text style={styles.sectionTitle}>Quick Access</Text>
           <View style={styles.modulesGrid}>
             {modules.map((module) => (
-              <TouchableOpacity
-                key={module.id}
-                style={[styles.moduleCard, { borderLeftColor: module.color }]}
-                onPress={() => router.push(module.route as any)}
+              <TouchableOpacity 
+                key={module.id} 
+                style={[styles.moduleCard, typeof getModuleCardWidth() === 'number' && { width: getModuleCardWidth() as number }]} 
+                onPress={() => router.push(module.route as any)} 
+                activeOpacity={0.7}
               >
-                <Text style={styles.moduleIcon}>{module.icon}</Text>
+                <View style={[styles.moduleIconBg, { backgroundColor: `${module.color}12` }]}><Ionicons name={module.icon as any} size={isLargeScreen ? 32 : 28} color={module.color} /></View>
                 <Text style={styles.moduleTitle}>{module.title}</Text>
-                <Ionicons name="chevron-forward" size={20} color="#999" />
+                <Ionicons name="chevron-forward" size={18} color={COLORS.textLight} />
               </TouchableOpacity>
             ))}
           </View>
         </View>
 
-        {/* Edit Profile Button */}
-        <TouchableOpacity
-          style={styles.editProfileButton}
-          onPress={() => router.push('/student/personal-info' as any)}
-        >
-          <Ionicons name="create-outline" size={20} color="#fff" />
-          <Text style={styles.editProfileText}>Edit Profile</Text>
+        <TouchableOpacity style={styles.editButton} onPress={() => router.push('/student/personal-info' as any)} activeOpacity={0.8}>
+          <Ionicons name="create-outline" size={20} color={COLORS.white} />
+          <Text style={styles.editButtonText}>Edit Profile</Text>
         </TouchableOpacity>
 
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>
-            Last updated: {profile.lastUpdated ? new Date(profile.lastUpdated).toLocaleDateString() : 'Never'}
-          </Text>
-        </View>
+        <View style={styles.footer}><Text style={styles.footerText}>Last updated: {profile.lastUpdated ? new Date(profile.lastUpdated).toLocaleDateString() : 'Never'}</Text></View>
       </ScrollView>
 
-      {/* Profile View Modal */}
-      <Modal
-        animationType="slide"
-        transparent={false}
-        visible={profileModalVisible}
-        onRequestClose={() => setProfileModalVisible(false)}
-      >
+      <Modal animationType="slide" transparent={false} visible={profileModalVisible} onRequestClose={() => setProfileModalVisible(false)}>
         <View style={styles.modalContainer}>
-          {/* Modal Header */}
           <View style={styles.modalHeader}>
-            <TouchableOpacity onPress={() => setProfileModalVisible(false)}>
-              <Ionicons name="close" size={28} color="#007AFF" />
-            </TouchableOpacity>
-            <View style={{ alignItems: 'center' }}>
-              <Text style={styles.modalTitle}>Student Profile Preview</Text>
-              <View style={{ flexDirection: 'row', gap: 15, marginTop: 10 }}>
-                <TouchableOpacity 
-                  onPress={() => setViewMode('template')} 
-                  style={{ borderBottomWidth: 2, borderBottomColor: viewMode === 'template' ? COLORS.primary : 'transparent', paddingBottom: 4 }}
-                >
-                  <Text style={{ color: viewMode === 'template' ? COLORS.primary : COLORS.textLight, fontWeight: 'bold' }}>Template View</Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                  onPress={() => setViewMode('details')} 
-                  style={{ borderBottomWidth: 2, borderBottomColor: viewMode === 'details' ? COLORS.primary : 'transparent', paddingBottom: 4 }}
-                >
-                  <Text style={{ color: viewMode === 'details' ? COLORS.primary : COLORS.textLight, fontWeight: 'bold' }}>Data View</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-            <View style={{ width: 28 }} />
+            <TouchableOpacity onPress={() => setProfileModalVisible(false)} style={styles.modalCloseBtn}><Ionicons name="close" size={24} color={COLORS.text} /></TouchableOpacity>
+            <Text style={styles.modalTitle}>Student Profile</Text>
+            <View style={{ width: 40 }} />
           </View>
 
-          <ScrollView style={styles.modalContent}>
-            {viewMode === 'template' ? (
-              isWeb ? (
-                <View style={{ padding: 20, alignItems: 'center', backgroundColor: '#f5f5f5' }}>
-                  {templateLoading ? (
-                    <View style={{ height: 300, justifyContent: 'center' }}>
-                      <ActivityIndicator size="large" color={COLORS.primary} />
-                      <Text style={{ marginTop: 10, color: '#666' }}>Generating Preview...</Text>
-                    </View>
-                  ) : (
-                    <div 
-                      style={{ 
-                        backgroundColor: 'white',
-                        boxShadow: '0 0 10px rgba(0,0,0,0.1)',
-                        width: '210mm',
-                        minHeight: '297mm',
-                        transform: width < 900 ? `scale(${width / 1000})` : 'none',
-                        transformOrigin: 'top center'
-                      }}
-                      dangerouslySetInnerHTML={{ __html: htmlContent }}
-                    />
-                  )}
-                </View>
-              ) : (
-                <View style={{ padding: 40, alignItems: 'center' }}>
-                  <Ionicons name="desktop-outline" size={64} color="#ccc" />
-                  <Text style={{ marginTop: 20, textAlign: 'center', color: '#666', fontSize: 16 }}>
-                    The professional template view is optimized for Desktop/Web.
-                  </Text>
-                  <TouchableOpacity 
-                    style={[styles.completeProfileButton, { marginTop: 20, backgroundColor: COLORS.secondary }]}
-                    onPress={() => setViewMode('details')}
-                  >
-                    <Text style={styles.completeProfileText}>Switch to Data View</Text>
-                  </TouchableOpacity>
-                </View>
-              )
-            ) : (
+          <View style={styles.modalTabs}>
+            <TouchableOpacity style={[styles.modalTab, viewMode === 'details' && styles.modalTabActive]} onPress={() => setViewMode('details')}>
+              <Ionicons name="list-outline" size={18} color={viewMode === 'details' ? COLORS.primary : COLORS.textLight} />
+              <Text style={[styles.modalTabText, viewMode === 'details' && styles.modalTabTextActive]}>Details</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.modalTab, viewMode === 'template' && styles.modalTabActive]} onPress={() => setViewMode('template')}>
+              <Ionicons name="document-outline" size={18} color={viewMode === 'template' ? COLORS.primary : COLORS.textLight} />
+              <Text style={[styles.modalTabText, viewMode === 'template' && styles.modalTabTextActive]}>Report Preview</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.modalContent} contentContainerStyle={isLargeScreen ? { maxWidth: 800, alignSelf: 'center', width: '100%' } : undefined}>
+            {viewMode === 'details' ? (
               <>
-                {/* Profile Image */}
-                <View style={styles.modalProfileSection}>
-                  <Image
-                    source={{
-                      uri: profile.photoUri || 'https://via.placeholder.com/150'
-                    }}
-                    style={styles.modalProfileImage}
-                  />
+                <View style={styles.modalProfileHeader}>
+                  <Image source={{ uri: profile.photoUri || 'https://via.placeholder.com/150' }} style={styles.modalProfileImage} />
                   <Text style={styles.modalProfileName}>{profile.fullName}</Text>
                   <Text style={styles.modalProfilePrn}>PRN: {profile.prn}</Text>
                   <View style={[styles.statusBadge, profile.verificationStatus === 'Verified' ? styles.verifiedBadge : (profile.verificationStatus === 'Rejected' ? styles.rejectedBadge : styles.pendingBadge)]}>
-                    <Text style={[styles.statusBadgeText, { color: profile.verificationStatus === 'Verified' ? '#2E7D32' : (profile.verificationStatus === 'Rejected' ? '#C62828' : '#EF6C00') }]}>
-                      {profile.verificationStatus || 'Pending'}
-                    </Text>
+                    <Ionicons name={profile.verificationStatus === 'Verified' ? 'checkmark-circle' : (profile.verificationStatus === 'Rejected' ? 'close-circle' : 'time')} size={14} color={profile.verificationStatus === 'Verified' ? COLORS.success : (profile.verificationStatus === 'Rejected' ? COLORS.error : COLORS.warning)} />
+                    <Text style={[styles.statusText, { color: profile.verificationStatus === 'Verified' ? COLORS.success : (profile.verificationStatus === 'Rejected' ? COLORS.error : COLORS.warning) }]}>{profile.verificationStatus || 'Pending'}</Text>
                   </View>
                 </View>
 
-                {/* Personal Information */}
-                <View style={styles.modalSection}>
-                  <Text style={styles.modalSectionTitle}>Personal Information</Text>
-                  <ProfileRow label="Full Name" value={profile.fullName} />
-                  <ProfileRow label="Gender" value={profile.gender} />
-                  <ProfileRow label="Date of Birth" value={profile.dob} />
-                  <ProfileRow label="Religion" value={profile.religion} />
-                  <ProfileRow label="Category" value={profile.category} />
-                  <ProfileRow label="Caste" value={profile.caste} />
-                </View>
+                <ProfileSection title="Personal Information" icon="person-outline" isLargeScreen={isLargeScreen}>
+                  <ProfileRow label="Full Name" value={profile.fullName} isLargeScreen={isLargeScreen} />
+                  <ProfileRow label="Gender" value={profile.gender} isLargeScreen={isLargeScreen} />
+                  <ProfileRow label="Date of Birth" value={profile.dob} isLargeScreen={isLargeScreen} />
+                  <ProfileRow label="Religion" value={profile.religion} isLargeScreen={isLargeScreen} />
+                  <ProfileRow label="Category" value={profile.category} isLargeScreen={isLargeScreen} />
+                  <ProfileRow label="Caste" value={profile.caste} isLargeScreen={isLargeScreen} />
+                </ProfileSection>
 
-                {/* Contact Information */}
-                <View style={styles.modalSection}>
-                  <Text style={styles.modalSectionTitle}>Contact Information</Text>
-                  <ProfileRow label="Phone Number" value={profile.phone} />
-                  <ProfileRow label="Email ID" value={profile.email} />
-                  <ProfileRow label="Aadhaar Number" value={profile.aadhar} />
-                </View>
+                <ProfileSection title="Contact Information" icon="call-outline" isLargeScreen={isLargeScreen}>
+                  <ProfileRow label="Phone Number" value={profile.phone} isLargeScreen={isLargeScreen} />
+                  <ProfileRow label="Email ID" value={profile.email} isLargeScreen={isLargeScreen} />
+                  <ProfileRow label="Aadhaar Number" value={profile.aadhar} isLargeScreen={isLargeScreen} />
+                </ProfileSection>
 
-                {/* Address */}
-                <View style={styles.modalSection}>
-                  <Text style={styles.modalSectionTitle}>Address</Text>
-                  <ProfileRow label="Permanent Address" value={profile.permanentAddress} />
-                  <ProfileRow label="Pincode" value={profile.pincode} />
-                  {profile.temporaryAddress && (
-                    <ProfileRow label="Temporary Address" value={profile.temporaryAddress} />
-                  )}
-                </View>
+                <ProfileSection title="Address" icon="location-outline" isLargeScreen={isLargeScreen}>
+                  <ProfileRow label="Permanent Address" value={profile.permanentAddress} isLargeScreen={isLargeScreen} />
+                  <ProfileRow label="Pincode" value={profile.pincode} isLargeScreen={isLargeScreen} />
+                  {profile.temporaryAddress && <ProfileRow label="Temporary Address" value={profile.temporaryAddress} isLargeScreen={isLargeScreen} />}
+                </ProfileSection>
 
-                {/* Family Details */}
-                <View style={styles.modalSection}>
-                  <Text style={styles.modalSectionTitle}>Family Details</Text>
-                  <ProfileRow label="Father/Guardian Name" value={profile.fatherName} />
-                  <ProfileRow label="Father's Occupation" value={profile.fatherOccupation} />
-                  <ProfileRow label="Father's Phone" value={profile.fatherPhone} />
-                  <ProfileRow label="Mother's Name" value={profile.motherName} />
-                  <ProfileRow label="Mother's Occupation" value={profile.motherOccupation} />
-                  <ProfileRow label="Mother's Phone" value={profile.motherPhone} />
-                  <ProfileRow label="Annual Income" value={`₹${profile.annualIncome}`} />
-                </View>
+                <ProfileSection title="Family Details" icon="people-outline" isLargeScreen={isLargeScreen}>
+                  <ProfileRow label="Father/Guardian Name" value={profile.fatherName} isLargeScreen={isLargeScreen} />
+                  <ProfileRow label="Father's Occupation" value={profile.fatherOccupation} isLargeScreen={isLargeScreen} />
+                  <ProfileRow label="Father's Phone" value={profile.fatherPhone} isLargeScreen={isLargeScreen} />
+                  <ProfileRow label="Mother's Name" value={profile.motherName} isLargeScreen={isLargeScreen} />
+                  <ProfileRow label="Mother's Occupation" value={profile.motherOccupation} isLargeScreen={isLargeScreen} />
+                  <ProfileRow label="Mother's Phone" value={profile.motherPhone} isLargeScreen={isLargeScreen} />
+                  <ProfileRow label="Annual Income" value={`₹${profile.annualIncome}`} isLargeScreen={isLargeScreen} />
+                </ProfileSection>
 
-                {/* Academic Details */}
-                <View style={styles.modalSection}>
-                  <Text style={styles.modalSectionTitle}>Academic Details</Text>
-                  <ProfileRow label="Branch" value={profile.branch} />
-                  <ProfileRow label="Year of Study" value={profile.yearOfStudy} />
-                  <ProfileRow label="Division" value={profile.division} />
-                  <ProfileRow label="Admission Type" value={profile.admissionType} />
-                  {profile.jeePercentile && (
-                    <ProfileRow label="JEE Percentile" value={profile.jeePercentile} />
-                  )}
-                  {profile.mhtCetPercentile && (
-                    <ProfileRow label="MHT-CET Percentile" value={profile.mhtCetPercentile} />
-                  )}
-                </View>
+                <ProfileSection title="Academic Details" icon="school-outline" isLargeScreen={isLargeScreen}>
+                  <ProfileRow label="Branch" value={profile.branch} isLargeScreen={isLargeScreen} />
+                  <ProfileRow label="Year of Study" value={profile.yearOfStudy} isLargeScreen={isLargeScreen} />
+                  <ProfileRow label="Division" value={profile.division} isLargeScreen={isLargeScreen} />
+                  <ProfileRow label="Admission Type" value={profile.admissionType} isLargeScreen={isLargeScreen} />
+                  {profile.jeePercentile && <ProfileRow label="JEE Percentile" value={profile.jeePercentile} isLargeScreen={isLargeScreen} />}
+                  {profile.mhtCetPercentile && <ProfileRow label="MHT-CET Percentile" value={profile.mhtCetPercentile} isLargeScreen={isLargeScreen} />}
+                </ProfileSection>
+                <View style={{ height: 100 }} />
               </>
+            ) : (
+              <View style={styles.templateContainer}>
+                {templateLoading ? (
+                  <View style={styles.templateLoading}>
+                    <ActivityIndicator size="large" color={COLORS.primary} />
+                    <Text style={styles.templateLoadingText}>Generating Preview...</Text>
+                  </View>
+                ) : htmlContent ? (
+                  isWeb ? (
+                    <div style={{ backgroundColor: 'white', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', width: '100%', maxWidth: '210mm', margin: '0 auto', transform: width < 800 ? `scale(${Math.min(1, (width - 40) / 794)})` : 'none', transformOrigin: 'top center' }} dangerouslySetInnerHTML={{ __html: htmlContent }} />
+                  ) : (
+                    <View style={styles.templatePlaceholder}><Text style={styles.templatePlaceholderText}>Template preview is optimized for web. Use Download PDF option.</Text></View>
+                  )
+                ) : (
+                  <View style={styles.templatePlaceholder}><Text style={styles.templatePlaceholderText}>No template available</Text></View>
+                )}
+              </View>
             )}
-
-            <View style={{ height: 40 }} />
           </ScrollView>
 
-          {/* Modal Footer */}
-          <View style={{ padding: 20, borderTopWidth: 1, borderTopColor: '#eee', flexDirection: 'row', justifyContent: 'center', gap: 15 }}>
-            <TouchableOpacity 
-              style={[styles.editProfileButton, { marginHorizontal: 0, marginTop: 0, flex: 1, backgroundColor: COLORS.secondary }]}
-              onPress={downloadReport}
-            >
-              <Ionicons name="download-outline" size={20} color="#fff" />
-              <Text style={styles.editProfileText}>Download PDF</Text>
+          <View style={styles.modalFooter}>
+            <TouchableOpacity style={[styles.footerBtn, styles.secondaryBtn]} onPress={downloadReport} disabled={templateLoading}>
+              <Ionicons name="download-outline" size={20} color={COLORS.primary} />
+              <Text style={styles.secondaryBtnText}>Download PDF</Text>
             </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.editProfileButton, { marginHorizontal: 0, marginTop: 0, flex: 1 }]}
-              onPress={() => {
-                setProfileModalVisible(false);
-                router.push('/student/personal-info' as any);
-              }}
-            >
-              <Ionicons name="create-outline" size={20} color="#fff" />
-              <Text style={styles.editProfileText}>Edit Details</Text>
+            <TouchableOpacity style={[styles.footerBtn, styles.primaryBtn]} onPress={() => { setProfileModalVisible(false); router.push('/student/personal-info' as any); }}>
+              <Ionicons name="create-outline" size={20} color={COLORS.white} />
+              <Text style={styles.primaryBtnText}>Edit Details</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {sessionData && <ChangePasswordModal visible={showPasswordModal} userEmail={sessionData.email} currentPassword={sessionData.password} onSuccess={handlePasswordChangeSuccess} isFirstLogin={true} />}
+
+      <Modal animationType="fade" transparent={true} visible={incompleteModalVisible} onRequestClose={() => {}}>
+        <View style={styles.incompleteOverlay}>
+          <View style={styles.incompleteCard}>
+            <View style={styles.incompleteIcon}><Ionicons name="alert-circle" size={48} color={COLORS.warning} /></View>
+            <Text style={styles.incompleteTitle}>Complete Your Profile</Text>
+            <Text style={styles.incompleteSubtitle}>Please fill in the following information:</Text>
+            <ScrollView style={styles.missingList}>
+              {missingFields.map((field, index) => (
+                <View key={index} style={styles.missingItem}><Ionicons name="close-circle" size={18} color={COLORS.error} /><Text style={styles.missingText}>{field}</Text></View>
+              ))}
+            </ScrollView>
+            <TouchableOpacity style={styles.completeBtn} onPress={() => { setIncompleteModalVisible(false); router.push('/student/personal-info' as any); }}>
+              <Ionicons name="create-outline" size={20} color={COLORS.white} />
+              <Text style={styles.completeBtnText}>Complete Profile</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -775,287 +507,190 @@ export default function StudentDashboard() {
   );
 }
 
-const ProfileRow: React.FC<{ label: string; value?: string }> = ({ label, value }) => (
-  <View style={styles.profileRow}>
-    <Text style={styles.profileRowLabel}>{label}</Text>
-    <Text style={styles.profileRowValue}>{value || 'N/A'}</Text>
+const ProfileSection: React.FC<{ title: string; icon: string; children: React.ReactNode; isLargeScreen: boolean }> = ({ title, icon, children, isLargeScreen }) => (
+  <View style={{ backgroundColor: COLORS.white, marginHorizontal: isLargeScreen ? 24 : 16, marginBottom: 16, borderRadius: 16, padding: isLargeScreen ? 20 : 16 }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16, gap: 10 }}>
+      <Ionicons name={icon as any} size={20} color={COLORS.primary} />
+      <Text style={{ fontSize: isLargeScreen ? 17 : 16, fontWeight: 'bold', color: COLORS.primary }}>{title}</Text>
+    </View>
+    {children}
   </View>
 );
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f7fa'
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f5f7fa'
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 16,
-    color: '#666'
-  },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f5f7fa',
-    padding: 24
-  },
-  errorEmoji: {
-    fontSize: 64,
-    marginBottom: 16
-  },
-  errorText: {
-    fontSize: 18,
-    color: '#666',
-    marginBottom: 24
-  },
-  completeProfileButton: {
-    backgroundColor: '#007AFF',
-    paddingHorizontal: 32,
-    paddingVertical: 14,
-    borderRadius: 12
-  },
-  completeProfileText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold'
-  },
-  header: {
-    backgroundColor: '#007AFF',
-    paddingTop: 60,
-    paddingBottom: 30,
-    paddingHorizontal: 20,
-    borderBottomLeftRadius: 25,
-    borderBottomRightRadius: 25,
-    flexDirection: 'row',
-    alignItems: 'center'
-  },
-  profileButton: {
-    position: 'relative'
-  },
-  profileImage: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-    borderWidth: 3,
-    borderColor: '#fff'
-  },
-  profileOverlay: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    borderRadius: 12,
-    padding: 4
-  },
-  headerInfo: {
-    flex: 1,
-    marginLeft: 16
-  },
-  welcomeText: {
-    fontSize: 14,
-    color: '#e0e0e0',
-    marginBottom: 4
-  },
-  studentName: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 2
-  },
-  studentPrn: {
-    fontSize: 13,
-    color: '#e0e0e0'
-  },
-  logoutButton: {
-    padding: 8
-  },
-  quickInfoContainer: {
-    flexDirection: 'row',
-    padding: 20,
-    gap: 12
-  },
-  quickInfoCard: {
-    flex: 1,
-    backgroundColor: '#fff',
-    padding: 16,
-    borderRadius: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 3
-  },
-  quickInfoLabel: {
-    fontSize: 12,
-    color: '#999',
-    marginBottom: 4
-  },
-  quickInfoValue: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333'
-  },
-  modulesContainer: {
-    padding: 20
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 16
-  },
-  modulesGrid: {
-    gap: 12
-  },
-  moduleCard: {
-    backgroundColor: '#fff',
-    padding: 18,
-    borderRadius: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderLeftWidth: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 3
-  },
-  moduleIcon: {
-    fontSize: 32,
-    marginRight: 16
-  },
-  moduleTitle: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333'
-  },
-  editProfileButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#007AFF',
-    marginHorizontal: 20,
-    marginTop: 10,
-    padding: 16,
-    borderRadius: 12,
-    gap: 8
-  },
-  editProfileText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold'
-  },
-  footer: {
-    padding: 20,
-    alignItems: 'center'
-  },
-  footerText: {
-    fontSize: 12,
-    color: '#999',
-    fontStyle: 'italic'
-  },
+const ProfileRow: React.FC<{ label: string; value?: string; isLargeScreen: boolean }> = ({ label, value, isLargeScreen }) => (
+  <View style={{ flexDirection: 'row', paddingVertical: isLargeScreen ? 12 : 10, borderBottomWidth: 1, borderBottomColor: COLORS.borderLight }}>
+    <Text style={{ flex: 1, fontSize: isLargeScreen ? 15 : 14, color: COLORS.textSecondary }}>{label}</Text>
+    <Text style={{ flex: 1, fontSize: isLargeScreen ? 15 : 14, color: COLORS.text, fontWeight: '500', textAlign: 'right' }}>{value || 'N/A'}</Text>
+  </View>
+);
 
-  // Modal Styles
-  modalContainer: {
-    flex: 1,
-    backgroundColor: '#fff'
+const createStyles = (width: number, isLargeScreen: boolean, isXLargeScreen: boolean) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: COLORS.background },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background },
+  loadingContent: { alignItems: 'center' },
+  loadingText: { marginTop: 16, fontSize: 16, color: COLORS.textSecondary },
+  errorContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background, padding: 24 },
+  errorContent: { alignItems: 'center', maxWidth: 320 },
+  errorIcon: { width: 80, height: 80, borderRadius: 40, backgroundColor: `${COLORS.primary}15`, justifyContent: 'center', alignItems: 'center', marginBottom: 24 },
+  errorTitle: { fontSize: 22, fontWeight: 'bold', color: COLORS.text, marginBottom: 8 },
+  errorText: { fontSize: 15, color: COLORS.textSecondary, textAlign: 'center', marginBottom: 24, lineHeight: 22 },
+  primaryButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.primary, paddingHorizontal: 24, paddingVertical: 14, borderRadius: 12, gap: 8 },
+  primaryButtonText: { color: COLORS.white, fontSize: 16, fontWeight: '600' },
+  header: { 
+    backgroundColor: COLORS.primary, 
+    paddingTop: Platform.OS === 'ios' ? 60 : 20, 
+    paddingBottom: isLargeScreen ? 40 : 30, 
+    paddingHorizontal: isLargeScreen ? 32 : 20, 
+    borderBottomLeftRadius: 24, 
+    borderBottomRightRadius: 24 
   },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 60,
-    paddingBottom: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0'
+  headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: isLargeScreen ? 32 : 24 },
+  headerBrand: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  brandName: { fontSize: isLargeScreen ? 22 : 18, fontWeight: 'bold', color: COLORS.white },
+  logoutButton: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    gap: 8, 
+    paddingHorizontal: isLargeScreen ? 16 : 10, 
+    paddingVertical: isLargeScreen ? 10 : 8, 
+    borderRadius: 12, 
+    backgroundColor: 'rgba(255,255,255,0.15)' 
   },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333'
+  logoutText: { color: COLORS.white, fontWeight: '600', fontSize: 14 },
+  profileSection: { flexDirection: 'row', alignItems: 'center' },
+  profileImageContainer: { position: 'relative' },
+  profileImage: { 
+    width: isLargeScreen ? 88 : 72, 
+    height: isLargeScreen ? 88 : 72, 
+    borderRadius: isLargeScreen ? 44 : 36, 
+    borderWidth: 3, 
+    borderColor: COLORS.white 
   },
-  modalContent: {
-    flex: 1
+  viewBadge: { position: 'absolute', bottom: 0, right: 0, width: 26, height: 26, borderRadius: 13, backgroundColor: COLORS.secondary, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: COLORS.white },
+  profileInfo: { flex: 1, marginLeft: isLargeScreen ? 20 : 16 },
+  welcomeLabel: { fontSize: isLargeScreen ? 15 : 13, color: 'rgba(255,255,255,0.8)', marginBottom: 4 },
+  profileName: { fontSize: isLargeScreen ? 26 : 20, fontWeight: 'bold', color: COLORS.white, marginBottom: 6 },
+  prnBadge: { backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 12, paddingVertical: 5, borderRadius: 12, alignSelf: 'flex-start' },
+  prnText: { fontSize: isLargeScreen ? 14 : 12, color: COLORS.white, fontWeight: '500' },
+  statsContainer: { 
+    flexDirection: 'row', 
+    marginHorizontal: isLargeScreen ? 32 : 16, 
+    marginTop: -20, 
+    gap: isLargeScreen ? 16 : 12 
   },
-  modalProfileSection: {
-    alignItems: 'center',
-    paddingVertical: 30,
-    backgroundColor: '#f5f7fa'
+  statCard: { 
+    flex: 1, 
+    backgroundColor: COLORS.white, 
+    borderRadius: 16, 
+    padding: isLargeScreen ? 20 : 16, 
+    alignItems: 'center', 
+    shadowColor: COLORS.shadow, 
+    shadowOffset: { width: 0, height: 4 }, 
+    shadowOpacity: 1, 
+    shadowRadius: 12, 
+    elevation: 4 
   },
-  modalProfileImage: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    borderWidth: 4,
-    borderColor: '#007AFF',
-    marginBottom: 16
+  statIconBg: { 
+    width: isLargeScreen ? 52 : 44, 
+    height: isLargeScreen ? 52 : 44, 
+    borderRadius: 14, 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    marginBottom: isLargeScreen ? 12 : 10 
   },
-  modalProfileName: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 4
+  statLabel: { fontSize: isLargeScreen ? 13 : 12, color: COLORS.textLight, marginBottom: 4 },
+  statValue: { fontSize: isLargeScreen ? 17 : 15, fontWeight: 'bold', color: COLORS.text },
+  modulesSection: { padding: isLargeScreen ? 32 : 20 },
+  sectionTitle: { fontSize: isLargeScreen ? 20 : 18, fontWeight: 'bold', color: COLORS.text, marginBottom: 16 },
+  modulesGrid: { 
+    flexDirection: isLargeScreen ? 'row' : 'column', 
+    flexWrap: 'wrap', 
+    gap: isLargeScreen ? 16 : 12 
   },
-    modalProfilePrn: {
-      fontSize: 14,
-      color: '#666'
-    },
-    statusBadge: {
-      marginTop: 10,
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-      borderRadius: 15,
-    },
-    verifiedBadge: {
-      backgroundColor: '#E8F5E9',
-    },
-    rejectedBadge: {
-      backgroundColor: '#FFEBEE',
-    },
-    pendingBadge: {
-      backgroundColor: '#FFF3E0',
-    },
-    statusBadgeText: {
-      fontSize: 12,
-      fontWeight: 'bold',
-      color: '#4CAF50', // Default green, will override in badge specific if needed or just use these
-    },
-  modalSection: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0'
+  moduleCard: { 
+    backgroundColor: COLORS.white, 
+    padding: isLargeScreen ? 20 : 16, 
+    borderRadius: 16, 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    shadowColor: COLORS.shadow, 
+    shadowOffset: { width: 0, height: 2 }, 
+    shadowOpacity: 1, 
+    shadowRadius: 8, 
+    elevation: 2 
   },
-  modalSectionTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#007AFF',
-    marginBottom: 12
+  moduleIconBg: { 
+    width: isLargeScreen ? 56 : 48, 
+    height: isLargeScreen ? 56 : 48, 
+    borderRadius: 14, 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    marginRight: isLargeScreen ? 16 : 14 
   },
-  profileRow: {
-    flexDirection: 'row',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f5f5f5'
+  moduleTitle: { flex: 1, fontSize: isLargeScreen ? 16 : 15, fontWeight: '600', color: COLORS.text },
+  editButton: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    backgroundColor: COLORS.primary, 
+    marginHorizontal: isLargeScreen ? 32 : 20, 
+    padding: isLargeScreen ? 18 : 16, 
+    borderRadius: 14, 
+    gap: 8, 
+    shadowColor: COLORS.primary, 
+    shadowOffset: { width: 0, height: 4 }, 
+    shadowOpacity: 0.3, 
+    shadowRadius: 8, 
+    elevation: 4 
   },
-  profileRowLabel: {
-    flex: 1,
-    fontSize: 14,
-    color: '#666'
+  editButtonText: { color: COLORS.white, fontSize: 16, fontWeight: 'bold' },
+  footer: { padding: 20, alignItems: 'center' },
+  footerText: { fontSize: 12, color: COLORS.textLight },
+  modalContainer: { flex: 1, backgroundColor: COLORS.background },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: isLargeScreen ? 24 : 16, paddingTop: Platform.OS === 'ios' ? 60 : 20, paddingBottom: 16, backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  modalCloseBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: COLORS.background, justifyContent: 'center', alignItems: 'center' },
+  modalTitle: { fontSize: isLargeScreen ? 20 : 18, fontWeight: 'bold', color: COLORS.text },
+  modalTabs: { flexDirection: 'row', backgroundColor: COLORS.white, paddingHorizontal: isLargeScreen ? 24 : 16, paddingBottom: 12, gap: 12 },
+  modalTab: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, borderRadius: 10, backgroundColor: COLORS.background, gap: 6, maxWidth: 200 },
+  modalTabActive: { backgroundColor: `${COLORS.primary}12` },
+  modalTabText: { fontSize: 14, color: COLORS.textLight, fontWeight: '500' },
+  modalTabTextActive: { color: COLORS.primary },
+  modalContent: { flex: 1 },
+  modalProfileHeader: { alignItems: 'center', paddingVertical: isLargeScreen ? 32 : 24, backgroundColor: COLORS.white, marginBottom: 16 },
+  modalProfileImage: { 
+    width: isLargeScreen ? 120 : 100, 
+    height: isLargeScreen ? 120 : 100, 
+    borderRadius: isLargeScreen ? 60 : 50, 
+    borderWidth: 3, 
+    borderColor: COLORS.primary, 
+    marginBottom: 16 
   },
-  profileRowValue: {
-    flex: 1,
-    fontSize: 14,
-    color: '#333',
-    fontWeight: '500',
-    textAlign: 'right'
-  }
+  modalProfileName: { fontSize: isLargeScreen ? 26 : 22, fontWeight: 'bold', color: COLORS.text, marginBottom: 4 },
+  modalProfilePrn: { fontSize: isLargeScreen ? 15 : 14, color: COLORS.textSecondary, marginBottom: 12 },
+  statusBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, gap: 6 },
+  verifiedBadge: { backgroundColor: `${COLORS.success}15` },
+  rejectedBadge: { backgroundColor: `${COLORS.error}15` },
+  pendingBadge: { backgroundColor: `${COLORS.warning}15` },
+  statusText: { fontSize: 13, fontWeight: '600' },
+  templateContainer: { padding: isLargeScreen ? 24 : 16 },
+  templateLoading: { alignItems: 'center', paddingVertical: 60 },
+  templateLoadingText: { marginTop: 16, fontSize: 14, color: COLORS.textSecondary },
+  templatePlaceholder: { alignItems: 'center', paddingVertical: 60 },
+  templatePlaceholderText: { fontSize: 14, color: COLORS.textLight, textAlign: 'center' },
+  modalFooter: { flexDirection: 'row', padding: isLargeScreen ? 20 : 16, backgroundColor: COLORS.white, borderTopWidth: 1, borderTopColor: COLORS.border, gap: 12 },
+  footerBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: isLargeScreen ? 16 : 14, borderRadius: 12, gap: 8, maxWidth: isLargeScreen ? 220 : undefined },
+  secondaryBtn: { backgroundColor: `${COLORS.primary}12` },
+  secondaryBtnText: { color: COLORS.primary, fontSize: 15, fontWeight: '600' },
+  primaryBtn: { backgroundColor: COLORS.primary },
+  primaryBtnText: { color: COLORS.white, fontSize: 15, fontWeight: '600' },
+  incompleteOverlay: { flex: 1, backgroundColor: COLORS.overlay, justifyContent: 'center', alignItems: 'center', padding: 20 },
+  incompleteCard: { backgroundColor: COLORS.white, borderRadius: 24, padding: isLargeScreen ? 32 : 24, width: '100%', maxWidth: 440, alignItems: 'center' },
+  incompleteIcon: { width: 80, height: 80, borderRadius: 40, backgroundColor: `${COLORS.warning}15`, justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
+  incompleteTitle: { fontSize: 20, fontWeight: 'bold', color: COLORS.text, marginBottom: 8 },
+  incompleteSubtitle: { fontSize: 14, color: COLORS.textSecondary, textAlign: 'center', marginBottom: 20 },
+  missingList: { maxHeight: 200, width: '100%', marginBottom: 20 },
+  missingItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 14, backgroundColor: `${COLORS.error}08`, borderRadius: 10, marginBottom: 8, gap: 10 },
+  missingText: { fontSize: 14, color: COLORS.error, fontWeight: '500' },
+  completeBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.primary, paddingVertical: 14, paddingHorizontal: 24, borderRadius: 12, gap: 8, width: '100%' },
+  completeBtnText: { color: COLORS.white, fontSize: 16, fontWeight: 'bold' },
 });

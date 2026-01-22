@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../services/supabase';
+import { supabaseAdmin } from '../services/supabase-admin';
 
 async function fixAdmin() {
   const email = 'admin1@test.com';

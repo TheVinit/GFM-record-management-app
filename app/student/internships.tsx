@@ -7,11 +7,16 @@ import {
   TextInput,
   TouchableOpacity,
   Alert,
-  ActivityIndicator
+  ActivityIndicator,
+  Modal,
+  Image,
+  Linking,
+  Platform,
+  useWindowDimensions
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import * as DocumentPicker from 'expo-document-picker';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getSession } from '../../services/session.service';
 import {
   Internship,
   getInternships,
@@ -20,8 +25,13 @@ import {
 } from '../../storage/sqlite';
 import { uploadToCloudinary } from '../../services/cloudinaryservices';
 import { Ionicons } from '@expo/vector-icons';
+import { COLORS } from '../../constants/colors';
+import { useRouter } from 'expo-router';
 
 export default function InternshipsScreen() {
+  const router = useRouter();
+  const { width } = useWindowDimensions();
+  const isLargeScreen = width >= 768;
   const [prn, setPrn] = useState('');
   const [internships, setInternships] = useState<Internship[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,6 +49,8 @@ export default function InternshipsScreen() {
   const [description, setDescription] = useState('');
   const [certificateUri, setCertificateUri] = useState('');
   const [certificateFileInfo, setCertificateFileInfo] = useState<{ name: string, type: string } | null>(null);
+  const [certificateModalVisible, setCertificateModalVisible] = useState(false);
+  const [selectedCertificate, setSelectedCertificate] = useState('');
 
   useEffect(() => {
     loadData();
@@ -53,9 +65,13 @@ export default function InternshipsScreen() {
 
   const loadData = async () => {
     try {
-      const userPrn = await AsyncStorage.getItem('userPrn');
-      if (!userPrn) return;
+      const session = await getSession();
+      if (!session || !session.prn) {
+        Alert.alert('Session Error', 'Please login again');
+        return;
+      }
 
+      const userPrn = session.prn;
       setPrn(userPrn);
       const data = await getInternships(userPrn);
       setInternships(data);
@@ -74,24 +90,21 @@ export default function InternshipsScreen() {
         copyToCacheDirectory: true
       });
 
-    if (result.assets && result.assets[0]) {
-      const file = result.assets[0];
-      
-      console.log('File selected:', file.name, file.mimeType, file.size);
+      if (result.assets && result.assets[0]) {
+        const file = result.assets[0];
+        
+        if (file.size && file.size > 5 * 1024 * 1024) {
+          Alert.alert('Error', 'File size must be less than 5MB');
+          return;
+        }
 
-      if (file.size && file.size > 5 * 1024 * 1024) { // Increased to 5MB
-        Alert.alert('Error', 'File size must be less than 5MB');
-        return;
+        setCertificateUri(file.uri);
+        setCertificateFileInfo({
+          name: file.name || 'certificate.jpg',
+          type: file.mimeType || 'image/jpeg'
+        });
+        Alert.alert('Success', 'Certificate attached');
       }
-
-      setCertificateUri(file.uri);
-      setCertificateFileInfo({
-        name: file.name || 'certificate.jpg',
-        type: file.mimeType || 'image/jpeg'
-      });
-      Alert.alert('Success', 'Certificate attached');
-    }
-
     } catch (error) {
       console.error('Error picking certificate:', error);
       Alert.alert('Error', 'Failed to upload certificate');
@@ -127,11 +140,6 @@ export default function InternshipsScreen() {
       return false;
     }
 
-    if (description.length > 1000) {
-      Alert.alert('Error', 'Description must be less than 1000 characters');
-      return false;
-    }
-
     return true;
   };
 
@@ -140,24 +148,23 @@ export default function InternshipsScreen() {
 
     setLoading(true);
     try {
-        let finalCertificateUri = certificateUri;
-        if (certificateUri && (certificateUri.startsWith('file://') || certificateUri.startsWith('blob:') || certificateUri.startsWith('data:'))) {
-          const uploadedUrl = await uploadToCloudinary(
-            certificateUri,
-            certificateFileInfo?.type || 'image/jpeg',
-            certificateFileInfo?.name || 'certificate.jpg',
-            'intership_gfm_record'
-          );
-          
-          if (uploadedUrl) {
-            finalCertificateUri = uploadedUrl;
-          } else {
-            // If upload failed, we shouldn't save with a local URI that might not persist or is too large
-            Alert.alert('Upload Failed', 'Failed to upload certificate to cloud. Please try again.');
-            setLoading(false);
-            return;
-          }
+      let finalCertificateUri = certificateUri;
+      if (certificateUri && (certificateUri.startsWith('file://') || certificateUri.startsWith('blob:') || certificateUri.startsWith('data:'))) {
+        const uploadedUrl = await uploadToCloudinary(
+          certificateUri,
+          certificateFileInfo?.type || 'image/jpeg',
+          certificateFileInfo?.name || 'certificate.jpg',
+          'internship_gfm_record'
+        );
+        
+        if (uploadedUrl) {
+          finalCertificateUri = uploadedUrl;
+        } else {
+          Alert.alert('Upload Failed', 'Failed to upload certificate to cloud. Please try again.');
+          setLoading(false);
+          return;
         }
+      }
 
       const internship: Internship = {
         prn,
@@ -180,9 +187,23 @@ export default function InternshipsScreen() {
       loadData();
     } catch (error) {
       console.error('Error saving internship:', error);
-      Alert.alert('Error', 'Failed to save internship. Please check your connection.');
+      Alert.alert('Error', 'Failed to save internship');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleViewCertificate = (uri: string) => {
+    if (!uri) return;
+    const isPdf = uri.toLowerCase().endsWith('.pdf') || uri.includes('/raw/upload/');
+    if (isPdf) {
+      Linking.openURL(uri).catch(err => {
+        console.error("Error opening PDF:", err);
+        Alert.alert("Error", "Could not open PDF. Please try again.");
+      });
+    } else {
+      setSelectedCertificate(uri);
+      setCertificateModalVisible(true);
     }
   };
 
@@ -199,10 +220,12 @@ export default function InternshipsScreen() {
     setCertificateUri('');
   };
 
+  const styles = createStyles(width, isLargeScreen);
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#F44336" />
+        <ActivityIndicator size="large" color={COLORS.primary} />
         <Text style={styles.loadingText}>Loading internships...</Text>
       </View>
     );
@@ -210,98 +233,103 @@ export default function InternshipsScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Internships</Text>
-        <TouchableOpacity
-          style={styles.addButton}
-          onPress={() => setShowForm(!showForm)}
-        >
-          <Ionicons name={showForm ? 'close' : 'add'} size={24} color="#fff" />
-        </TouchableOpacity>
+        <View style={styles.headerTop}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color={COLORS.white} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Internships</Text>
+          <TouchableOpacity
+            style={styles.addButton}
+            onPress={() => setShowForm(!showForm)}
+          >
+            <Ionicons name={showForm ? 'close' : 'add'} size={24} color={COLORS.primary} />
+          </TouchableOpacity>
+        </View>
       </View>
 
-      <ScrollView style={styles.content}>
-          {/* Form */}
-          {showForm && (
-            <View style={styles.formCard}>
+      <ScrollView style={styles.content} contentContainerStyle={isLargeScreen ? { maxWidth: 1000, alignSelf: 'center', width: '100%' } : undefined}>
+        {showForm && (
+          <View style={styles.formCard}>
+            <View style={styles.formHeader}>
+              <Ionicons name="briefcase-outline" size={24} color={COLORS.primary} />
               <Text style={styles.formTitle}>Add Internship</Text>
-
-              {/* Semester */}
-              <Text style={styles.label}>Semester *</Text>
-              <View style={styles.pickerContainer}>
-                <Picker
-                  selectedValue={semester}
-                  onValueChange={(val) => setSemester(val)}
-                >
-                  {[1, 2, 3, 4, 5, 6, 7, 8].map(s => (
-                    <Picker.Item key={s} label={`Semester ${s}`} value={s.toString()} />
-                  ))}
-                </Picker>
-              </View>
-
-              {/* Company Name */}
-              <Text style={styles.label}>Company Name *</Text>
-            <TextInput
-              style={styles.input}
-              value={companyName}
-              onChangeText={setCompanyName}
-              placeholder="e.g., Google, Microsoft, Amazon"
-            />
-
-            {/* Role/Position */}
-            <Text style={styles.label}>Role / Position *</Text>
-            <TextInput
-              style={styles.input}
-              value={role}
-              onChangeText={setRole}
-              placeholder="e.g., Software Development Intern"
-            />
-
-            {/* Internship Type */}
-            <Text style={styles.label}>Internship Type *</Text>
-            <View style={styles.pickerContainer}>
-              <Picker
-                selectedValue={internshipType}
-                onValueChange={(value) => setInternshipType(value as 'Paid' | 'Unpaid')}
-                style={styles.picker}
-              >
-                <Picker.Item label="Paid" value="Paid" />
-                <Picker.Item label="Unpaid" value="Unpaid" />
-              </Picker>
             </View>
 
-            {/* Start Date */}
-            <Text style={styles.label}>Start Date *</Text>
-            <TextInput
-              style={styles.input}
-              value={startDate}
-              onChangeText={setStartDate}
-              placeholder="YYYY-MM-DD"
-            />
-
-            {/* End Date */}
-            <Text style={styles.label}>End Date *</Text>
-            <TextInput
-              style={styles.input}
-              value={endDate}
-              onChangeText={setEndDate}
-              placeholder="YYYY-MM-DD"
-            />
-
-            {/* Duration (Auto-calculated) */}
-            {duration > 0 && (
-              <View style={styles.durationContainer}>
-                <Ionicons name="time-outline" size={20} color="#F44336" />
-                <Text style={styles.durationText}>
-                  Duration: {duration} month{duration !== 1 ? 's' : ''}
-                </Text>
+            <View style={styles.formGrid}>
+              <View style={[styles.formField, { flex: 1 }]}>
+                <Text style={styles.label}>Company Name *</Text>
+                <TextInput
+                  style={styles.input}
+                  value={companyName}
+                  onChangeText={setCompanyName}
+                  placeholder="e.g., Google"
+                />
               </View>
-            )}
+              <View style={[styles.formField, { flex: 1 }]}>
+                <Text style={styles.label}>Role / Position *</Text>
+                <TextInput
+                  style={styles.input}
+                  value={role}
+                  onChangeText={setRole}
+                  placeholder="e.g., Developer Intern"
+                />
+              </View>
+            </View>
 
-            {/* Stipend (Conditional) */}
+            <View style={styles.formGrid}>
+              <View style={[styles.formField, { flex: 1 }]}>
+                <Text style={styles.label}>Semester *</Text>
+                <View style={styles.pickerContainer}>
+                  <Picker
+                    selectedValue={semester}
+                    onValueChange={(val) => setSemester(val)}
+                    style={styles.picker}
+                  >
+                    {[1, 2, 3, 4, 5, 6, 7, 8].map(s => (
+                      <Picker.Item key={s} label={`Sem ${s}`} value={s.toString()} />
+                    ))}
+                  </Picker>
+                </View>
+              </View>
+              <View style={[styles.formField, { flex: 1 }]}>
+                <Text style={styles.label}>Type *</Text>
+                <View style={styles.pickerContainer}>
+                  <Picker
+                    selectedValue={internshipType}
+                    onValueChange={(val) => setInternshipType(val as any)}
+                    style={styles.picker}
+                  >
+                    <Picker.Item label="Paid" value="Paid" />
+                    <Picker.Item label="Unpaid" value="Unpaid" />
+                  </Picker>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.formGrid}>
+              <View style={[styles.formField, { flex: 1 }]}>
+                <Text style={styles.label}>Start Date *</Text>
+                <TextInput
+                  style={styles.input}
+                  value={startDate}
+                  onChangeText={setStartDate}
+                  placeholder="YYYY-MM-DD"
+                />
+              </View>
+              <View style={[styles.formField, { flex: 1 }]}>
+                <Text style={styles.label}>End Date *</Text>
+                <TextInput
+                  style={styles.input}
+                  value={endDate}
+                  onChangeText={setEndDate}
+                  placeholder="YYYY-MM-DD"
+                />
+              </View>
+            </View>
+
             {internshipType === 'Paid' && (
-              <>
+              <View style={styles.formField}>
                 <Text style={styles.label}>Monthly Stipend (₹) *</Text>
                 <TextInput
                   style={styles.input}
@@ -310,385 +338,296 @@ export default function InternshipsScreen() {
                   keyboardType="numeric"
                   placeholder="Enter stipend amount"
                 />
-              </>
+              </View>
             )}
 
-            {/* Description */}
-            <Text style={styles.label}>Description (Optional, Max 1000 chars)</Text>
-            <TextInput
-              style={[styles.input, styles.textArea]}
-              value={description}
-              onChangeText={setDescription}
-              placeholder="Brief description of your responsibilities and learnings"
-              multiline
-              numberOfLines={5}
-              maxLength={1000}
-            />
-            <Text style={styles.charCount}>{description.length}/1000</Text>
+            <View style={styles.formField}>
+              <Text style={styles.label}>Description</Text>
+              <TextInput
+                style={[styles.input, styles.textArea]}
+                value={description}
+                onChangeText={setDescription}
+                placeholder="Responsibilities and learnings"
+                multiline
+                numberOfLines={4}
+              />
+            </View>
 
-            {/* Certificate Upload */}
-            <Text style={styles.label}>Certificate (Optional)</Text>
             <TouchableOpacity style={styles.uploadButton} onPress={pickCertificate}>
-              <Ionicons name="cloud-upload-outline" size={24} color="#F44336" />
-              <Text style={styles.uploadText}>
-                {certificateUri ? 'Certificate Uploaded ✓' : 'Upload Certificate'}
+              <Ionicons name={certificateUri ? "checkmark-circle" : "cloud-upload-outline"} size={20} color={certificateUri ? COLORS.success : COLORS.primary} />
+              <Text style={[styles.uploadText, certificateUri && { color: COLORS.success }]}>
+                {certificateUri ? 'Certificate Attached' : 'Upload Certificate'}
               </Text>
             </TouchableOpacity>
 
-            {/* Submit Button */}
             <TouchableOpacity style={styles.submitButton} onPress={saveNewInternship}>
               <Text style={styles.submitText}>Add Internship</Text>
             </TouchableOpacity>
           </View>
         )}
 
-        {/* Internships List */}
-        <View style={styles.listCard}>
-          <Text style={styles.listTitle}>My Internships</Text>
+        <View style={styles.historyCard}>
+          <View style={styles.historyHeader}>
+            <Ionicons name="briefcase-outline" size={22} color={COLORS.primary} />
+            <Text style={styles.historyTitle}>Your Internships</Text>
+          </View>
 
           {internships.length === 0 ? (
             <View style={styles.emptyState}>
-              <Text style={styles.emptyEmoji}>💼</Text>
+              <View style={styles.emptyIconContainer}>
+                <Ionicons name="briefcase-outline" size={48} color={COLORS.textLight} />
+              </View>
               <Text style={styles.emptyText}>No internships added yet</Text>
+              <TouchableOpacity style={styles.emptyAddButton} onPress={() => setShowForm(true)}>
+                <Text style={styles.emptyAddText}>Add your first internship</Text>
+              </TouchableOpacity>
             </View>
           ) : (
-            internships.map((internship, index) => (
-              <View key={index} style={styles.internshipCard}>
-                  <View style={styles.internshipHeader}>
+            <View style={styles.listContainer}>
+              {internships.map((item, index) => (
+                <View key={index} style={styles.internshipCard}>
+                  <View style={styles.cardHeader}>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.companyName}>{internship.companyName}</Text>
-                      <Text style={styles.role}>Sem {internship.semester} • {internship.role}</Text>
+                      <Text style={styles.companyNameText}>{item.companyName}</Text>
+                      <Text style={styles.roleText}>{item.role}</Text>
                     </View>
-                    <View style={styles.badgeGroup}>
-                      <View style={[styles.statusBadge, internship.verificationStatus === 'Verified' ? styles.verifiedBadge : styles.pendingBadge]}>
-                        <Text style={[styles.statusBadgeText, internship.verificationStatus === 'Verified' ? styles.verifiedText : styles.pendingText]}>
-                          {internship.verificationStatus || 'Pending'}
+                    <View style={styles.badges}>
+                      <View style={[styles.statusBadge, item.verificationStatus === 'Verified' ? styles.verifiedBadge : styles.pendingBadge]}>
+                        <Text style={[styles.statusBadgeText, item.verificationStatus === 'Verified' ? styles.verifiedText : styles.pendingText]}>
+                          {item.verificationStatus || 'Pending'}
                         </Text>
                       </View>
-                      <View
-                        style={[
-                          styles.typeBadge,
-                          internship.internshipType === 'Paid' 
-                            ? styles.paidBadge 
-                            : styles.unpaidBadge
-                        ]}
-                      >
-                        <Text style={styles.typeBadgeText}>{internship.internshipType}</Text>
+                      <View style={[styles.typeBadge, item.internshipType === 'Paid' ? styles.paidBadge : styles.unpaidBadge]}>
+                        <Text style={styles.typeBadgeText}>{item.internshipType}</Text>
                       </View>
                     </View>
                   </View>
 
-                <View style={styles.internshipDetails}>
-                  <View style={styles.detailRow}>
-                    <Ionicons name="calendar-outline" size={16} color="#666" />
-                    <Text style={styles.detailText}>
-                      {internship.startDate} to {internship.endDate}
-                    </Text>
-                  </View>
-
-                  <View style={styles.detailRow}>
-                    <Ionicons name="time-outline" size={16} color="#666" />
-                    <Text style={styles.detailText}>
-                      {internship.duration} month{internship.duration !== 1 ? 's' : ''}
-                    </Text>
-                  </View>
-
-                  {internship.stipend && (
-                    <View style={styles.detailRow}>
-                      <Ionicons name="cash-outline" size={16} color="#4CAF50" />
-                      <Text style={[styles.detailText, styles.stipendText]}>
-                        ₹{internship.stipend.toLocaleString()}/month
-                      </Text>
+                  <View style={styles.internshipMeta}>
+                    <View style={styles.metaItem}>
+                      <Ionicons name="calendar-outline" size={14} color={COLORS.textLight} />
+                      <Text style={styles.metaText}>{item.startDate} - {item.endDate}</Text>
                     </View>
-                  )}
-                </View>
-
-                {internship.description && (
-                  <Text style={styles.internshipDescription}>
-                    {internship.description}
-                  </Text>
-                )}
-
-                {internship.certificateUri && (
-                  <View style={styles.certificateBadge}>
-                    <Ionicons name="ribbon-outline" size={16} color="#4CAF50" />
-                    <Text style={styles.certificateText}>Certificate Available</Text>
+                    <View style={styles.metaItem}>
+                      <Ionicons name="time-outline" size={14} color={COLORS.textLight} />
+                      <Text style={styles.metaText}>{item.duration} Months</Text>
+                    </View>
+                    {item.stipend ? (
+                      <View style={styles.metaItem}>
+                        <Ionicons name="cash-outline" size={14} color={COLORS.success} />
+                        <Text style={[styles.metaText, { color: COLORS.success, fontWeight: 'bold' }]}>₹{item.stipend}/mo</Text>
+                      </View>
+                    ) : null}
                   </View>
-                )}
-              </View>
-            ))
+
+                  {item.description ? (
+                    <Text style={styles.internshipDesc} numberOfLines={3}>{item.description}</Text>
+                  ) : null}
+
+                  <View style={styles.cardFooter}>
+                    <Text style={styles.semesterTag}>Sem {item.semester}</Text>
+                    {item.certificateUri ? (
+                      <TouchableOpacity 
+                        style={styles.viewCert}
+                        onPress={() => handleViewCertificate(item.certificateUri!)}
+                      >
+                        <Ionicons name="document-text-outline" size={16} color={COLORS.primary} />
+                        <Text style={styles.viewCertText}>Certificate</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                </View>
+              ))}
+            </View>
           )}
         </View>
+        <View style={{ height: 40 }} />
       </ScrollView>
+
+      <Modal visible={certificateModalVisible} transparent={true} onRequestClose={() => setCertificateModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Internship Certificate</Text>
+              <TouchableOpacity style={styles.closeButton} onPress={() => setCertificateModalVisible(false)}>
+                <Ionicons name="close" size={24} color={COLORS.text} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.imageContainer}>
+              <Image source={{ uri: selectedCertificate }} style={styles.fullImage} resizeMode="contain" />
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f7fa'
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center'
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 16,
-    color: '#666'
-  },
+const createStyles = (width: number, isLargeScreen: boolean) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: COLORS.background },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background },
+  loadingText: { marginTop: 12, color: COLORS.textSecondary, fontSize: 16 },
   header: {
-    backgroundColor: '#F44336',
+    backgroundColor: COLORS.primary,
+    paddingTop: Platform.OS === 'ios' ? 60 : 40,
+    paddingBottom: 40,
+    paddingHorizontal: 20,
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
+  },
+  headerTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: 60,
-    paddingBottom: 20,
-    paddingHorizontal: 20
   },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff'
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  addButton: {
-    backgroundColor: 'rgba(255,255,255,0.3)',
-    padding: 10,
-    borderRadius: 50
-  },
-  content: {
-    flex: 1,
-    padding: 16
-  },
-  formCard: {
-    backgroundColor: '#fff',
-    padding: 20,
-    borderRadius: 12,
-    marginBottom: 16,
-    shadowColor: '#000',
+  headerTitle: { fontSize: 22, fontWeight: 'bold', color: COLORS.white },
+  addButton: { 
+    width: 40, 
+    height: 40, 
+    borderRadius: 20, 
+    backgroundColor: COLORS.white, 
+    justifyContent: 'center', 
+    alignItems: 'center',
+    shadowColor: COLORS.black,
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.2,
     shadowRadius: 4,
     elevation: 3
   },
-  formTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 20
+  content: { flex: 1, padding: 20, marginTop: -25 },
+  formCard: {
+    backgroundColor: COLORS.white,
+    padding: 24,
+    borderRadius: 20,
+    marginBottom: 20,
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 12,
+    elevation: 5
   },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#555',
-    marginBottom: 8,
-    marginTop: 12
+  formHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 24, gap: 10 },
+  formTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.text },
+  formGrid: { flexDirection: 'row', gap: 16, marginBottom: 16 },
+  formField: { marginBottom: 16 },
+  label: { fontSize: 14, fontWeight: '600', color: COLORS.textSecondary, marginBottom: 8 },
+  input: { 
+    borderWidth: 1.5, 
+    borderColor: COLORS.border, 
+    borderRadius: 12, 
+    padding: 14, 
+    fontSize: 16, 
+    color: COLORS.text,
+    backgroundColor: COLORS.white
   },
-  input: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    backgroundColor: '#fff'
+  textArea: { height: 100, textAlignVertical: 'top' },
+  pickerContainer: { 
+    borderWidth: 1.5, 
+    borderColor: COLORS.border, 
+    borderRadius: 12, 
+    overflow: 'hidden',
+    backgroundColor: COLORS.white
   },
-  textArea: {
-    height: 120,
-    textAlignVertical: 'top'
-  },
-  charCount: {
-    fontSize: 12,
-    color: '#999',
-    textAlign: 'right',
-    marginTop: 4
-  },
-  pickerContainer: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    overflow: 'hidden'
-  },
-  picker: {
-    height: 50
-  },
-  durationContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFEBEE',
-    padding: 12,
-    borderRadius: 8,
-    marginTop: 12,
-    gap: 8
-  },
-  durationText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#F44336'
-  },
+  picker: { height: 50 },
   uploadButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#F44336',
+    borderWidth: 1.5,
+    borderColor: COLORS.primary,
     borderStyle: 'dashed',
-    borderRadius: 8,
-    padding: 16,
-    gap: 8
-  },
-  uploadText: {
-    fontSize: 16,
-    color: '#F44336',
-    fontWeight: '600'
-  },
-  submitButton: {
-    backgroundColor: '#F44336',
-    padding: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 20
-  },
-  submitText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold'
-  },
-  listCard: {
-    backgroundColor: '#fff',
-    padding: 20,
     borderRadius: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    padding: 14,
+    gap: 10,
+    backgroundColor: `${COLORS.primary}05`,
+    marginBottom: 20
+  },
+  uploadText: { fontSize: 15, color: COLORS.primary, fontWeight: '600' },
+  submitButton: { 
+    backgroundColor: COLORS.primary, 
+    padding: 16, 
+    borderRadius: 12, 
+    alignItems: 'center',
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4
+  },
+  submitText: { color: COLORS.white, fontSize: 16, fontWeight: 'bold' },
+  historyCard: { 
+    backgroundColor: COLORS.white, 
+    padding: 24, 
+    borderRadius: 20,
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 12,
     elevation: 3
   },
-  listTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 16
+  historyHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 20, gap: 10 },
+  historyTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.text },
+  emptyState: { alignItems: 'center', paddingVertical: 40 },
+  emptyIconContainer: { 
+    width: 80, 
+    height: 80, 
+    borderRadius: 40, 
+    backgroundColor: COLORS.background, 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    marginBottom: 16 
   },
-  emptyState: {
-    alignItems: 'center',
-    paddingVertical: 40
+  emptyText: { fontSize: 16, color: COLORS.textLight, marginBottom: 20 },
+  emptyAddButton: { 
+    paddingVertical: 10, 
+    paddingHorizontal: 20, 
+    borderRadius: 10, 
+    backgroundColor: `${COLORS.primary}10` 
   },
-  emptyEmoji: {
-    fontSize: 64,
-    marginBottom: 12
-  },
-  emptyText: {
-    fontSize: 16,
-    color: '#999'
-  },
-  internshipCard: {
-    backgroundColor: '#f9f9f9',
-    padding: 16,
-    borderRadius: 8,
-    marginBottom: 12,
+  emptyAddText: { color: COLORS.primary, fontWeight: '600' },
+  listContainer: { gap: 16 },
+  internshipCard: { 
+    backgroundColor: COLORS.background, 
+    padding: 18, 
+    borderRadius: 16,
     borderLeftWidth: 4,
-    borderLeftColor: '#F44336'
+    borderLeftColor: COLORS.primary
   },
-  internshipHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 12
-  },
-  companyName: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 4
-  },
-  role: {
-    fontSize: 15,
-    color: '#666',
-    fontWeight: '500'
-  },
-  typeBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12
-  },
-  paidBadge: {
-    backgroundColor: '#C8E6C9'
-  },
-  unpaidBadge: {
-    backgroundColor: '#FFE0B2'
-  },
-    typeBadgeText: {
-      fontSize: 12,
-      fontWeight: '600',
-      color: '#333'
-    },
-    badgeGroup: {
-      flexDirection: 'column',
-      alignItems: 'flex-end',
-      gap: 6
-    },
-    statusBadge: {
-      paddingHorizontal: 8,
-      paddingVertical: 2,
-      borderRadius: 4,
-    },
-    verifiedBadge: {
-      backgroundColor: '#E8F5E9',
-    },
-    pendingBadge: {
-      backgroundColor: '#FFF3E0',
-    },
-    statusBadgeText: {
-      fontSize: 10,
-      fontWeight: 'bold',
-      textTransform: 'uppercase'
-    },
-    verifiedText: {
-      color: '#4CAF50',
-    },
-    pendingText: {
-      color: '#FF9800',
-    },
-  internshipDetails: {
-    gap: 8,
-    marginBottom: 12
-  },
-  detailRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6
-  },
-  detailText: {
-    fontSize: 14,
-    color: '#666'
-  },
-  stipendText: {
-    color: '#4CAF50',
-    fontWeight: '600'
-  },
-  internshipDescription: {
-    fontSize: 14,
-    color: '#555',
-    lineHeight: 20,
-    marginTop: 8,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#e0e0e0'
-  },
-  certificateBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#e0e0e0'
-  },
-  certificateText: {
-    fontSize: 13,
-    color: '#4CAF50',
-    fontWeight: '600'
-  }
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
+  companyNameText: { fontSize: 17, fontWeight: 'bold', color: COLORS.text, marginBottom: 4 },
+  roleText: { fontSize: 14, color: COLORS.textSecondary, fontWeight: '500' },
+  badges: { alignItems: 'flex-end', gap: 6 },
+  statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  statusBadgeText: { fontSize: 10, fontWeight: 'bold', textTransform: 'uppercase' },
+  verifiedBadge: { backgroundColor: `${COLORS.success}15` },
+  verifiedText: { color: COLORS.success },
+  pendingBadge: { backgroundColor: `${COLORS.warning}15` },
+  pendingText: { color: COLORS.warning },
+  typeBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 12 },
+  paidBadge: { backgroundColor: `${COLORS.success}15` },
+  unpaidBadge: { backgroundColor: `${COLORS.textLight}15` },
+  typeBadgeText: { fontSize: 10, fontWeight: 'bold', color: COLORS.textSecondary },
+  internshipMeta: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 16 },
+  metaItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  metaText: { fontSize: 12, color: COLORS.textSecondary },
+  internshipDesc: { fontSize: 14, color: COLORS.textSecondary, lineHeight: 20, marginBottom: 16 },
+  cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 12, borderTopWidth: 1, borderTopColor: COLORS.border },
+  semesterTag: { fontSize: 12, color: COLORS.primary, fontWeight: 'bold', backgroundColor: `${COLORS.primary}10`, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  viewCert: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: `${COLORS.primary}10`, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8 },
+  viewCertText: { color: COLORS.primary, fontSize: 13, fontWeight: 'bold' },
+  modalOverlay: { flex: 1, backgroundColor: COLORS.overlay, justifyContent: 'center', alignItems: 'center', padding: 20 },
+  modalContent: { width: '100%', maxWidth: 600, maxHeight: '80%', backgroundColor: COLORS.white, borderRadius: 24, overflow: 'hidden' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  modalTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.text },
+  closeButton: { padding: 4 },
+  imageContainer: { padding: 20, alignItems: 'center', justifyContent: 'center', minHeight: 300 },
+  fullImage: { width: '100%', height: 400 }
 });

@@ -10,7 +10,7 @@ const UPLOAD_PRESET = process.env.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
         return null;
       }
       
-      const apiUrl = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`;
+      const apiUrl = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/auto/upload`;
   
       const formData = new FormData();
       

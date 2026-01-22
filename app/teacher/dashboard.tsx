@@ -12,6 +12,9 @@ import {
   TextInput,
   Dimensions,
   Platform,
+  Linking,
+  Image,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -40,10 +43,28 @@ import {
     getNonTechnicalActivities,
     getInternships,
     getAllActivitiesByFilter,
-    getAllInternshipsByFilter,
-    getAchievementsByFilter
+      getAllInternshipsByFilter,
+      getAchievementsByFilter,
+      getTeacherBatchConfig,
+      saveTeacherBatchConfig,
+      createAttendanceSession,
+      saveAttendanceRecords,
+      getAttendanceRecords,
+    getTodayAttendanceSession,
+          getStudentsByRbtRange,
+          getStudentsByDivision,
+          updateAttendanceRecord,
+          getGfmAttendanceSummary,
+    saveStudentInfo,
+    getDistinctYearsOfStudy,
+    toCamelCase,
+    TeacherBatchConfig,
+    AttendanceSession,
+    AttendanceRecord
   } from '../../storage/sqlite';
+
 import { getSession, clearSession } from '../../services/session.service';
+import { supabase } from '../../services/supabase';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { populateTemplate } from '../../services/pdf-template.service';
@@ -55,29 +76,34 @@ if (typeof window !== 'undefined') {
   (window as any).html2canvas = h2c.default || h2c;
 }
 
-const { width } = Dimensions.get('window');
 const isWeb = Platform.OS === 'web';
 
-// Correct URLs for the current project or reliable placeholders
-const LOGO_LEFT = "https://csvywizljbjpobeeadne.supabase.co/storage/v1/object/public/document-uploads/JSPM-logo-removebg-preview-1766666378755.png";
-const LOGO_RIGHT = "https://csvywizljbjpobeeadne.supabase.co/storage/v1/object/public/document-uploads/jspm_group_logo-1766666412340.jpeg";
-// Fallback placeholders if Supabase images are missing
+// Correct local assets
+const LOGO_LEFT_IMG = require('../../assets/images/left.png');
+const LOGO_RIGHT_IMG = require('../../assets/images/right.jpeg');
+
+// Fallback placeholders if assets are missing or in non-web environments
 const FALLBACK_LOGO = "https://via.placeholder.com/80?text=LOGO";
 
 // Helper to convert Image URL to Base64 with timeout and error handling
-const getBase64Image = (url: string, timeout = 5000): Promise<string> => {
+const getBase64Image = (source: any, timeout = 5000): Promise<string> => {
   return new Promise((resolve) => {
-    if (typeof window === 'undefined' || !url) return resolve('');
+    if (typeof window === 'undefined' || !source) return resolve('');
     
-    // Check if it's already a base64 or data URL
-    if (url.startsWith('data:')) return resolve(url);
+    // If it's a string and starts with data:
+    if (typeof source === 'string' && source.startsWith('data:')) return resolve(source);
 
-    const img = new Image();
+    // If it's a require() or asset number, we need to resolve it
+    let url = typeof source === 'string' ? source : Image.resolveAssetSource(source)?.uri;
+    
+    if (!url) return resolve('');
+
+    const img = document.createElement('img');
     img.setAttribute('crossOrigin', 'anonymous');
     
     const timer = setTimeout(() => {
       img.src = ""; // Stop loading
-      resolve(url); // Return original URL as fallback
+      resolve(url || ''); // Return original URL as fallback
     }, timeout);
 
     img.onload = () => {
@@ -90,15 +116,40 @@ const getBase64Image = (url: string, timeout = 5000): Promise<string> => {
       try {
         resolve(canvas.toDataURL('image/png'));
       } catch (e) {
-        resolve(url);
+        resolve(url || '');
       }
     };
     img.onerror = () => {
       clearTimeout(timer);
-      resolve(url.includes('supabase.co') ? FALLBACK_LOGO : url);
+      resolve(url?.includes('supabase.co') ? FALLBACK_LOGO : (url || ''));
     };
     img.src = url;
   });
+};
+
+const handleViewDocument = (uri: string) => {
+  if (!uri) return;
+  const isPdf = uri.toLowerCase().endsWith('.pdf') || uri.includes('/raw/upload/');
+  if (isPdf) {
+    if (isWeb) {
+      window.open(uri, '_blank');
+    } else {
+      Linking.openURL(uri).catch(err => {
+        console.error("Error opening PDF:", err);
+        Alert.alert("Error", "Could not open PDF. Please try again.");
+      });
+    }
+  } else {
+    // For images, we could use a modal, but opening in a new tab is also fine for teacher dashboard
+    if (isWeb) {
+      window.open(uri, '_blank');
+    } else {
+      Linking.openURL(uri).catch(err => {
+        console.error("Error opening Image:", err);
+        Alert.alert("Error", "Could not open Image. Please try again.");
+      });
+    }
+  }
 };
 
 const exportStudentPDF = async (student: Student, options: any, setLoading: (v: boolean) => void) => {
@@ -124,13 +175,13 @@ const exportStudentPDF = async (student: Student, options: any, setLoading: (v: 
     });
 
     // Generate Academic Table HTML
-    let academicTableHtml = '<table><thead><tr><th>Sem</th><th>Code</th><th>Course</th><th>ISE</th><th>MSE</th><th>ESE</th><th>Total</th><th>Grade</th></tr></thead><tbody>';
+    let academicTableHtml = '<table><thead><tr><th>Sem</th><th>Code</th><th>Course</th><th>MSE</th><th>ESE</th><th>Grade</th></tr></thead><tbody>';
     if (academicRecords.length > 0) {
       academicRecords.forEach(r => {
-        academicTableHtml += `<tr><td>${r.semester}</td><td>${r.courseCode}</td><td>${r.courseName}</td><td>${r.iseMarks || 0}</td><td>${r.mseMarks || 0}</td><td>${r.eseMarks || 0}</td><td>${r.totalMarks}</td><td style="color: ${r.grade === 'F' ? COLORS.error : 'inherit'}">${r.grade}</td></tr>`;
+        academicTableHtml += `<tr><td>${r.semester}</td><td>${r.courseCode}</td><td>${r.courseName}</td><td>${r.mseMarks || 0}</td><td>${r.eseMarks || 0}</td><td style="color: ${r.grade === 'F' ? COLORS.error : 'inherit'}">${r.grade}</td></tr>`;
       });
     } else {
-      academicTableHtml += '<tr><td colspan="8" style="text-align: center;">No academic records found</td></tr>';
+      academicTableHtml += '<tr><td colspan="6" style="text-align: center;">No academic records found</td></tr>';
     }
     academicTableHtml += '</tbody></table>';
 
@@ -204,8 +255,8 @@ const exportStudentPDF = async (student: Student, options: any, setLoading: (v: 
     const lastCertificate = [...technical, ...internships].find(x => x.certificateUri);
     const viewCertBtn = lastCertificate ? `<a href="${lastCertificate.certificateUri}" class="action-link" target="_blank">View Certificates →</a>` : '';
 
-    const b64LogoLeft = await getBase64Image(LOGO_LEFT);
-    const b64LogoRight = await getBase64Image(LOGO_RIGHT);
+    const b64LogoLeft = await getBase64Image(LOGO_LEFT_IMG);
+    const b64LogoRight = await getBase64Image(LOGO_RIGHT_IMG);
     const b64StudentPhoto = await getBase64Image(student.photoUri || 'https://via.placeholder.com/150');
 
     const dataMap = {
@@ -332,12 +383,16 @@ const exportStudentPDF = async (student: Student, options: any, setLoading: (v: 
   }
 };
 
-type Module = 'courses' | 'students' | 'academic' | 'fee' | 'activities' | 'achievements' | 'internships' | 'analytics';
+type Module = 'courses' | 'students' | 'academic' | 'fee' | 'activities' | 'achievements' | 'internships' | 'analytics' | 'batch-config' | 'attendance' | 'attendance-summary' | 'gfm-reports';
 
 export default function TeacherDashboard() {
-  const [currentModule, setCurrentModule] = useState<Module>('students');
+  const { width } = useWindowDimensions();
+  const [currentModule, setCurrentModule] = useState<Module>('analytics');
+  const [activeModuleGroup, setActiveModuleGroup] = useState<'Attendance' | 'GFM'>('Attendance');
   const [loading, setLoading] = useState(true);
   const [teacherPrn, setTeacherPrn] = useState('');
+  const [teacherName, setTeacherName] = useState('');
+  const [teacherDept, setTeacherDept] = useState('');
   const [students, setStudents] = useState<Student[]>([]);
   const [courses, setCourses] = useState<CourseDef[]>([]);
   const [filteredStudents, setFilteredStudents] = useState<Student[]>([]);
@@ -353,6 +408,37 @@ export default function TeacherDashboard() {
     internships: false,
     all: false,
   });
+
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editingSection, setEditingSection] = useState<string>('');
+  const [editingStudent, setEditingStudent] = useState<any>(null);
+  const [editData, setEditData] = useState<any>({});
+  const [isSaving, setIsSaving] = useState(false);
+
+  const openQuickEdit = (student: Student, section: string) => {
+    setEditingStudent(student);
+    setEditingSection(section);
+    setEditData({ ...student });
+    setEditModalVisible(true);
+  };
+
+  const handleQuickSave = async () => {
+    setIsSaving(true);
+    try {
+      await saveStudentInfo(editData);
+      Alert.alert('Success', `${editingSection} updated successfully`);
+      setEditModalVisible(false);
+      loadData();
+      // Update the details modal student if it's open
+      if (selectedStudentForDetails && selectedStudentForDetails.prn === editData.prn) {
+        setSelectedStudentForDetails(editData);
+      }
+    } catch (e) {
+      Alert.alert('Error', 'Failed to update student information');
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const Checkbox = ({ label, value, onValueChange, disabled = false }: { label: string, value: boolean, onValueChange: (v: boolean) => void, disabled?: boolean }) => (
     <TouchableOpacity 
@@ -411,9 +497,14 @@ export default function TeacherDashboard() {
     </Modal>
   );
 
-  const [deptFilter, setDeptFilter] = useState('All');
-  const [yearFilter, setYearFilter] = useState('All');
-  const [divFilter, setDivFilter] = useState('All');
+  const [gfmDeptFilter, setGfmDeptFilter] = useState('All');
+  const [gfmYearFilter, setGfmYearFilter] = useState('All');
+  const [gfmDivFilter, setGfmDivFilter] = useState('All');
+
+  const [attDeptFilter, setAttDeptFilter] = useState('All');
+  const [attYearFilter, setAttYearFilter] = useState('All');
+  const [attDivFilter, setAttDivFilter] = useState('All');
+
   const [searchQuery, setSearchQuery] = useState('');
   const [semFilter, setSemFilter] = useState<number | 'All'>('All');
   const [activityTypeFilter, setActivityTypeFilter] = useState<'All' | 'Extra-curricular' | 'Co-curricular' | 'Courses'>('All');
@@ -421,22 +512,66 @@ export default function TeacherDashboard() {
   const router = useRouter();
 
   const [userRole, setUserRole] = useState('');
+  const [yearsOfStudy, setYearsOfStudy] = useState<string[]>([]);
 
   useEffect(() => {
     const init = async () => {
       await checkAuth();
+      await loadMetadata();
       await loadData();
     };
     init();
-  }, [deptFilter, yearFilter, divFilter, searchQuery, currentModule, semFilter, activityTypeFilter]);
+
+    // Set up Realtime Subscriptions
+    const channel = supabase
+      .channel('teacher-dashboard-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'student_activities' }, () => {
+        console.log('Realtime update: student_activities');
+        loadData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'achievements' }, () => {
+        console.log('Realtime update: achievements');
+        loadData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'fee_payments' }, () => {
+        console.log('Realtime update: fee_payments');
+        loadData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'internships' }, () => {
+        console.log('Realtime update: internships');
+        loadData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'students' }, () => {
+        console.log('Realtime update: students');
+        loadData();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [gfmDeptFilter, gfmYearFilter, gfmDivFilter, attDeptFilter, attYearFilter, attDivFilter, searchQuery, currentModule, semFilter, activityTypeFilter]);
+
+  const loadMetadata = async () => {
+    const years = await getDistinctYearsOfStudy();
+    setYearsOfStudy(years);
+  };
 
   const checkAuth = async () => {
     const session = await getSession();
     if (!session || (session.role !== 'teacher' && session.role !== 'admin')) {
-      router.replace('/login');
+      router.replace('/');
     } else {
       setTeacherPrn(session.prn);
+      setTeacherName(session.fullName || '');
+      setTeacherDept(session.department || '');
       setUserRole(session.role);
+      
+      // If teacher, lock them into their department for both filter sets
+      if (session.role === 'teacher' && session.department) {
+        setGfmDeptFilter(session.department);
+        setAttDeptFilter(session.department);
+      }
     }
   };
 
@@ -449,10 +584,22 @@ export default function TeacherDashboard() {
       const allStudents = await getAllStudents();
       setStudents(allStudents);
       
+      const isAttendance = activeModuleGroup === 'Attendance';
+      const activeDept = isAttendance ? attDeptFilter : gfmDeptFilter;
+      const activeYear = isAttendance ? attYearFilter : gfmYearFilter;
+      const activeDiv = isAttendance ? attDivFilter : gfmDivFilter;
+
       let filtered = allStudents;
-      if (deptFilter !== 'All') filtered = filtered.filter(s => s.branch === deptFilter);
-      if (yearFilter !== 'All') filtered = filtered.filter(s => s.yearOfStudy === yearFilter);
-      if (divFilter !== 'All') filtered = filtered.filter(s => s.division === divFilter);
+      
+      // Strict department filtering for teachers
+      if (session.role === 'teacher' && session.department) {
+        filtered = filtered.filter(s => s.branch === session.department);
+      } else if (activeDept !== 'All') {
+        filtered = filtered.filter(s => s.branch === activeDept);
+      }
+      
+      if (activeYear !== 'All') filtered = filtered.filter(s => s.yearOfStudy === activeYear);
+      if (activeDiv !== 'All') filtered = filtered.filter(s => s.division === activeDiv);
       
       if (searchQuery) {
         const query = searchQuery.toLowerCase();
@@ -467,9 +614,12 @@ export default function TeacherDashboard() {
       if (currentModule === 'courses') {
         const c = await getAllCoursesDef();
         let filteredCourses = c;
-          if (deptFilter !== 'All') {
-            filteredCourses = filteredCourses.filter(course => course.department === deptFilter);
+          
+          const targetDept = session.role === 'teacher' ? session.department : activeDept;
+          if (targetDept && targetDept !== 'All') {
+            filteredCourses = filteredCourses.filter(course => course.department === targetDept);
           }
+          
           if (semFilter !== 'All') {
             filteredCourses = filteredCourses.filter(course => course.semester === semFilter);
           }
@@ -506,38 +656,60 @@ export default function TeacherDashboard() {
     }
   };
 
-  const SidebarItem = ({ title, icon, module }: { title: string, icon: any, module: Module }) => (
-    <TouchableOpacity 
-      style={[styles.sidebarItem, currentModule === module && styles.sidebarItemActive]}
-      onPress={() => setCurrentModule(module)}
-    >
-      <Ionicons name={icon} size={24} color={currentModule === module ? '#fff' : COLORS.textLight} />
-      {width > 800 && <Text style={[styles.sidebarText, currentModule === module && styles.sidebarTextActive]}>{title}</Text>}
-    </TouchableOpacity>
-  );
+  const SidebarItem = ({ title, icon, module }: { title: string, icon: any, module: Module }) => {
+    return (
+      <TouchableOpacity 
+        style={[styles.sidebarItem, currentModule === module && styles.sidebarItemActive]}
+        onPress={() => setCurrentModule(module)}
+      >
+        <Ionicons name={icon} size={24} color={currentModule === module ? '#fff' : COLORS.textLight} />
+        {width > 800 && <Text style={[styles.sidebarText, currentModule === module && styles.sidebarTextActive]}>{title}</Text>}
+      </TouchableOpacity>
+    );
+  };
 
-  const renderHeader = () => (
-    <View style={styles.header}>
+  const renderHeader = () => {
+    return (
+      <View style={styles.header}>
         <View style={styles.headerLeft}>
           <Text style={styles.collegeName}>GFM Record</Text>
           <Text style={styles.tagline}>{userRole === 'admin' ? 'Management Portal' : 'Faculty Portal'}</Text>
         </View>
-      <TouchableOpacity onPress={async () => { await clearSession(); router.replace('/login'); }} style={styles.logoutBtn}>
-        <Ionicons name="log-out-outline" size={20} color="#fff" />
-        <Text style={styles.logoutText}>Logout</Text>
-      </TouchableOpacity>
-    </View>
-  );
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 15 }}>
+          {teacherName ? (
+            <View style={{ alignItems: 'flex-end', marginRight: 10 }}>
+              <Text style={{ color: '#fff', fontSize: 14, fontWeight: 'bold' }}>{teacherName}</Text>
+              {teacherDept && <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 11 }}>{teacherDept}</Text>}
+            </View>
+          ) : null}
+          <TouchableOpacity onPress={async () => { await clearSession(); router.replace('/'); }} style={styles.logoutBtn}>
+            <Ionicons name="log-out-outline" size={20} color="#fff" />
+            <Text style={styles.logoutText}>Logout</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
 
-  const renderFilters = () => (
-    <View style={styles.filterContainer}>
+  const renderFilters = () => {
+    const isAttendance = activeModuleGroup === 'Attendance';
+    const deptValue = isAttendance ? attDeptFilter : gfmDeptFilter;
+    const setDeptValue = isAttendance ? setAttDeptFilter : setGfmDeptFilter;
+    const yearValue = isAttendance ? attYearFilter : gfmYearFilter;
+    const setYearValue = isAttendance ? setAttYearFilter : setGfmYearFilter;
+    const divValue = isAttendance ? attDivFilter : gfmDivFilter;
+    const setDivValue = isAttendance ? setAttDivFilter : setGfmDivFilter;
+
+    return (
+      <View style={styles.filterContainer}>
       <View style={styles.filterItem}>
         <Text style={styles.filterLabel}>Department</Text>
         <View style={styles.pickerWrapper}>
             <Picker
-              selectedValue={deptFilter}
-              onValueChange={setDeptFilter}
+              selectedValue={deptValue}
+              onValueChange={setDeptValue}
               style={styles.picker}
+              enabled={userRole === 'admin'}
             >
               <Picker.Item label="All" value="All" />
               <Picker.Item label="CSE" value="CSE" />
@@ -551,28 +723,27 @@ export default function TeacherDashboard() {
             </Picker>
         </View>
       </View>
-      <View style={styles.filterItem}>
-        <Text style={styles.filterLabel}>Year</Text>
-        <View style={styles.pickerWrapper}>
-          <Picker
-            selectedValue={yearFilter}
-            onValueChange={setYearFilter}
-            style={styles.picker}
-          >
-            <Picker.Item label="All" value="All" />
-            <Picker.Item label="1st Year" value="1st Year" />
-            <Picker.Item label="2nd Year" value="2nd Year" />
-            <Picker.Item label="3rd Year" value="3rd Year" />
-            <Picker.Item label="4th Year" value="4th Year" />
-          </Picker>
+        <View style={styles.filterItem}>
+          <Text style={styles.filterLabel}>Year</Text>
+          <View style={styles.pickerWrapper}>
+            <Picker
+              selectedValue={yearValue}
+              onValueChange={setYearValue}
+              style={styles.picker}
+            >
+              <Picker.Item label="All" value="All" />
+              {yearsOfStudy.map(year => (
+                <Picker.Item key={year} label={year} value={year} />
+              ))}
+            </Picker>
+          </View>
         </View>
-      </View>
       <View style={styles.filterItem}>
         <Text style={styles.filterLabel}>Division</Text>
         <View style={styles.pickerWrapper}>
           <Picker
-            selectedValue={divFilter}
-            onValueChange={setDivFilter}
+            selectedValue={divValue}
+            onValueChange={setDivValue}
             style={styles.picker}
           >
             <Picker.Item label="All" value="All" />
@@ -637,22 +808,148 @@ export default function TeacherDashboard() {
           )}
         </View>
       </View>
-    </View>
-  );
+      </View>
+    );
+  };
 
-  return (
-    <View style={styles.container}>
+    const QuickEditModal = () => {
+      const renderFields = () => {
+        switch (editingSection) {
+          case 'Personal Information':
+            return (
+              <View>
+                <TextInput style={styles.input} placeholder="Full Name" value={editData.fullName} onChangeText={t => setEditData({...editData, fullName: t})} />
+                <TextInput style={styles.input} placeholder="DOB (YYYY-MM-DD)" value={editData.dob} onChangeText={t => setEditData({...editData, dob: t})} />
+                <TextInput style={styles.input} placeholder="Gender" value={editData.gender} onChangeText={t => setEditData({...editData, gender: t})} />
+                <TextInput style={styles.input} placeholder="Religion" value={editData.religion} onChangeText={t => setEditData({...editData, religion: t})} />
+                <TextInput style={styles.input} placeholder="Category" value={editData.category} onChangeText={t => setEditData({...editData, category: t})} />
+                <TextInput style={styles.input} placeholder="Caste" value={editData.caste} onChangeText={t => setEditData({...editData, caste: t})} />
+                <TextInput style={styles.input} placeholder="Aadhar" value={editData.aadhar} onChangeText={t => setEditData({...editData, aadhar: t})} />
+              </View>
+            );
+          case 'Academic Status':
+            return (
+              <View>
+                <TextInput style={styles.input} placeholder="Branch" value={editData.branch} onChangeText={t => setEditData({...editData, branch: t})} />
+                <TextInput style={styles.input} placeholder="Year" value={editData.yearOfStudy} onChangeText={t => setEditData({...editData, yearOfStudy: t})} />
+                <TextInput style={styles.input} placeholder="Division" value={editData.division} onChangeText={t => setEditData({...editData, division: t})} />
+              </View>
+            );
+          case 'Contact & Address':
+            return (
+              <View>
+                <TextInput style={styles.input} placeholder="Phone" value={editData.phone} onChangeText={t => setEditData({...editData, phone: t})} />
+                <TextInput style={styles.input} placeholder="Email" value={editData.email} onChangeText={t => setEditData({...editData, email: t})} />
+                <TextInput style={styles.input} placeholder="Pincode" value={editData.pincode} onChangeText={t => setEditData({...editData, pincode: t})} />
+                <TextInput style={[styles.input, { height: 80 }]} multiline placeholder="Permanent Address" value={editData.permanentAddress} onChangeText={t => setEditData({...editData, permanentAddress: t})} />
+                <TextInput style={[styles.input, { height: 80 }]} multiline placeholder="Temporary Address" value={editData.temporaryAddress} onChangeText={t => setEditData({...editData, temporaryAddress: t})} />
+              </View>
+            );
+          case 'Family Details':
+            return (
+              <View>
+                <TextInput style={styles.input} placeholder="Father's Name" value={editData.fatherName} onChangeText={t => setEditData({...editData, fatherName: t})} />
+                <TextInput style={styles.input} placeholder="Mother's Name" value={editData.motherName} onChangeText={t => setEditData({...editData, motherName: t})} />
+                <TextInput style={styles.input} placeholder="Father's Occupation" value={editData.fatherOccupation} onChangeText={t => setEditData({...editData, fatherOccupation: t})} />
+                <TextInput style={styles.input} placeholder="Annual Income" value={editData.annualIncome} onChangeText={t => setEditData({...editData, annualIncome: t})} />
+                <TextInput style={styles.input} placeholder="Father's Phone" value={editData.fatherPhone} onChangeText={t => setEditData({...editData, fatherPhone: t})} />
+                <TextInput style={styles.input} placeholder="Mother's Phone" value={editData.motherPhone} onChangeText={t => setEditData({...editData, motherPhone: t})} />
+              </View>
+            );
+          case 'Education History':
+            return (
+              <View>
+                <TextInput style={styles.input} placeholder="SSC School" value={editData.sscSchool} onChangeText={t => setEditData({...editData, sscSchool: t})} />
+                <TextInput style={styles.input} placeholder="SSC Marks" value={editData.sscMarks} onChangeText={t => setEditData({...editData, sscMarks: t})} />
+                <TextInput style={styles.input} placeholder="SSC Max Marks" value={editData.sscMaxMarks} onChangeText={t => setEditData({...editData, sscMaxMarks: t})} />
+                <TextInput style={styles.input} placeholder="SSC Percentage" value={editData.sscPercentage} onChangeText={t => setEditData({...editData, sscPercentage: t})} />
+                <View style={{ height: 1, backgroundColor: '#eee', marginVertical: 10 }} />
+                <TextInput style={styles.input} placeholder="HSC/Diploma College" value={editData.hscCollege || editData.diplomaCollege} onChangeText={t => setEditData(editData.admissionType === 'DSE' ? {...editData, diplomaCollege: t} : {...editData, hscCollege: t})} />
+                <TextInput style={styles.input} placeholder="HSC/Diploma Marks" value={editData.hscMarks || editData.diplomaMarks} onChangeText={t => setEditData(editData.admissionType === 'DSE' ? {...editData, diplomaMarks: t} : {...editData, hscMarks: t})} />
+                <TextInput style={styles.input} placeholder="HSC/Diploma Percentage" value={editData.hscPercentage || editData.diplomaPercentage} onChangeText={t => setEditData(editData.admissionType === 'DSE' ? {...editData, diplomaPercentage: t} : {...editData, hscPercentage: t})} />
+              </View>
+            );
+          default: return null;
+        }
+      };
+  
+      return (
+        <Modal visible={editModalVisible} transparent animationType="fade" onRequestClose={() => setEditModalVisible(false)}>
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalBody, { maxWidth: 500, maxHeight: '80%' }]}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Quick Edit: {editingSection}</Text>
+                <TouchableOpacity onPress={() => setEditModalVisible(false)}>
+                  <Ionicons name="close" size={24} color={COLORS.text} />
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={{ paddingBottom: 20 }}>
+                {renderFields()}
+              </ScrollView>
+              <View style={[styles.row, { marginTop: 20 }]}>
+                <TouchableOpacity style={[styles.btn, styles.cancelBtn]} onPress={() => setEditModalVisible(false)}>
+                  <Text style={styles.btnText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.btn, styles.saveBtn]} onPress={handleQuickSave} disabled={isSaving}>
+                  {isSaving ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Save Changes</Text>}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      );
+    };
+
+    return (
+      <View style={styles.container}>
       {renderHeader()}
       <View style={styles.mainContent}>
-            <View style={styles.sidebar}>
-              <SidebarItem title="Analytics" icon="analytics-outline" module="analytics" />
-              <SidebarItem title="Courses" icon="book-outline" module="courses" />
-              <SidebarItem title="Students" icon="people-outline" module="students" />
-              <SidebarItem title="Academic" icon="school-outline" module="academic" />
-              <SidebarItem title="Fees" icon="cash-outline" module="fee" />
-              <SidebarItem title="Activities" icon="star-outline" module="activities" />
-              <SidebarItem title="Achievements" icon="trophy-outline" module="achievements" />
-              <SidebarItem title="Internships" icon="briefcase-outline" module="internships" />
+            <View style={[styles.sidebar, { width: width > 800 ? 220 : 60 }]}>
+              {/* Module Group Switcher */}
+              <View style={{ padding: 10, gap: 10 }}>
+                <TouchableOpacity 
+                  style={[styles.moduleSwitchBtn, activeModuleGroup === 'Attendance' && styles.moduleSwitchBtnActive]}
+                  onPress={() => {
+                    setActiveModuleGroup('Attendance');
+                    setCurrentModule('attendance');
+                  }}
+                >
+                  <Ionicons name="checkbox-outline" size={20} color={activeModuleGroup === 'Attendance' ? '#fff' : COLORS.textLight} />
+                  {width > 800 && <Text style={[styles.moduleSwitchText, activeModuleGroup === 'Attendance' && styles.moduleSwitchTextActive]}>Attendance</Text>}
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.moduleSwitchBtn, activeModuleGroup === 'GFM' && styles.moduleSwitchBtnActive]}
+                  onPress={() => {
+                    setActiveModuleGroup('GFM');
+                    setCurrentModule('students');
+                  }}
+                >
+                  <Ionicons name="people-outline" size={20} color={activeModuleGroup === 'GFM' ? '#fff' : COLORS.textLight} />
+                  {width > 800 && <Text style={[styles.moduleSwitchText, activeModuleGroup === 'GFM' && styles.moduleSwitchTextActive]}>GFM Record</Text>}
+                </TouchableOpacity>
+              </View>
+
+              <View style={{ height: 1, backgroundColor: 'rgba(255,255,255,0.1)', marginVertical: 5 }} />
+
+              {activeModuleGroup === 'Attendance' ? (
+                <>
+                  <SidebarItem title="Attendance" icon="checkbox-outline" module="attendance" />
+                  <SidebarItem title="Summary" icon="list-outline" module="attendance-summary" />
+                  <SidebarItem title="Batch Profile" icon="settings-outline" module="batch-config" />
+                  {(userRole === 'admin' || userRole === 'teacher') && <SidebarItem title="GFM Reports" icon="document-text-outline" module="gfm-reports" />}
+                </>
+              ) : (
+                <>
+                  <SidebarItem title="Students" icon="people-outline" module="students" />
+                  <SidebarItem title="Analytics" icon="analytics-outline" module="analytics" />
+                  <SidebarItem title="Academic" icon="school-outline" module="academic" />
+                  <SidebarItem title="Fees" icon="cash-outline" module="fee" />
+                  <SidebarItem title="Activities" icon="star-outline" module="activities" />
+                  <SidebarItem title="Achievements" icon="trophy-outline" module="achievements" />
+                  <SidebarItem title="Internships" icon="briefcase-outline" module="internships" />
+                  <SidebarItem title="Courses" icon="book-outline" module="courses" />
+                </>
+              )}
             </View>
 
         
@@ -662,71 +959,83 @@ export default function TeacherDashboard() {
               {loading ? (
                 <ActivityIndicator size="large" color={COLORS.primary} style={{ marginTop: 50 }} />
               ) : (
-                      <ModuleRenderer 
-                        module={currentModule} 
-                        students={filteredStudents} 
-                        courses={courses}
-                        filters={{ dept: deptFilter, year: yearFilter, div: divFilter, sem: semFilter, activityType: activityTypeFilter }}
-                        setSelectedStudentForDetails={setSelectedStudentForDetails}
-                      setSelectedStudentForAcademicView={setSelectedStudentForAcademicView}
-                      setStudentForPrint={setStudentForPrint}
-                      setPrintOptionsVisible={setPrintOptionsVisible}
-                      handleVerify={handleVerify}
-                      loadData={loadData}
-                    />
-
-              )}
-            </ScrollView>
+                          <ModuleRenderer 
+                            module={currentModule} 
+                            students={filteredStudents} 
+                            courses={courses}
+                            yearsOfStudy={yearsOfStudy}
+                            filters={{ 
+                              dept: activeModuleGroup === 'Attendance' ? attDeptFilter : gfmDeptFilter, 
+                              year: activeModuleGroup === 'Attendance' ? attYearFilter : gfmYearFilter, 
+                              div: activeModuleGroup === 'Attendance' ? attDivFilter : gfmDivFilter, 
+                              sem: semFilter, 
+                              activityType: activityTypeFilter 
+                            }}
+                            setSelectedStudentForDetails={setSelectedStudentForDetails}
+                        setSelectedStudentForAcademicView={setSelectedStudentForAcademicView}
+                        setStudentForPrint={setStudentForPrint}
+                        setPrintOptionsVisible={setPrintOptionsVisible}
+                        handleVerify={handleVerify}
+                          loadData={loadData}
+                        />
+                )}
+              </ScrollView>
+            </View>
           </View>
-        </View>
 
-            {selectedStudentForDetails && (
-              <StudentDetailsModal 
-                student={selectedStudentForDetails} 
-                visible={!!selectedStudentForDetails} 
-                onClose={() => setSelectedStudentForDetails(null)} 
-                exportStudentPDF={(s, opt) => exportStudentPDF(s, opt, setLoading)}
-              />
-            )}
-          <PrintOptionsModal />
-          {selectedStudentForAcademicView && (
-            <AcademicViewModal
-              student={selectedStudentForAcademicView}
-              visible={!!selectedStudentForAcademicView}
-              onClose={() => setSelectedStudentForAcademicView(null)}
-            />
-          )}
-        </View>
+              {selectedStudentForDetails && (
+                <StudentDetailsModal 
+                  student={selectedStudentForDetails} 
+                  visible={!!selectedStudentForDetails} 
+                  onClose={() => setSelectedStudentForDetails(null)} 
+                  exportStudentPDF={(s, opt) => exportStudentPDF(s, opt, setLoading)}
+                />
+              )}
+            <PrintOptionsModal />
+              {selectedStudentForAcademicView && (
+                <AcademicViewModal
+                  student={selectedStudentForAcademicView}
+                  visible={!!selectedStudentForAcademicView}
+                  onClose={() => setSelectedStudentForAcademicView(null)}
+                />
+              )}
+              <QuickEditModal />
+            </View>
+      );
+    }
 
-    );
-  }
+    const ModuleRenderer = ({ module, students, courses, yearsOfStudy, filters, setSelectedStudentForDetails, setSelectedStudentForAcademicView, setStudentForPrint, setPrintOptionsVisible, handleVerify, loadData }: any) => {
+      if (!filters) return <ActivityIndicator size="small" color={COLORS.primary} />;
 
-    const ModuleRenderer = ({ module, students, courses, filters, setSelectedStudentForDetails, setSelectedStudentForAcademicView, setStudentForPrint, setPrintOptionsVisible, handleVerify, loadData }: any) => {
-    if (!filters) return <ActivityIndicator size="small" color={COLORS.primary} />;
+        switch (module) {
+          case 'analytics': return <AnalyticsManagement students={students} filters={filters} />;
+          case 'students': return <StudentManagement 
+            students={students} 
+            filters={filters} 
+            onViewDetails={setSelectedStudentForDetails} 
+            onPrint={(s: Student) => {
+              setStudentForPrint(s);
+              setPrintOptionsVisible(true);
+            }}
+            handleVerify={handleVerify} 
+          />;
+          case 'courses': return <CoursesManagement courses={courses} filters={filters} loadData={loadData} />;
+      case 'academic': return <AcademicManagement students={students} filters={filters} onViewDetails={setSelectedStudentForDetails} onViewAcademicDetails={setSelectedStudentForAcademicView} />;
+      case 'fee': return <FeeManagement students={students} filters={filters} handleVerify={handleVerify} />;
+      case 'activities': return <ActivitiesManagement students={students} filters={filters} handleVerify={handleVerify} />;
+      case 'achievements': return <AchievementsManagement students={students} filters={filters} handleVerify={handleVerify} />;
+      case 'internships': return <InternshipsManagement students={students} filters={filters} handleVerify={handleVerify} />;
+      case 'batch-config': return <BatchConfigManagement loadData={loadData} yearsOfStudy={yearsOfStudy} />;
+      case 'attendance': return <AttendanceManagement filters={filters} loadData={loadData} />;
+      case 'attendance-summary': return <AttendanceSummaryManagement filters={filters} />;
+      case 'gfm-reports': return <AdminReportsManagement filters={filters} />;
+      default: return <Text>Select a module</Text>;
+    }
+  };
 
-      switch (module) {
-        case 'analytics': return <AnalyticsManagement students={students} filters={filters} />;
-        case 'students': return <StudentManagement 
-          students={students} 
-          filters={filters} 
-          onViewDetails={setSelectedStudentForDetails} 
-          onPrint={(s: Student) => {
-            setStudentForPrint(s);
-            setPrintOptionsVisible(true);
-          }}
-          handleVerify={handleVerify} 
-        />;
-        case 'courses': return <CoursesManagement courses={courses} filters={filters} loadData={loadData} />;
-    case 'academic': return <AcademicManagement students={students} filters={filters} onViewDetails={setSelectedStudentForDetails} onViewAcademicDetails={setSelectedStudentForAcademicView} />;
-    case 'fee': return <FeeManagement students={students} filters={filters} handleVerify={handleVerify} />;
-    case 'activities': return <ActivitiesManagement students={students} filters={filters} handleVerify={handleVerify} />;
-    case 'achievements': return <AchievementsManagement students={students} filters={filters} handleVerify={handleVerify} />;
-    case 'internships': return <InternshipsManagement students={students} filters={filters} handleVerify={handleVerify} />;
-    default: return <Text>Select a module</Text>;
-  }
-};
 
   const AcademicViewModal = ({ student, visible, onClose }: { student: Student, visible: boolean, onClose: () => void }) => {
+    const { width } = useWindowDimensions();
     const [academicRecords, setAcademicRecords] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -779,20 +1088,16 @@ export default function TeacherDashboard() {
                     <View style={[styles.tableRow, styles.tableHeader]}>
                       <Text style={[styles.tableCell, { flex: 0.5 }]}>Sem</Text>
                       <Text style={[styles.tableCell, { flex: 2 }]}>Course</Text>
-                      <Text style={[styles.tableCell, { flex: 0.6 }]}>ISE</Text>
                       <Text style={[styles.tableCell, { flex: 0.6 }]}>MSE</Text>
                       <Text style={[styles.tableCell, { flex: 0.6 }]}>ESE</Text>
-                      <Text style={[styles.tableCell, { flex: 0.8 }]}>Total</Text>
                       <Text style={[styles.tableCell, { flex: 0.6 }]}>Grade</Text>
                     </View>
                     {academicRecords.map((r, idx) => (
                       <View key={idx} style={styles.tableRow}>
                         <Text style={[styles.tableCell, { flex: 0.5 }]}>{r.semester}</Text>
                         <Text style={[styles.tableCell, { flex: 2 }]}>{r.courseName}</Text>
-                        <Text style={[styles.tableCell, { flex: 0.6 }]}>{r.iseMarks || 0}</Text>
                         <Text style={[styles.tableCell, { flex: 0.6 }]}>{r.mseMarks || 0}</Text>
                         <Text style={[styles.tableCell, { flex: 0.6 }]}>{r.eseMarks || 0}</Text>
-                        <Text style={[styles.tableCell, { flex: 0.8 }]}>{r.totalMarks}</Text>
                         <Text style={[styles.tableCell, { flex: 0.6, fontWeight: 'bold', color: r.grade === 'F' ? COLORS.error : COLORS.success }]}>{r.grade}</Text>
                       </View>
                     ))}
@@ -816,6 +1121,7 @@ export default function TeacherDashboard() {
   };
 
 const StudentDetailsModal = ({ student, visible, onClose, exportStudentPDF }: { student: Student, visible: boolean, onClose: () => void, exportStudentPDF: (student: Student, options: any) => Promise<void> }) => {
+  const { width } = useWindowDimensions();
   const [viewMode, setViewMode] = useState<'details' | 'template'>('template');
   const [htmlContent, setHtmlContent] = useState('');
   const [templateLoading, setTemplateLoading] = useState(false);
@@ -842,13 +1148,13 @@ const StudentDetailsModal = ({ student, visible, onClose, exportStudentPDF }: { 
           lastBalance = f.remainingBalance || 0;
         });
 
-        let academicTable = '<table><thead><tr><th>Sem</th><th>Course</th><th>ISE</th><th>MSE</th><th>ESE</th><th>Total</th><th>Grade</th></tr></thead><tbody>';
+        let academicTable = '<table><thead><tr><th>Sem</th><th>Course</th><th>MSE</th><th>ESE</th><th>Grade</th></tr></thead><tbody>';
         if (academicRecords.length > 0) {
           academicRecords.forEach(r => {
-            academicTable += `<tr><td>${r.semester}</td><td>${r.courseName}</td><td>${r.iseMarks || 0}</td><td>${r.mseMarks || 0}</td><td>${r.eseMarks || 0}</td><td>${r.totalMarks}</td><td>${r.grade}</td></tr>`;
+            academicTable += `<tr><td>${r.semester}</td><td>${r.courseName}</td><td>${r.mseMarks || 0}</td><td>${r.eseMarks || 0}</td><td>${r.grade}</td></tr>`;
           });
         } else {
-          academicTable += '<tr><td colspan="7">No academic records</td></tr>';
+          academicTable += '<tr><td colspan="5">No academic records</td></tr>';
         }
         academicTable += '</tbody></table>';
 
@@ -902,8 +1208,8 @@ const StudentDetailsModal = ({ student, visible, onClose, exportStudentPDF }: { 
 
         const internshipsTable = `<table><thead><tr><th>Company</th><th>Role</th><th>Status</th></tr></thead><tbody>${internships.length > 0 ? internships.map(i => `<tr><td>${i.companyName}</td><td>${i.role}</td><td>${i.verificationStatus}</td></tr>`).join('') : '<tr><td colspan="3">No records</td></tr>'}</tbody></table>`;
 
-        const b64LogoLeft = await getBase64Image(LOGO_LEFT);
-        const b64LogoRight = await getBase64Image(LOGO_RIGHT);
+        const b64LogoLeft = await getBase64Image(LOGO_LEFT_IMG);
+        const b64LogoRight = await getBase64Image(LOGO_RIGHT_IMG);
         const b64StudentPhoto = await getBase64Image(student.photoUri || 'https://via.placeholder.com/150');
 
         const dataMap = {
@@ -1009,85 +1315,115 @@ return (
                         dangerouslySetInnerHTML={{ __html: htmlContent }}
                       />
                     )}
-                  </View>
-                ) : (
-
-              <View style={{ padding: 20 }}>
-                <Text>Template view is optimized for Web. Please use Data View on mobile.</Text>
+                    </View>
+                  ) : (
+                    <View style={{ padding: 20 }}>
+                      <Text>Template view is optimized for Web. Please use Data View on mobile.</Text>
+                    </View>
+                  )
+                  ) : (
+                    <View style={{ padding: 20 }}>
+                  <View style={{ alignItems: 'center', marginBottom: 20 }}>
+                  <Image 
+                    source={{ uri: student.photoUri || 'https://via.placeholder.com/150' }} 
+                    style={{ width: 120, height: 120, borderRadius: 60, borderWidth: 3, borderColor: COLORS.secondary }} 
+                  />
+                </View>
+            <View style={styles.detailSection}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Personal Information</Text>
+                <TouchableOpacity onPress={() => openQuickEdit(student, 'Personal Information')}>
+                  <Ionicons name="pencil" size={18} color={COLORS.secondary} />
+                </TouchableOpacity>
               </View>
-            )
-          ) : (
-            <View style={{ padding: 20 }}>
-          <View style={styles.detailSection}>
-            <Text style={styles.sectionTitle}>Personal Information</Text>
-            <View style={styles.detailGrid}>
-              <DetailItem label="PRN" value={student.prn} />
-              <DetailItem label="Full Name" value={student.fullName} />
-              <DetailItem label="Gender" value={student.gender} />
-              <DetailItem label="Religion" value={student.religion} />
-              <DetailItem label="Category" value={student.category} />
-              <DetailItem label="Caste" value={student.caste} />
-              <DetailItem label="DOB" value={student.dob} />
-              <DetailItem label="Aadhar" value={student.aadhar} />
+              <View style={styles.detailGrid}>
+                <DetailItem label="PRN" value={student.prn} />
+                <DetailItem label="Full Name" value={student.fullName} />
+                <DetailItem label="Gender" value={student.gender} />
+                <DetailItem label="Religion" value={student.religion} />
+                <DetailItem label="Category" value={student.category} />
+                <DetailItem label="Caste" value={student.caste} />
+                <DetailItem label="DOB" value={student.dob} />
+                <DetailItem label="Aadhar" value={student.aadhar} />
+              </View>
             </View>
-          </View>
-
-          <View style={styles.detailSection}>
-            <Text style={styles.sectionTitle}>Academic Status</Text>
-            <View style={styles.detailGrid}>
-              <DetailItem label="Department" value={student.branch} />
-              <DetailItem label="Year" value={student.yearOfStudy} />
-              <DetailItem label="Division" value={student.division} />
-              <DetailItem label="Verification" value={student.verificationStatus} color={student.verificationStatus === 'Verified' ? COLORS.success : COLORS.warning} />
-            </View>
-          </View>
-
-          <View style={styles.detailSection}>
-            <Text style={styles.sectionTitle}>Contact & Address</Text>
-            <View style={styles.detailGrid}>
-              <DetailItem label="Phone" value={student.phone} />
-              <DetailItem label="Email" value={student.email} />
-              <DetailItem label="Pincode" value={student.pincode} />
-              <DetailItem label="Permanent Address" value={student.permanentAddress} fullWidth />
-              <DetailItem label="Temporary Address" value={student.temporaryAddress} fullWidth />
-            </View>
-          </View>
-
-          <View style={styles.detailSection}>
-            <Text style={styles.sectionTitle}>Family Details</Text>
-            <View style={styles.detailGrid}>
-              <DetailItem label="Father's Name" value={student.fatherName} />
-              <DetailItem label="Mother's Name" value={student.motherName} />
-              <DetailItem label="Father's Occupation" value={student.fatherOccupation} />
-              <DetailItem label="Annual Income" value={student.annualIncome} />
-              <DetailItem label="Father's Phone" value={student.fatherPhone} />
-              <DetailItem label="Mother's Phone" value={student.motherPhone} />
-            </View>
-          </View>
 
             <View style={styles.detailSection}>
-              <Text style={styles.sectionTitle}>Education History</Text>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Academic Status</Text>
+                <TouchableOpacity onPress={() => openQuickEdit(student, 'Academic Status')}>
+                  <Ionicons name="pencil" size={18} color={COLORS.secondary} />
+                </TouchableOpacity>
+              </View>
               <View style={styles.detailGrid}>
-                <DetailItem label="SSC School" value={student.sscSchool} />
-                <DetailItem label="SSC Marks" value={`${student.sscMarks}/${student.sscMaxMarks} (${student.sscPercentage}%)`} />
-                
-                {(student.admissionType === 'DSE' || !!student.diplomaCollege) ? (
-                  <>
-                    <DetailItem label="Diploma College" value={student.diplomaCollege} />
-                    <DetailItem label="Diploma Marks" value={`${student.diplomaMarks}/${student.diplomaMaxMarks} (${student.diplomaPercentage}%)`} />
-                    <DetailItem label="Diploma Branch" value={student.diplomaBranch} />
-                  </>
-                ) : (
-                  <>
-                    <DetailItem label="HSC College" value={student.hscCollege} />
-                    <DetailItem label="HSC Marks" value={`${student.hscMarks}/${student.hscMaxMarks} (${student.hscPercentage}%)`} />
-                  </>
-                )}
+                <DetailItem label="Department" value={student.branch} />
+                <DetailItem label="Year" value={student.yearOfStudy} />
+                <DetailItem label="Division" value={student.division} />
+                <DetailItem label="Verification" value={student.verificationStatus} color={student.verificationStatus === 'Verified' ? COLORS.success : COLORS.warning} />
               </View>
             </View>
+
+            <View style={styles.detailSection}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Contact & Address</Text>
+                <TouchableOpacity onPress={() => openQuickEdit(student, 'Contact & Address')}>
+                  <Ionicons name="pencil" size={18} color={COLORS.secondary} />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.detailGrid}>
+                <DetailItem label="Phone" value={student.phone} />
+                <DetailItem label="Email" value={student.email} />
+                <DetailItem label="Pincode" value={student.pincode} />
+                <DetailItem label="Permanent Address" value={student.permanentAddress} fullWidth />
+                <DetailItem label="Temporary Address" value={student.temporaryAddress} fullWidth />
+              </View>
             </View>
-          )}
-        </ScrollView>
+
+            <View style={styles.detailSection}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Family Details</Text>
+                <TouchableOpacity onPress={() => openQuickEdit(student, 'Family Details')}>
+                  <Ionicons name="pencil" size={18} color={COLORS.secondary} />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.detailGrid}>
+                <DetailItem label="Father's Name" value={student.fatherName} />
+                <DetailItem label="Mother's Name" value={student.motherName} />
+                <DetailItem label="Father's Occupation" value={student.fatherOccupation} />
+                <DetailItem label="Annual Income" value={student.annualIncome} />
+                <DetailItem label="Father's Phone" value={student.fatherPhone} />
+                <DetailItem label="Mother's Phone" value={student.motherPhone} />
+              </View>
+            </View>
+
+              <View style={styles.detailSection}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                  <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Education History</Text>
+                  <TouchableOpacity onPress={() => openQuickEdit(student, 'Education History')}>
+                    <Ionicons name="pencil" size={18} color={COLORS.secondary} />
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.detailGrid}>
+                  <DetailItem label="SSC School" value={student.sscSchool} />
+                  <DetailItem label="SSC Marks" value={`${student.sscMarks}/${student.sscMaxMarks} (${student.sscPercentage}%)`} />
+                  
+                  {(student.admissionType === 'DSE' || !!student.diplomaCollege) ? (
+                    <>
+                      <DetailItem label="Diploma College" value={student.diplomaCollege} />
+                      <DetailItem label="Diploma Marks" value={`${student.diplomaMarks}/${student.diplomaMaxMarks} (${student.diplomaPercentage}%)`} />
+                      <DetailItem label="Diploma Branch" value={student.diplomaBranch} />
+                    </>
+                  ) : (
+                    <>
+                      <DetailItem label="HSC College" value={student.hscCollege} />
+                      <DetailItem label="HSC Marks" value={`${student.hscMarks}/${student.hscMaxMarks} (${student.hscPercentage}%)`} />
+                    </>
+                  )}
+                    </View>
+                  </View>
+                </View>
+                )}
+              </ScrollView>
 
         <View style={[styles.row, { borderTopWidth: 1, borderTopColor: '#eee', padding: 20, backgroundColor: '#fff', justifyContent: 'center', gap: 20 }]}>
           <TouchableOpacity 
@@ -1112,14 +1448,794 @@ return (
 };
 
 const DetailItem = ({ label, value, fullWidth, color }: { label: string, value: any, fullWidth?: boolean, color?: string }) => (
-<View style={{ width: fullWidth ? '100%' : '48%', marginBottom: 12 }}>
-  <Text style={styles.detailLabel}>{label}</Text>
-  <Text style={[styles.detailValue, color ? { color } : {}]}>{value || 'N/A'}</Text>
-</View>
+  <View style={{ width: fullWidth ? '100%' : '48%', marginBottom: 12 }}>
+    <Text style={styles.detailLabel}>{label}</Text>
+    <Text style={[styles.detailValue, color ? { color } : {}]}>{value || 'N/A'}</Text>
+  </View>
 );
 
-  const StudentManagement = ({ students, filters, onViewDetails, onPrint, handleVerify }: { students: Student[], filters: any, onViewDetails: (s: Student) => void, onPrint: (s: Student) => void, handleVerify: any }) => {
-  const exportCSV = () => {
+const AnalyticsRowComp = ({ label, verified, total, color }: any) => {
+  return (
+    <View style={{ marginBottom: 12 }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+        <Text style={{ fontSize: 13, color: COLORS.textLight }}>{label}</Text>
+        <Text style={{ fontSize: 13, fontWeight: '600' }}>{verified}/{total} Verified</Text>
+      </View>
+      <View style={{ height: 6, backgroundColor: '#f0f0f0', borderRadius: 3, overflow: 'hidden' }}>
+        <View style={{ height: '100%', backgroundColor: color, width: total > 0 ? `${(verified / total) * 100}%` : '0%' }} />
+      </View>
+    </View>
+  );
+};
+
+// ============= ATTENDANCE MANAGEMENT COMPONENTS =============
+
+const BatchConfigManagement = ({ loadData, yearsOfStudy }: { loadData: () => void, yearsOfStudy: string[] }) => {
+  const [config, setConfig] = useState<TeacherBatchConfig | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [previewStudents, setPreviewStudents] = useState<Student[]>([]);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  useEffect(() => {
+    fetchConfig();
+  }, []);
+
+  useEffect(() => {
+    if (config?.rbtFrom && config?.rbtTo && config.rbtFrom.length >= 3 && config.rbtTo.length >= 3) {
+      loadPreview();
+    } else {
+      setPreviewStudents([]);
+    }
+  }, [config?.rbtFrom, config?.rbtTo, config?.division, config?.class, config?.department]);
+
+  const loadPreview = async () => {
+    setPreviewLoading(true);
+    try {
+      const students = await getStudentsByRbtRange(
+        config!.department,
+        config!.class,
+        config!.division,
+        config!.rbtFrom,
+        config!.rbtTo
+      );
+      setPreviewStudents(students);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const fetchConfig = async () => {
+    const session = await getSession();
+    if (!session) return;
+    const data = await getTeacherBatchConfig(session.userId);
+    if (data) setConfig(data);
+    else {
+      setConfig({
+        teacherId: session.userId,
+        academicYear: '2025-26',
+        department: session.department || 'CSE',
+        class: '2nd Year',
+        division: 'A',
+        batchName: 'B1',
+        rbtFrom: '',
+        rbtTo: ''
+      });
+    }
+    setLoading(false);
+  };
+
+  const handleSave = async () => {
+    if (!config?.rbtFrom || !config?.rbtTo) {
+      Alert.alert('Error', 'Please enter RBT range');
+      return;
+    }
+    setSaving(true);
+    try {
+      await saveTeacherBatchConfig(config);
+      Alert.alert('Success', 'Batch configuration updated successfully');
+      loadData();
+    } catch (e) {
+      Alert.alert('Error', 'Failed to save configuration');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return <ActivityIndicator size="large" color={COLORS.primary} />;
+
+  return (
+    <View style={styles.moduleCard}>
+      <Text style={styles.moduleTitle}>My Batch Details</Text>
+      <Text style={[styles.helperText, { marginTop: 5 }]}>Configure your assigned RBT range for attendance.</Text>
+      
+      <View style={{ marginTop: 20 }}>
+        <View style={styles.row}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.filterLabel}>Academic Year</Text>
+            <View style={[styles.pickerWrapper, { width: '100%' }]}>
+              <Picker selectedValue={config?.academicYear} onValueChange={v => setConfig({...config!, academicYear: v})}>
+                <Picker.Item label="2025-26" value="2025-26" />
+                <Picker.Item label="2024-25" value="2024-25" />
+              </Picker>
+            </View>
+          </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.filterLabel}>Class</Text>
+              <View style={[styles.pickerWrapper, { width: '100%' }]}>
+                <Picker selectedValue={config?.class} onValueChange={v => setConfig({...config!, class: v})}>
+                  {yearsOfStudy.map(year => (
+                    <Picker.Item key={year} label={year} value={year} />
+                  ))}
+                </Picker>
+              </View>
+            </View>
+        </View>
+
+        <View style={[styles.row, { marginTop: 15 }]}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.filterLabel}>Division</Text>
+            <View style={[styles.pickerWrapper, { width: '100%' }]}>
+              <Picker selectedValue={config?.division} onValueChange={v => setConfig({...config!, division: v})}>
+                <Picker.Item label="A" value="A" />
+                <Picker.Item label="B" value="B" />
+                <Picker.Item label="C" value="C" />
+              </Picker>
+            </View>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.filterLabel}>Batch Name</Text>
+            <TextInput 
+              style={styles.input} 
+              placeholder="e.g. B1, B2" 
+              value={config?.batchName} 
+              onChangeText={t => setConfig({...config!, batchName: t})} 
+            />
+          </View>
+        </View>
+
+        <View style={[styles.row, { marginTop: 5 }]}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.filterLabel}>RBT Range From</Text>
+            <TextInput 
+              style={styles.input} 
+              placeholder="e.g. RBT24CS001" 
+              value={config?.rbtFrom} 
+              onChangeText={t => setConfig({...config!, rbtFrom: t.toUpperCase()})} 
+            />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.filterLabel}>RBT Range To</Text>
+            <TextInput 
+              style={styles.input} 
+              placeholder="e.g. RBT24CS075" 
+              value={config?.rbtTo} 
+              onChangeText={t => setConfig({...config!, rbtTo: t.toUpperCase()})} 
+            />
+          </View>
+        </View>
+
+        <TouchableOpacity 
+          style={[styles.saveBtn, { padding: 15, borderRadius: 10, marginTop: 10, opacity: saving ? 0.7 : 1 }]} 
+          onPress={handleSave}
+          disabled={saving}
+        >
+          {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Save Configuration</Text>}
+        </TouchableOpacity>
+      </View>
+
+      {/* Batch Preview */}
+      <View style={{ marginTop: 30, borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 20 }}>
+        <Text style={[styles.moduleTitle, { fontSize: 16 }]}>Batch Preview ({previewStudents.length} Students)</Text>
+        {previewLoading ? (
+          <ActivityIndicator size="small" color={COLORS.secondary} style={{ marginTop: 20 }} />
+        ) : previewStudents.length > 0 ? (
+          <View style={[styles.table, { marginTop: 10 }]}>
+            <View style={[styles.tableRow, styles.tableHeader]}>
+              <Text style={[styles.tableCell, { flex: 1 }]}>PRN</Text>
+              <Text style={[styles.tableCell, { flex: 2 }]}>Name</Text>
+              <Text style={[styles.tableCell, { flex: 1 }]}>Roll</Text>
+            </View>
+            {previewStudents.slice(0, 10).map(s => (
+              <View key={s.prn} style={styles.tableRow}>
+                <Text style={[styles.tableCell, { flex: 1 }]}>{s.prn}</Text>
+                <Text style={[styles.tableCell, { flex: 2 }]}>{s.fullName}</Text>
+                <Text style={[styles.tableCell, { flex: 1 }]}>{s.prn.slice(-3)}</Text>
+              </View>
+            ))}
+            {previewStudents.length > 10 && (
+              <Text style={{ textAlign: 'center', padding: 10, color: COLORS.textLight, fontSize: 12 }}>
+                + {previewStudents.length - 10} more students
+              </Text>
+            )}
+          </View>
+        ) : (
+          <View style={{ padding: 30, alignItems: 'center' }}>
+            <Ionicons name="people-outline" size={32} color={COLORS.textLight} />
+            <Text style={{ color: COLORS.textLight, marginTop: 10 }}>No students found in this range.</Text>
+            <Text style={{ color: COLORS.textLight, fontSize: 12, textAlign: 'center' }}>
+              Check if Year, Department and Division match your student data.
+            </Text>
+          </View>
+        )}
+      </View>
+    </View>
+  );
+};
+
+const AttendanceManagement = ({ filters, loadData }: { filters: any, loadData: () => void }) => {
+  const [students, setStudents] = useState<Student[]>([]);
+  const [absentPrns, setAbsentPrns] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [session, setSession] = useState<AttendanceSession | null>(null);
+
+  useEffect(() => {
+    if (filters.dept !== 'All' && filters.year !== 'All' && filters.div !== 'All') {
+      initAttendance();
+    }
+  }, [filters]);
+
+  const initAttendance = async () => {
+    setLoading(true);
+    const s = await getSession();
+    if (!s) return;
+    
+    try {
+      // Check if attendance already taken today for this division
+      const today = new Date().toISOString().split('T')[0];
+      const { data: existingSession, error } = await supabase
+        .from('attendance_sessions')
+        .select('*')
+        .eq('date', today)
+        .eq('department', filters.dept)
+        .eq('academic_year', filters.year)
+        .eq('division', filters.div)
+        .maybeSingle();
+
+      if (existingSession) {
+        setSession(toCamelCase(existingSession));
+        const records = await getAttendanceRecords(existingSession.id);
+        const absents = new Set(records.filter(r => r.status === 'Absent').map(r => r.studentPrn));
+        setAbsentPrns(absents);
+      } else {
+        setSession(null);
+        setAbsentPrns(new Set());
+      }
+
+        const studentList = await getStudentsByDivision(filters.dept, filters.year, filters.div, true);
+        setStudents(studentList);
+
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleAbsent = (prn: string) => {
+    if (session?.locked) return;
+    setAbsentPrns(prev => {
+      const next = new Set(prev);
+      if (next.has(prn)) next.delete(prn);
+      else next.add(prn);
+      return next;
+    });
+  };
+
+  const handleSubmit = async () => {
+    if (students.length === 0) return;
+    
+    const confirmMsg = `Are you sure? Marking ${absentPrns.size} students as absent out of ${students.length}.`;
+    if (!isWeb) {
+      Alert.alert('Confirm Submission', confirmMsg, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Submit', onPress: submitFinal }
+      ]);
+    } else {
+      if (window.confirm(confirmMsg)) submitFinal();
+    }
+  };
+
+  const submitFinal = async () => {
+    setSubmitting(true);
+    try {
+      const s = await getSession();
+      const newSession = await createAttendanceSession({
+        teacherId: s!.userId,
+        date: new Date().toISOString().split('T')[0],
+        academicYear: filters.year,
+        department: filters.dept,
+        class: filters.year, // Using year as class for now as per schema
+        division: filters.div,
+        locked: true
+      });
+
+      const records: AttendanceRecord[] = students.map(st => ({
+        sessionId: newSession.id,
+        studentPrn: st.prn,
+        status: absentPrns.has(st.prn) ? 'Absent' : 'Present',
+        remark: ''
+      }));
+
+      await saveAttendanceRecords(records);
+      setSession(newSession);
+      Alert.alert('Success', 'Attendance recorded successfully');
+      loadData();
+    } catch (e) {
+      Alert.alert('Error', 'Failed to record attendance');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (filters.dept === 'All' || filters.year === 'All' || filters.div === 'All') {
+    return (
+      <View style={[styles.moduleCard, { alignItems: 'center', padding: 40 }]}>
+        <Ionicons name="filter-outline" size={48} color={COLORS.primary} />
+        <Text style={{ marginTop: 10, fontSize: 16, fontWeight: 'bold' }}>Select Filters</Text>
+        <Text style={{ textAlign: 'center', color: COLORS.textLight, marginTop: 5 }}>
+          Please select Department, Year, and Division to take attendance.
+        </Text>
+      </View>
+    );
+  }
+
+  if (loading) return <ActivityIndicator size="large" color={COLORS.primary} />;
+
+  return (
+    <View style={styles.moduleCard}>
+      <View style={styles.moduleHeader}>
+        <View>
+          <Text style={styles.moduleTitle}>Attendance Taker</Text>
+          <Text style={styles.helperText}>
+            {filters.year} {filters.div} | {students.length} Students
+          </Text>
+        </View>
+        {session?.locked ? (
+          <View style={{ backgroundColor: COLORS.success + '20', padding: 8, borderRadius: 8, flexDirection: 'row', alignItems: 'center' }}>
+            <Ionicons name="lock-closed" size={16} color={COLORS.success} />
+            <Text style={{ color: COLORS.success, fontWeight: 'bold', marginLeft: 5 }}>Submitted</Text>
+          </View>
+        ) : (
+          <TouchableOpacity 
+            style={[styles.saveBtn, { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10 }]} 
+            onPress={handleSubmit}
+            disabled={submitting || students.length === 0}
+          >
+            {submitting ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.btnText}>Submit Absentees</Text>}
+          </TouchableOpacity>
+        )}
+      </View>
+
+      <Text style={[styles.helperText, { marginBottom: 15, color: COLORS.secondary }]}>
+        * Tap on students who are ABSENT. All others are marked Present by default.
+      </Text>
+
+      <View style={styles.table}>
+        <View style={[styles.tableRow, styles.tableHeader]}>
+          <Text style={[styles.tableCell, { flex: 0.8 }]}>Roll / PRN</Text>
+          <Text style={[styles.tableCell, { flex: 2 }]}>Student Name</Text>
+          <Text style={[styles.tableCell, { flex: 1, textAlign: 'center' }]}>Status</Text>
+        </View>
+        <FlatList
+          data={students}
+          keyExtractor={item => item.prn}
+          scrollEnabled={false}
+          renderItem={({ item }) => {
+            const isAbsent = absentPrns.has(item.prn);
+            return (
+              <TouchableOpacity 
+                style={[styles.tableRow, isAbsent && { backgroundColor: COLORS.error + '05' }]}
+                onPress={() => toggleAbsent(item.prn)}
+                disabled={session?.locked}
+              >
+                <Text style={[styles.tableCell, { flex: 0.8 }]}>{item.prn.slice(-3)}</Text>
+                <Text style={[styles.tableCell, { flex: 2, fontWeight: isAbsent ? 'bold' : 'normal' }]}>{item.fullName}</Text>
+                <View style={[
+                  { flex: 1, paddingVertical: 6, borderRadius: 6, alignItems: 'center' },
+                  !isAbsent ? { backgroundColor: COLORS.success + '15' } : { backgroundColor: COLORS.error + '15' }
+                ]}>
+                  <Text style={{ 
+                    fontWeight: 'bold', fontSize: 12,
+                    color: !isAbsent ? COLORS.success : COLORS.error
+                  }}>
+                    {isAbsent ? 'ABSENT' : 'PRESENT'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            );
+          }}
+        />
+      </View>
+    </View>
+  );
+};
+
+const AttendanceSummaryManagement = ({ filters }: any) => {
+  const [config, setConfig] = useState<TeacherBatchConfig | null>(null);
+  const [session, setSession] = useState<AttendanceSession | null>(null);
+  const [records, setRecords] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    loadGfmDashboard();
+  }, [filters]);
+
+  const loadGfmDashboard = async () => {
+    setLoading(true);
+    const s = await getSession();
+    if (!s) return;
+
+    // 1. Get GFM's assigned RBT range
+    const batchConfig = await getTeacherBatchConfig(s.userId);
+    if (!batchConfig) {
+      setLoading(false);
+      return;
+    }
+    setConfig(batchConfig);
+
+    // 2. Find today's division session (created by Attendance Taker)
+    const today = new Date().toISOString().split('T')[0];
+    const { data: divSession, error } = await supabase
+      .from('attendance_sessions')
+      .select('*')
+      .eq('date', today)
+      .eq('department', batchConfig.department)
+      .eq('academic_year', batchConfig.academicYear)
+      .eq('division', batchConfig.division)
+      .maybeSingle();
+
+      if (divSession) {
+        setSession(toCamelCase(divSession));
+        // 3. Get all records and filter by GFM's RBT range
+        const attRecords = await getAttendanceRecords(divSession.id);
+        const filtered = attRecords.filter(r => {
+          const fromVal = batchConfig.rbtFrom.toUpperCase();
+          const toVal = batchConfig.rbtTo.toUpperCase();
+          const prnVal = r.studentPrn.toUpperCase();
+
+          if (!isNaN(Number(fromVal)) && !isNaN(Number(toVal))) {
+            const rollNo = parseInt(r.studentPrn.slice(-3));
+            return rollNo >= parseInt(fromVal) && rollNo <= parseInt(toVal);
+          }
+          return prnVal >= fromVal && prnVal <= toVal;
+        });
+        setRecords(filtered);
+      }
+    setLoading(false);
+  };
+
+  const handleUpdateStatus = (idx: number, newStatus: 'Present' | 'Absent' | 'Late') => {
+    const updated = [...records];
+    updated[idx] = { ...updated[idx], status: newStatus };
+    setRecords(updated);
+  };
+
+  const handleUpdateRemark = (idx: number, remark: string) => {
+    const updated = [...records];
+    updated[idx] = { ...updated[idx], remark };
+    setRecords(updated);
+  };
+
+  const saveChanges = async () => {
+    // Validate Late remarks
+    const invalid = records.find(r => r.status === 'Late' && !r.remark);
+    if (invalid) {
+      Alert.alert('Error', `Mandatory remark missing for ${invalid.fullName} (Late)`);
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const s = await getSession();
+      for (const record of records) {
+        await updateAttendanceRecord(record.id, record.status, record.remark || '', s!.userId);
+      }
+      Alert.alert('Success', 'Attendance updated and approved');
+      loadGfmDashboard();
+    } catch (e) {
+      Alert.alert('Error', 'Failed to save changes');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const callStudent = (phone: string) => {
+    if (!phone) {
+      Alert.alert('Error', 'Phone number not available');
+      return;
+    }
+    Linking.openURL(`tel:${phone}`);
+  };
+
+  if (loading) return <ActivityIndicator size="large" color={COLORS.primary} />;
+
+  if (!config) {
+    return (
+      <View style={[styles.moduleCard, { alignItems: 'center', padding: 40 }]}>
+        <Ionicons name="settings-outline" size={48} color={COLORS.warning} />
+        <Text style={{ marginTop: 10, fontSize: 16, fontWeight: 'bold' }}>Batch Profile Not Set</Text>
+        <Text style={{ textAlign: 'center', color: COLORS.textLight, marginTop: 5 }}>
+          Go to "Batch Profile" to set your RBT range first.
+        </Text>
+      </View>
+    );
+  }
+
+  if (!session) {
+    return (
+      <View style={[styles.moduleCard, { alignItems: 'center', padding: 40 }]}>
+        <Ionicons name="hourglass-outline" size={48} color={COLORS.primary} />
+        <Text style={{ marginTop: 10, fontSize: 16, fontWeight: 'bold' }}>Waiting for Attendance Taker</Text>
+        <Text style={{ textAlign: 'center', color: COLORS.textLight, marginTop: 5 }}>
+          Raw attendance for {config.division} hasn't been submitted yet.
+        </Text>
+      </View>
+    );
+  }
+
+  const absentees = records.filter(r => r.status === 'Absent');
+  const lateCases = records.filter(r => r.status === 'Late');
+
+  return (
+    <View>
+      <View style={styles.statsRow}>
+        <View style={[styles.statCard, { borderLeftWidth: 4, borderLeftColor: COLORS.secondary }]}>
+          <Text style={styles.statLabel}>My Group (RBT)</Text>
+          <Text style={[styles.statValue, { fontSize: 14, color: COLORS.secondary }]}>
+            {config.rbtFrom.slice(-3)} - {config.rbtTo.slice(-3)}
+          </Text>
+        </View>
+        <View style={[styles.statCard, { borderLeftWidth: 4, borderLeftColor: COLORS.error }]}>
+          <Text style={styles.statLabel}>Absentees</Text>
+          <Text style={[styles.statValue, { color: COLORS.error }]}>{absentees.length}</Text>
+        </View>
+        <View style={[styles.statCard, { borderLeftWidth: 4, borderLeftColor: COLORS.warning }]}>
+          <Text style={styles.statLabel}>Late Cases</Text>
+          <Text style={[styles.statValue, { color: COLORS.warning }]}>{lateCases.length}</Text>
+        </View>
+      </View>
+
+      <View style={styles.moduleCard}>
+        <View style={styles.moduleHeader}>
+          <View>
+            <Text style={styles.moduleTitle}>GFM Action Dashboard</Text>
+            <Text style={styles.helperText}>Review and approve attendance for your RBT group.</Text>
+          </View>
+          <TouchableOpacity 
+            style={[styles.saveBtn, { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10 }]} 
+            onPress={saveChanges}
+            disabled={saving}
+          >
+            {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.btnText}>Approve & Save</Text>}
+          </TouchableOpacity>
+        </View>
+        
+        <View style={styles.table}>
+          <View style={[styles.tableRow, styles.tableHeader]}>
+            <Text style={[styles.tableCell, { flex: 0.6 }]}>Roll</Text>
+            <Text style={[styles.tableCell, { flex: 1.5 }]}>Name</Text>
+            <Text style={[styles.tableCell, { flex: 1.2 }]}>Status</Text>
+            <Text style={[styles.tableCell, { flex: 1.2 }]}>Remark / Reason</Text>
+            <Text style={[styles.tableCell, { flex: 0.5, textAlign: 'center' }]}>Call</Text>
+          </View>
+          {records.map((r, idx) => (
+            <View key={idx} style={[styles.tableRow, r.status !== 'Present' && { backgroundColor: r.status === 'Absent' ? COLORS.error + '05' : COLORS.warning + '05' }]}>
+              <Text style={[styles.tableCell, { flex: 0.6 }]}>{r.studentPrn.slice(-3)}</Text>
+              <Text style={[styles.tableCell, { flex: 1.5, fontSize: 12 }]}>{r.fullName}</Text>
+              <View style={{ flex: 1.2, flexDirection: 'row', gap: 4 }}>
+                <TouchableOpacity 
+                  onPress={() => handleUpdateStatus(idx, 'Present')}
+                  style={[styles.smallStatusBtn, r.status === 'Present' && { backgroundColor: COLORS.success }]}
+                >
+                  <Text style={[styles.smallStatusText, r.status === 'Present' && { color: '#fff' }]}>P</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  onPress={() => handleUpdateStatus(idx, 'Absent')}
+                  style={[styles.smallStatusBtn, r.status === 'Absent' && { backgroundColor: COLORS.error }]}
+                >
+                  <Text style={[styles.smallStatusText, r.status === 'Absent' && { color: '#fff' }]}>A</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  onPress={() => handleUpdateStatus(idx, 'Late')}
+                  style={[styles.smallStatusBtn, r.status === 'Late' && { backgroundColor: COLORS.warning }]}
+                >
+                  <Text style={[styles.smallStatusText, r.status === 'Late' && { color: '#fff' }]}>L</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={{ flex: 1.2 }}>
+                <TextInput 
+                  style={styles.smallInput} 
+                  placeholder="Reason..." 
+                  value={r.remark}
+                  onChangeText={t => handleUpdateRemark(idx, t)}
+                />
+              </View>
+              <TouchableOpacity 
+                style={{ flex: 0.5, alignItems: 'center' }}
+                onPress={() => callStudent(r.phone)}
+              >
+                <Ionicons name="call" size={20} color={COLORS.secondary} />
+              </TouchableOpacity>
+            </View>
+          ))}
+          {records.length === 0 && (
+            <Text style={{ textAlign: 'center', padding: 20, color: COLORS.textLight }}>No students in your RBT range.</Text>
+          )}
+        </View>
+      </View>
+    </View>
+  );
+};
+
+  const AdminReportsManagement = ({ filters }: any) => {
+    const [sessions, setSessions] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+    const [viewMode, setViewMode] = useState<'records' | 'audit'>('records');
+
+    useEffect(() => {
+      loadReports();
+    }, [filters, selectedDate]);
+
+    const loadReports = async () => {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('attendance_sessions')
+        .select(`
+          *,
+          teacher:profiles!attendance_sessions_teacher_id_fkey(full_name),
+          attendance_records (
+            id,
+            status,
+            student_prn,
+            remark,
+            updated_at,
+            approved_by_gfm,
+            gfm:profiles!attendance_records_approved_by_gfm_fkey(full_name),
+            students (
+              full_name,
+              phone
+            )
+          )
+        `)
+        .eq('department', filters.dept !== 'All' ? filters.dept : undefined)
+        .eq('academic_year', filters.year !== 'All' ? filters.year : undefined)
+        .eq('division', filters.div !== 'All' ? filters.div : undefined)
+        .eq('date', selectedDate);
+      
+      if (!error && data) {
+        setSessions(data.map(toCamelCase));
+      }
+      setLoading(false);
+    };
+
+    const exportToCSV = () => {
+      let csv = 'Date,Dept,Year,Div,Student Name,PRN,Status,Remark,Taker,GFM,Last Update\n';
+      sessions.forEach(s => {
+        const takerName = s.teacher?.fullName || 'Unknown';
+        s.attendanceRecords.forEach((r: any) => {
+          csv += `${s.date},${s.department},${s.academicYear},${s.division},"${r.students.full_name}",${r.studentPrn},${r.status},"${r.remark || ''}","${takerName}","${r.gfm?.fullName || 'Pending'}",${r.updatedAt}\n`;
+        });
+      });
+
+      if (isWeb) {
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Attendance_Audit_${selectedDate}.csv`;
+        a.click();
+      } else {
+        Alert.alert('Export', 'CSV Exported to local storage');
+      }
+    };
+
+    return (
+      <View style={styles.moduleCard}>
+        <View style={styles.moduleHeader}>
+          <View>
+            <Text style={styles.moduleTitle}>Admin Reports & Audit</Text>
+            <Text style={styles.helperText}>Complete transparency of attendance data flow.</Text>
+          </View>
+          <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+            <View style={styles.toggleGroup}>
+              <TouchableOpacity 
+                style={[styles.toggleBtn, viewMode === 'records' && styles.toggleBtnActive]} 
+                onPress={() => setViewMode('records')}
+              >
+                <Text style={[styles.toggleText, viewMode === 'records' && styles.toggleTextActive]}>Records</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.toggleBtn, viewMode === 'audit' && styles.toggleBtnActive]} 
+                onPress={() => setViewMode('audit')}
+              >
+                <Text style={[styles.toggleText, viewMode === 'audit' && styles.toggleTextActive]}>Audit Log</Text>
+              </TouchableOpacity>
+            </View>
+            <TextInput 
+              style={[styles.smallInput, { width: 130, height: 38 }]} 
+              type="date" 
+              value={selectedDate} 
+              onChangeText={setSelectedDate} 
+            />
+            <TouchableOpacity 
+              style={[styles.actionBtn, { backgroundColor: COLORS.success }]} 
+              onPress={exportToCSV}
+            >
+              <Ionicons name="download-outline" size={20} color="#fff" />
+              <Text style={styles.actionBtnText}>Audit CSV</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {loading ? <ActivityIndicator color={COLORS.primary} /> : (
+          <ScrollView>
+            {sessions.map((s, idx) => (
+              <View key={idx} style={styles.reportSessionCard}>
+                <View style={styles.sessionMeta}>
+                  <View style={{ flexDirection: 'row', gap: 15 }}>
+                    <Text style={styles.sessionMetaText}><Text style={{fontWeight:'bold'}}>Div:</Text> {s.division}</Text>
+                    <Text style={styles.sessionMetaText}><Text style={{fontWeight:'bold'}}>Taker:</Text> {s.teacher?.fullName || 'Unknown'}</Text>
+                  </View>
+                  <Text style={[styles.sessionMetaText, { color: COLORS.textLight }]}>{new Date(s.createdAt).toLocaleTimeString()}</Text>
+                </View>
+
+                {viewMode === 'records' ? (
+                  <View style={styles.table}>
+                    <View style={[styles.tableRow, styles.tableHeader]}>
+                      <Text style={[styles.tableCell, { flex: 1.2 }]}>Student</Text>
+                      <Text style={[styles.tableCell, { flex: 0.6 }]}>Status</Text>
+                      <Text style={[styles.tableCell, { flex: 1.2 }]}>Remark</Text>
+                      <Text style={[styles.tableCell, { flex: 1 }]}>Approved By</Text>
+                    </View>
+                    {s.attendanceRecords.map((r: any, rIdx: number) => (
+                      <View key={rIdx} style={[styles.tableRow, r.status !== 'Present' && { backgroundColor: r.status === 'Absent' ? COLORS.error + '05' : COLORS.warning + '05' }]}>
+                        <Text style={[styles.tableCell, { flex: 1.2 }]}>{r.students.full_name}</Text>
+                        <Text style={[styles.tableCell, { flex: 0.6, fontWeight: 'bold', color: r.status === 'Absent' ? COLORS.error : r.status === 'Late' ? COLORS.warning : COLORS.success }]}>{r.status}</Text>
+                        <Text style={[styles.tableCell, { flex: 1.2, fontSize: 11 }]}>{r.remark || '-'}</Text>
+                        <Text style={[styles.tableCell, { flex: 1, fontSize: 11, color: COLORS.secondary }]}>{r.gfm?.fullName || 'Pending'}</Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : (
+                  <View style={styles.auditContainer}>
+                    {s.attendanceRecords.filter((r: any) => r.status !== 'Present' || r.remark || r.approvedByGfm).map((r: any, rIdx: number) => (
+                      <View key={rIdx} style={styles.auditItem}>
+                        <Ionicons name="time-outline" size={16} color={COLORS.textLight} />
+                        <Text style={styles.auditText}>
+                          <Text style={{fontWeight: 'bold'}}>{r.students.full_name}</Text> marked <Text style={{color: COLORS.error}}>{r.status}</Text> by Attendance Taker.
+                          {r.approvedByGfm && (
+                            <Text> Revised by <Text style={{color: COLORS.secondary}}>{r.gfm?.fullName}</Text> at {new Date(r.updatedAt).toLocaleTimeString()}.</Text>
+                          )}
+                          {r.remark && <Text> Remark: "{r.remark}"</Text>}
+                        </Text>
+                      </View>
+                    ))}
+                    {s.attendanceRecords.length === 0 && <Text style={{color: COLORS.textLight}}>No audit trail for this session.</Text>}
+                  </View>
+                )}
+              </View>
+            ))}
+            {sessions.length === 0 && (
+              <View style={{ padding: 60, alignItems: 'center' }}>
+                <Ionicons name="documents-outline" size={48} color={COLORS.textLight} />
+                <Text style={{ color: COLORS.textLight, marginTop: 10 }}>No sessions found for this date.</Text>
+              </View>
+            )}
+          </ScrollView>
+        )}
+      </View>
+    );
+  };
+
+const StudentManagement = ({ students, filters, onViewDetails, onPrint, handleVerify }: any) => {
+    const exportCSV = () => {
+
     let csv = 'PRN,Name,Department,Year,Division,Status\n';
     students.forEach(s => {
       csv += `${s.prn},"${s.fullName}","${s.branch}","${s.yearOfStudy}","${s.division}","${s.verificationStatus}"\n`;
@@ -1138,16 +2254,17 @@ const DetailItem = ({ label, value, fullWidth, color }: { label: string, value: 
   };
 
   return (
-  <View style={styles.moduleCard}>
-    <View style={styles.moduleHeader}>
-      <Text style={styles.moduleTitle}>Student Management</Text>
-      <View style={{ flexDirection: 'row', gap: 10 }}>
-        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: COLORS.success }]} onPress={exportCSV}>
-          <Ionicons name="download-outline" size={20} color="#fff" />
-          <Text style={styles.actionBtnText}>Export CSV</Text>
-        </TouchableOpacity>
+    <View style={styles.moduleCard}>
+      <View style={styles.moduleHeader}>
+        <Text style={styles.moduleTitle}>Student Management</Text>
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          <TouchableOpacity style={[styles.actionBtn, { backgroundColor: COLORS.success }]} onPress={exportCSV}>
+            <Ionicons name="download-outline" size={20} color="#fff" />
+            <Text style={styles.actionBtnText}>Export CSV</Text>
+          </TouchableOpacity>
+        </View>
       </View>
-    </View>
+
     <View style={styles.table}>
       <View style={[styles.tableRow, styles.tableHeader]}>
         <Text style={[styles.tableCell, { flex: 0.5 }]}>PRN</Text>
@@ -1176,11 +2293,11 @@ const DetailItem = ({ label, value, fullWidth, color }: { label: string, value: 
           ) : (
             <Ionicons name="checkmark-done-circle" size={20} color={COLORS.success} />
           )}
+          </View>
         </View>
-      </View>
-    ))}
+      ))}
+    </View>
   </View>
-</View>
 );
 };
 
@@ -1323,6 +2440,7 @@ const DetailItem = ({ label, value, fullWidth, color }: { label: string, value: 
 const AcademicManagement = ({ students, filters, onViewDetails, onViewAcademicDetails }: any) => {
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
+  const [selectedSemForMarks, setSelectedSemForMarks] = useState<number>(filters.sem === 'All' ? 3 : filters.sem);
   const [courses, setCourses] = useState<CourseDef[]>([]);
   const [marks, setMarks] = useState<Record<number, any>>({});
   const [sgpa, setSgpa] = useState('');
@@ -1334,7 +2452,7 @@ const AcademicManagement = ({ students, filters, onViewDetails, onViewAcademicDe
       loadCoursesAndMarks();
       loadAllAcademicStats();
     }
-  }, [filters, students, selectedStudent]); 
+  }, [filters, students, selectedStudent, selectedSemForMarks]); 
 
   const loadAllAcademicStats = async () => {
     const statsMap: Record<string, any> = {};
@@ -1349,35 +2467,37 @@ const AcademicManagement = ({ students, filters, onViewDetails, onViewAcademicDe
     setAcademicStats(statsMap);
   };
 
-const loadCoursesAndMarks = async () => {
-  if (!filters) return;
-  const c = await getAllCoursesDef();
-  const deptToUse = selectedStudent ? selectedStudent.branch : filters.dept;
-  const filteredCourses = c.filter(course => 
-    (deptToUse === 'All' || course.department === deptToUse) && 
-    (filters.sem === 'All' || course.semester === filters.sem)
-  );
-  setCourses(filteredCourses);
+  const loadCoursesAndMarks = async () => {
+    if (!filters) return;
+    const c = await getAllCoursesDef();
+    const deptToUse = selectedStudent ? selectedStudent.branch : filters.dept;
+    const semToUse = selectedStudent ? selectedSemForMarks : filters.sem;
+    
+    const filteredCourses = c.filter(course => 
+      (deptToUse === 'All' || course.department === deptToUse) && 
+      (semToUse === 'All' || course.semester === semToUse)
+    );
+    setCourses(filteredCourses);
 
-  if (selectedStudent) {
-    const existing = await getAcademicRecordsByStudent(selectedStudent.prn);
-    const marksMap: Record<number, any> = {};
-    existing.forEach(r => {
-      if (filters.sem === 'All' || r.semester === filters.sem) {
-        marksMap[r.courseDefId] = r;
+    if (selectedStudent) {
+      const existing = await getAcademicRecordsByStudent(selectedStudent.prn);
+      const marksMap: Record<number, any> = {};
+      existing.forEach(r => {
+        if (semToUse === 'All' || r.semester === semToUse) {
+          marksMap[r.courseDefId] = r;
+        }
+      });
+      setMarks(marksMap);
+      const semRecord = semToUse === 'All' ? existing[existing.length - 1] : existing.find(r => r.semester === semToUse);
+      if (semRecord) {
+        setSgpa(semRecord.sgpa?.toString() || '');
+        setCgpa(semRecord.cgpa?.toString() || '');
+      } else {
+        setSgpa('');
+        setCgpa('');
       }
-    });
-    setMarks(marksMap);
-    const semRecord = filters.sem === 'All' ? existing[existing.length - 1] : existing.find(r => r.semester === filters.sem);
-    if (semRecord) {
-      setSgpa(semRecord.sgpa.toString());
-      setCgpa(semRecord.cgpa.toString());
-    } else {
-      setSgpa('');
-      setCgpa('');
     }
-  }
-};
+  };
 
 const calculateSGPA = () => {
   const gradePoints: Record<string, number> = {
@@ -1439,13 +2559,31 @@ const handleSaveMarks = async () => {
 };
 
 const updateMark = (courseId: number, field: string, value: string) => {
-setMarks(prev => ({
-  ...prev,
-  [courseId]: {
-    ...(prev[courseId] || { iseMarks: 0, mseMarks: 0, eseMarks: 0, grade: 'F' }),
-    [field]: field === 'grade' ? value : value
+  const course = courses.find(c => c.id === courseId);
+  let finalValue = value;
+  
+  if (field !== 'grade' && course) {
+    const numVal = parseInt(value) || 0;
+    let maxVal = 50;
+    if (field === 'iseMarks') maxVal = course.iseMax || 20;
+    else if (field === 'mseMarks') maxVal = course.mseMax || 30;
+    else if (field === 'eseMarks') maxVal = course.eseMax || 50;
+    
+    if (numVal > maxVal) {
+      Alert.alert('Invalid Marks', `Maximum marks for ${field.replace('Marks', '').toUpperCase()} is ${maxVal}`);
+      finalValue = maxVal.toString();
+    } else if (numVal < 0) {
+      finalValue = '0';
+    }
   }
-}));
+  
+  setMarks(prev => ({
+    ...prev,
+    [courseId]: {
+      ...(prev[courseId] || { iseMarks: 0, mseMarks: 0, eseMarks: 0, grade: 'F' }),
+      [field]: field === 'grade' ? value : finalValue
+    }
+  }));
 };
 
 const exportCSV = () => {
@@ -1538,12 +2676,28 @@ return (
   <Modal visible={modalOpen} transparent animationType="slide">
     <View style={styles.modalOverlay}>
       <View style={[styles.modalBody, { width: '95%', maxWidth: 800 }]}>
-        <View style={styles.modalHeader}>
-          <Text style={styles.modalTitle}>Enter Marks: {selectedStudent?.fullName}</Text>
-          <TouchableOpacity onPress={() => setModalOpen(false)}>
-            <Ionicons name="close" size={24} color={COLORS.text} />
-          </TouchableOpacity>
-        </View>
+          <View style={styles.modalHeader}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.modalTitle}>Enter Marks: {selectedStudent?.fullName}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10 }}>
+                <Text style={[styles.filterLabel, { marginBottom: 0, marginRight: 10 }]}>Select Semester:</Text>
+                <View style={[styles.pickerWrapper, { width: 120, height: 35 }]}>
+                  <Picker
+                    selectedValue={selectedSemForMarks}
+                    onValueChange={(val) => setSelectedSemForMarks(Number(val))}
+                    style={{ height: 35 }}
+                  >
+                    {[1, 2, 3, 4, 5, 6, 7, 8].map(s => (
+                      <Picker.Item key={s} label={`Sem ${s}`} value={s} />
+                    ))}
+                  </Picker>
+                </View>
+              </View>
+            </View>
+            <TouchableOpacity onPress={() => setModalOpen(false)}>
+              <Ionicons name="close" size={24} color={COLORS.text} />
+            </TouchableOpacity>
+          </View>
 
         <ScrollView style={{ maxHeight: 500 }}>
           <View style={[styles.tableRow, styles.tableHeader]}>
@@ -1641,28 +2795,29 @@ return (
 const FeeManagement = ({ students, filters, handleVerify }: any) => {
 const [stats, setStats] = useState<any>(null);
 const [feeData, setFeeData] = useState<any[]>([]);
-const [feeStatusFilter, setFeeStatusFilter] = useState<'All' | 'Paid' | 'Remaining'>('All');
+  const [feeStatusFilter, setFeeStatusFilter] = useState<'All' | 'Paid' | 'Not Paid / Remaining'>('All');
 
-useEffect(() => {
-  if (filters) {
-    loadFeeData();
-  }
-}, [filters]);
+  useEffect(() => {
+    if (filters) {
+      loadFeeData();
+    }
+  }, [filters]);
 
-const loadFeeData = async () => {
-  if (!filters) return;
-  const s = await getFeeAnalytics(filters.dept, filters.year, filters.div);
-  const data = await getFeePaymentsByFilter(filters.dept, filters.year, filters.div);
-  setStats(s);
-  setFeeData(data);
-};
+  const loadFeeData = async () => {
+    if (!filters) return;
+    const s = await getFeeAnalytics(filters.dept, filters.year, filters.div);
+    const data = await getFeePaymentsByFilter(filters.dept, filters.year, filters.div);
+    setStats(s);
+    setFeeData(data);
+  };
 
-const filteredFeeData = feeData.filter(f => {
-  if (feeStatusFilter === 'All') return true;
-  if (feeStatusFilter === 'Paid') return (f.lastBalance || 0) <= 0;
-  if (feeStatusFilter === 'Remaining') return (f.lastBalance || 0) > 0;
-  return true;
-});
+  const filteredFeeData = feeData.filter(f => {
+    if (feeStatusFilter === 'All') return true;
+    if (feeStatusFilter === 'Paid') return (f.lastBalance || 0) <= 0;
+    if (feeStatusFilter === 'Not Paid / Remaining') return (f.lastBalance || 0) > 0;
+    return true;
+  });
+
 
 const exportFeeCSV = (onlyDefaulters = false) => {
   let csv = 'PRN,Name,Year,Total Fee,Paid,Balance\n';
@@ -1707,17 +2862,17 @@ return (
       <View style={styles.moduleHeader}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 15 }}>
           <Text style={styles.moduleTitle}>Fee Management</Text>
-          <View style={[styles.pickerWrapper, { width: 150 }]}>
-            <Picker
-              selectedValue={feeStatusFilter}
-              onValueChange={setFeeStatusFilter}
-              style={styles.picker}
-            >
-              <Picker.Item label="All Fees" value="All" />
-              <Picker.Item label="Paid" value="Paid" />
-              <Picker.Item label="Remaining" value="Remaining" />
-            </Picker>
-          </View>
+            <View style={[styles.pickerWrapper, { width: 150 }]}>
+              <Picker
+                selectedValue={feeStatusFilter}
+                onValueChange={setFeeStatusFilter}
+                style={styles.picker}
+              >
+                <Picker.Item label="All Fees" value="All" />
+                <Picker.Item label="Paid" value="Paid" />
+                <Picker.Item label="Not Paid / Remaining" value="Not Paid / Remaining" />
+              </Picker>
+            </View>
         </View>
         <View style={{ flexDirection: 'row', gap: 10 }}>
           <TouchableOpacity style={[styles.actionBtn, { backgroundColor: COLORS.success }]} onPress={() => exportFeeCSV(false)}>
@@ -1748,17 +2903,23 @@ return (
               <Text style={[styles.tableCell, { width: 150 }]}>{f.fullName}</Text>
               <Text style={[styles.tableCell, { width: 80 }]}>{f.yearOfStudy}</Text>
               <Text style={[styles.tableCell, { width: 80 }]}>₹{f.totalFee || 0}</Text>
-              <Text style={[styles.tableCell, { width: 80, color: COLORS.success }]}>₹{f.paidAmount || 0}</Text>
-              <Text style={[styles.tableCell, { width: 80, color: (f.lastBalance || 0) > 0 ? COLORS.error : COLORS.success }]}>₹{f.lastBalance || 0}</Text>
-              <Text style={[styles.tableCell, { width: 80, color: (f.lastBalance || 0) > 0 ? COLORS.warning : COLORS.success }]}>
-                {(f.lastBalance || 0) > 0 ? 'Remaining' : (f.totalFee > 0 ? 'Paid' : 'Unpaid')}
-              </Text>
-                <View style={{ width: 120, flexDirection: 'row', gap: 5, alignItems: 'center' }}>
-                  {f.receiptUri && (
-                    <TouchableOpacity onPress={() => Alert.alert('Receipt', 'Viewing receipt: ' + f.receiptUri)}>
-                      <Ionicons name="receipt-outline" size={20} color={COLORS.secondary} />
-                    </TouchableOpacity>
-                  )}
+<Text style={[styles.tableCell, { width: 80, color: COLORS.success }]}>₹{f.paidAmount || 0}</Text>
+                  <Text style={[styles.tableCell, { width: 80, color: (f.lastBalance || 0) > 0 ? COLORS.error : COLORS.success }]}>₹{f.lastBalance || 0}</Text>
+                  <Text style={[styles.tableCell, { 
+                    width: 80, 
+                    color: (f.lastBalance || 0) > 0 
+                      ? (f.paidAmount > 0 ? COLORS.warning : COLORS.error) 
+                      : (f.totalFee > 0 ? COLORS.success : COLORS.error),
+                    fontWeight: 'bold'
+                  }]}>
+                    {(f.lastBalance || 0) > 0 ? (f.paidAmount > 0 ? 'Remaining' : 'Not Paid') : (f.totalFee > 0 ? 'Paid' : 'Not Paid')}
+                  </Text>
+                  <View style={{ width: 120, flexDirection: 'row', gap: 5, alignItems: 'center' }}>
+                    {f.receiptUri && (
+                      <TouchableOpacity onPress={() => handleViewDocument(f.receiptUri)}>
+                        <Ionicons name="receipt-outline" size={20} color={COLORS.secondary} />
+                      </TouchableOpacity>
+                    )}
                   {f.verificationStatus !== 'Verified' ? (
                     <TouchableOpacity onPress={() => handleVerify('fee_payments', f.id, 'Verified')}>
                       <Ionicons name="checkmark-circle-outline" size={20} color={COLORS.success} />
@@ -1839,12 +3000,12 @@ const ActivitiesManagement = ({ filters, handleVerify }: any) => {
                 <Text style={[styles.tableCell, { flex: 0.7, color: a.verificationStatus === 'Verified' ? COLORS.success : (a.verificationStatus === 'Rejected' ? COLORS.error : COLORS.warning) }]}>
                   {a.verificationStatus}
                 </Text>
-                <View style={{ flex: 0.5, flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-                {a.certificateUri && (
-                  <TouchableOpacity onPress={() => Alert.alert('Certificate', 'Viewing: ' + a.certificateUri)}>
-                    <Ionicons name="eye-outline" size={20} color={COLORS.secondary} />
-                  </TouchableOpacity>
-                )}
+                  <View style={{ flex: 0.5, flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                  {a.certificateUri && (
+                    <TouchableOpacity onPress={() => handleViewDocument(a.certificateUri)}>
+                      <Ionicons name="eye-outline" size={20} color={COLORS.secondary} />
+                    </TouchableOpacity>
+                  )}
                 {a.verificationStatus !== 'Verified' ? (
                   <TouchableOpacity onPress={() => handleVerify('student_activities', a.id, 'Verified')}>
                     <Ionicons name="checkmark-circle-outline" size={20} color={COLORS.success} />
@@ -1926,12 +3087,12 @@ const AchievementsManagement = ({ filters, handleVerify }: any) => {
                 <Text style={[styles.tableCell, { flex: 0.7, color: a.verificationStatus === 'Verified' ? COLORS.success : (a.verificationStatus === 'Rejected' ? COLORS.error : COLORS.warning) }]}>
                   {a.verificationStatus}
                 </Text>
-                <View style={{ flex: 0.5, flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-                {a.certificateUri && (
-                  <TouchableOpacity onPress={() => Alert.alert('Certificate', 'Viewing: ' + a.certificateUri)}>
-                    <Ionicons name="eye-outline" size={20} color={COLORS.secondary} />
-                  </TouchableOpacity>
-                )}
+                  <View style={{ flex: 0.5, flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                  {a.certificateUri && (
+                    <TouchableOpacity onPress={() => handleViewDocument(a.certificateUri)}>
+                      <Ionicons name="eye-outline" size={20} color={COLORS.secondary} />
+                    </TouchableOpacity>
+                  )}
                 {a.verificationStatus !== 'Verified' ? (
                   <TouchableOpacity onPress={() => handleVerify('achievements', a.id, 'Verified')}>
                     <Ionicons name="checkmark-circle-outline" size={20} color={COLORS.success} />
@@ -2013,12 +3174,12 @@ const InternshipsManagement = ({ filters, handleVerify }: any) => {
               <Text style={[styles.tableCell, { flex: 0.8, color: i.verificationStatus === 'Verified' ? COLORS.success : (i.verificationStatus === 'Rejected' ? COLORS.error : COLORS.warning) }]}>
                 {i.verificationStatus}
               </Text>
-              <View style={{ flex: 0.5, flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-                {i.certificateUri && (
-                  <TouchableOpacity onPress={() => Alert.alert('Certificate', 'Viewing: ' + i.certificateUri)}>
-                    <Ionicons name="eye-outline" size={20} color={COLORS.secondary} />
-                  </TouchableOpacity>
-                )}
+                <View style={{ flex: 0.5, flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                  {i.certificateUri && (
+                    <TouchableOpacity onPress={() => handleViewDocument(i.certificateUri)}>
+                      <Ionicons name="eye-outline" size={20} color={COLORS.secondary} />
+                    </TouchableOpacity>
+                  )}
                 {i.verificationStatus !== 'Verified' ? (
                   <TouchableOpacity onPress={() => handleVerify('internships', i.id, 'Verified')}>
                     <Ionicons name="checkmark-circle-outline" size={20} color={COLORS.success} />
@@ -2128,11 +3289,11 @@ const AnalyticsManagement = ({ students, filters }: any) => {
 
         <View style={[styles.moduleCard, { flex: 1 }]}>
           <Text style={styles.moduleTitle}>Verification Status</Text>
-          <View style={{ marginTop: 10 }}>
-            <AnalyticsRow label="Activities" verified={stats.moduleStats.activities.verified} total={stats.moduleStats.activities.total} color={COLORS.secondary} />
-            <AnalyticsRow label="Internships" verified={stats.moduleStats.internships.verified} total={stats.moduleStats.internships.total} color={COLORS.warning} />
-            <AnalyticsRow label="Fee Payments" verified={stats.moduleStats.fees.verified} total={stats.moduleStats.fees.total} color={COLORS.success} />
-          </View>
+            <View style={{ marginTop: 10 }}>
+              <AnalyticsRowComp label="Activities" verified={stats.moduleStats.activities.verified} total={stats.moduleStats.activities.total} color={COLORS.secondary} />
+              <AnalyticsRowComp label="Internships" verified={stats.moduleStats.internships.verified} total={stats.moduleStats.internships.total} color={COLORS.warning} />
+              <AnalyticsRowComp label="Fee Payments" verified={stats.moduleStats.fees.verified} total={stats.moduleStats.fees.total} color={COLORS.success} />
+            </View>
         </View>
       </View>
 
@@ -2158,26 +3319,14 @@ const AnalyticsManagement = ({ students, filters }: any) => {
         </View>
     </View>
   );
-};
+  };
 
-const AnalyticsRow = ({ label, verified, total, color }: any) => (
-  <View style={{ marginBottom: 12 }}>
-    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-      <Text style={{ fontSize: 13, color: COLORS.textLight }}>{label}</Text>
-      <Text style={{ fontSize: 13, fontWeight: '600' }}>{verified}/{total} Verified</Text>
-    </View>
-    <View style={{ height: 6, backgroundColor: '#f0f0f0', borderRadius: 3, overflow: 'hidden' }}>
-      <View style={{ height: '100%', backgroundColor: color, width: total > 0 ? `${(verified / total) * 100}%` : '0%' }} />
-    </View>
-  </View>
-);
-
-const styles = StyleSheet.create({
-container: { flex: 1, backgroundColor: '#f0f2f5' },
+  const styles = StyleSheet.create({
+container: { flex: 1, backgroundColor: COLORS.background },
 header: {
   backgroundColor: COLORS.primary,
-  paddingTop: 40,
-  paddingBottom: 15,
+  paddingTop: Platform.OS === 'ios' ? 50 : 20,
+  paddingBottom: 16,
   paddingHorizontal: 20,
   flexDirection: 'row',
   justifyContent: 'space-between',
@@ -2185,99 +3334,98 @@ header: {
   zIndex: 10,
 },
 headerLeft: { flex: 1 },
-collegeName: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
-tagline: { color: '#BDC3C7', fontSize: 12 },
-logoutBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.error, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 },
-logoutText: { color: '#fff', marginLeft: 5, fontWeight: 'bold', fontSize: 13 },
+collegeName: { color: '#fff', fontSize: 20, fontWeight: 'bold' },
+tagline: { color: 'rgba(255,255,255,0.7)', fontSize: 12, marginTop: 2 },
+logoutBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.15)', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 },
+logoutText: { color: '#fff', marginLeft: 6, fontWeight: '600', fontSize: 13 },
 mainContent: { flex: 1, flexDirection: 'row' },
-sidebar: {
-  width: width > 800 ? 240 : 60,
-  backgroundColor: '#fff',
+  sidebar: {
+    width: Dimensions.get('window').width > 800 ? 220 : 60,
+    backgroundColor: COLORS.white,
   borderRightWidth: 1,
-  borderRightColor: '#eee',
-  paddingVertical: 20,
+  borderRightColor: COLORS.border,
+  paddingVertical: 16,
 },
 sidebarItem: {
   flexDirection: 'row',
   alignItems: 'center',
-  paddingVertical: 15,
-  paddingHorizontal: 15,
-  marginBottom: 5,
+  paddingVertical: 14,
+  paddingHorizontal: 16,
+  marginBottom: 4,
+  marginHorizontal: 8,
+  borderRadius: 12,
 },
 sidebarItemActive: {
-  backgroundColor: COLORS.secondary,
-  borderTopRightRadius: 25,
-  borderBottomRightRadius: 25,
-  marginRight: 10,
+  backgroundColor: COLORS.primary,
 },
-sidebarText: { marginLeft: 15, fontSize: 15, color: COLORS.textLight, fontWeight: '500' },
-sidebarTextActive: { color: '#fff', fontWeight: 'bold' },
-contentArea: { flex: 1 },
+sidebarText: { marginLeft: 14, fontSize: 14, color: COLORS.textSecondary, fontWeight: '500' },
+sidebarTextActive: { color: COLORS.white, fontWeight: '600' },
+contentArea: { flex: 1, backgroundColor: COLORS.background },
 filterContainer: {
   flexDirection: 'row',
   flexWrap: 'wrap',
-  padding: 10,
-  backgroundColor: '#fff',
+  padding: 12,
+  backgroundColor: COLORS.white,
   borderBottomWidth: 1,
-  borderBottomColor: '#eee',
+  borderBottomColor: COLORS.border,
   alignItems: 'center',
-  gap: 10,
+  gap: 12,
 },
 
 filterItem: { flexDirection: 'row', alignItems: 'center' },
-filterLabel: { fontSize: 13, fontWeight: 'bold', marginRight: 8, color: COLORS.textLight },
+filterLabel: { fontSize: 12, fontWeight: '600', marginRight: 8, color: COLORS.textSecondary },
 pickerWrapper: {
   borderWidth: 1,
-  borderColor: '#eee',
-  borderRadius: 8,
-  backgroundColor: '#fafafa',
-  height: 35,
+  borderColor: COLORS.border,
+  borderRadius: 10,
+  backgroundColor: COLORS.background,
+  height: 38,
   justifyContent: 'center',
   width: 130,
 },
-picker: { height: 35, width: '100%', fontSize: 13 },
+picker: { height: 38, width: '100%', fontSize: 13 },
 scrollContent: { padding: 20 },
 moduleCard: {
-  backgroundColor: '#fff',
-  borderRadius: 12,
+  backgroundColor: COLORS.white,
+  borderRadius: 16,
   padding: 20,
-  shadowColor: '#000',
+  shadowColor: COLORS.shadow,
   shadowOffset: { width: 0, height: 4 },
-  shadowOpacity: 0.08,
+  shadowOpacity: 1,
   shadowRadius: 12,
   elevation: 3,
   marginBottom: 20,
 },
 moduleHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-moduleTitle: { fontSize: 20, fontWeight: 'bold', color: COLORS.primary },
-actionBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.secondary, paddingHorizontal: 15, paddingVertical: 8, borderRadius: 8 },
-actionBtnText: { color: '#fff', marginLeft: 8, fontWeight: 'bold' },
+moduleTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.text },
+actionBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.primary, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10 },
+actionBtnText: { color: '#fff', marginLeft: 8, fontWeight: '600', fontSize: 13 },
 table: { marginTop: 10 },
-tableRow: { flexDirection: 'row', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f0f0f0', alignItems: 'center' },
-tableHeader: { backgroundColor: '#f8f9fa', borderTopWidth: 1, borderTopColor: '#eee' },
-tableCell: { fontSize: 13, color: COLORS.text, paddingHorizontal: 5 },
-helperText: { fontSize: 13, color: COLORS.textLight, marginBottom: 15 },
+tableRow: { flexDirection: 'row', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: COLORS.borderLight, alignItems: 'center' },
+tableHeader: { backgroundColor: COLORS.background, borderTopWidth: 1, borderTopColor: COLORS.border },
+tableCell: { fontSize: 13, color: COLORS.text, paddingHorizontal: 6 },
+helperText: { fontSize: 13, color: COLORS.textSecondary, marginBottom: 15 },
 editIcon: { padding: 5 },
-statsRow: { flexDirection: 'row', gap: 15, marginBottom: 20 },
-statCard: { flex: 1, backgroundColor: '#fff', padding: 15, borderRadius: 12, elevation: 2 },
-statLabel: { fontSize: 12, color: COLORS.textLight, marginBottom: 5 },
-statValue: { fontSize: 20, fontWeight: 'bold', color: COLORS.primary },
-modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-modalBody: { backgroundColor: '#fff', width: '90%', maxWidth: 400, borderRadius: 15, padding: 25 },
-modalTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 20, color: COLORS.primary },
-input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 12, marginBottom: 15, fontSize: 14 },
-row: { flexDirection: 'row', gap: 10 },
-btn: { flex: 1, padding: 12, borderRadius: 8, alignItems: 'center' },
-cancelBtn: { backgroundColor: '#eee' },
-saveBtn: { backgroundColor: COLORS.secondary },
+statsRow: { flexDirection: 'row', gap: 12, marginBottom: 20 },
+statCard: { flex: 1, backgroundColor: COLORS.white, padding: 16, borderRadius: 14, shadowColor: COLORS.shadow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 1, shadowRadius: 8, elevation: 2 },
+statLabel: { fontSize: 12, color: COLORS.textSecondary, marginBottom: 6 },
+statValue: { fontSize: 22, fontWeight: 'bold', color: COLORS.text },
+modalOverlay: { flex: 1, backgroundColor: COLORS.overlay, justifyContent: 'center', alignItems: 'center' },
+modalBody: { backgroundColor: COLORS.white, width: '90%', maxWidth: 420, borderRadius: 20, padding: 24 },
+modalTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 16, color: COLORS.text },
+input: { borderWidth: 1.5, borderColor: COLORS.border, borderRadius: 10, padding: 12, marginBottom: 14, fontSize: 14, backgroundColor: COLORS.background },
+row: { flexDirection: 'row', gap: 12 },
+btn: { flex: 1, padding: 14, borderRadius: 10, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' },
+cancelBtn: { backgroundColor: COLORS.background, borderWidth: 1, borderColor: COLORS.border },
+saveBtn: { backgroundColor: COLORS.primary },
 smallInput: {
-  borderWidth: 1,
-  borderColor: '#ddd',
-  borderRadius: 6,
+  borderWidth: 1.5,
+  borderColor: COLORS.border,
+  borderRadius: 8,
   padding: 8,
   fontSize: 12,
   textAlign: 'center',
-  backgroundColor: '#fff',
+  backgroundColor: COLORS.white,
 },
   modalHeader: {
     flexDirection: 'row',
@@ -2285,22 +3433,22 @@ smallInput: {
     alignItems: 'center',
     marginBottom: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-    paddingBottom: 10,
+    borderBottomColor: COLORS.border,
+    paddingBottom: 12,
   },
   detailSection: {
-    marginBottom: 25,
-    padding: 15,
-    backgroundColor: '#f9f9f9',
-    borderRadius: 10,
+    marginBottom: 20,
+    padding: 16,
+    backgroundColor: COLORS.background,
+    borderRadius: 14,
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: 'bold',
-    color: COLORS.secondary,
-    marginBottom: 15,
-    borderLeftWidth: 4,
-    borderLeftColor: COLORS.secondary,
+    color: COLORS.primary,
+    marginBottom: 14,
+    borderLeftWidth: 3,
+    borderLeftColor: COLORS.primary,
     paddingLeft: 10,
   },
   detailGrid: {
@@ -2310,8 +3458,8 @@ smallInput: {
   },
   detailLabel: {
     fontSize: 12,
-    color: COLORS.textLight,
-    marginBottom: 2,
+    color: COLORS.textSecondary,
+    marginBottom: 3,
   },
   detailValue: {
     fontSize: 14,
@@ -2319,8 +3467,8 @@ smallInput: {
     fontWeight: '500',
   },
   btnText: {
-    color: '#fff',
-    fontWeight: 'bold',
+    color: COLORS.white,
+    fontWeight: '600',
     fontSize: 14,
   },
   checkboxContainer: {
@@ -2328,11 +3476,113 @@ smallInput: {
     alignItems: 'center',
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#f5f5f5',
+    borderBottomColor: COLORS.borderLight,
   },
-  checkboxLabel: {
-    marginLeft: 12,
-    fontSize: 14,
-    color: COLORS.text,
-  },
-});
+    checkboxLabel: {
+      marginLeft: 12,
+      fontSize: 14,
+      color: COLORS.text,
+    },
+    // GFM Action Dashboard Styles
+    smallStatusBtn: {
+      flex: 1,
+      height: 30,
+      borderRadius: 6,
+      borderWidth: 1,
+      borderColor: COLORS.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: COLORS.background,
+    },
+    smallStatusText: {
+      fontSize: 12,
+      fontWeight: 'bold',
+      color: COLORS.textLight,
+    },
+    // Admin Reports & Audit Styles
+    reportSessionCard: {
+      backgroundColor: COLORS.background,
+      borderRadius: 12,
+      padding: 15,
+      marginBottom: 15,
+      borderWidth: 1,
+      borderColor: COLORS.border,
+    },
+    sessionMeta: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 10,
+      paddingBottom: 8,
+      borderBottomWidth: 1,
+      borderBottomColor: COLORS.borderLight,
+    },
+    sessionMetaText: {
+      fontSize: 12,
+      color: COLORS.text,
+    },
+    auditContainer: {
+      marginTop: 5,
+    },
+    auditItem: {
+      flexDirection: 'row',
+      gap: 10,
+      marginBottom: 8,
+      paddingRight: 10,
+    },
+    auditText: {
+      fontSize: 11,
+      color: COLORS.text,
+      flex: 1,
+      lineHeight: 16,
+    },
+    toggleGroup: {
+      flexDirection: 'row',
+      backgroundColor: COLORS.background,
+      borderRadius: 10,
+      padding: 4,
+      borderWidth: 1,
+      borderColor: COLORS.border,
+    },
+    toggleBtn: {
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 7,
+    },
+    toggleBtnActive: {
+      backgroundColor: COLORS.white,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      elevation: 2,
+    },
+    toggleText: {
+      fontSize: 12,
+      color: COLORS.textLight,
+      fontWeight: '600',
+    },
+      toggleTextActive: {
+        color: COLORS.primary,
+      },
+      moduleSwitchBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 10,
+        borderRadius: 10,
+        backgroundColor: 'rgba(255,255,255,0.05)',
+      },
+      moduleSwitchBtnActive: {
+        backgroundColor: COLORS.primary,
+      },
+      moduleSwitchText: {
+        marginLeft: 10,
+        fontSize: 14,
+        fontWeight: 'bold',
+        color: COLORS.textLight,
+      },
+      moduleSwitchTextActive: {
+        color: '#fff',
+      },
+    });
+

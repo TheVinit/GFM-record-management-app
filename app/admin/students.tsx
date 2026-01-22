@@ -15,37 +15,44 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { Picker } from '@react-native-picker/picker';
-import { getFacultyMembers, saveFacultyMember, deleteFacultyMember, FacultyMember } from '../../storage/sqlite';
+import { getAllStudents, saveStudent, Student } from '../../storage/sqlite';
 import { getSession } from '../../services/session.service';
 import { COLORS } from '../../constants/colors';
 import Papa from 'papaparse';
 
-const DEPARTMENTS = ['CSE', 'IT', 'ECE', 'ME', 'CE', 'EE', 'AIDS', 'AIML'];
-
 const { width } = Dimensions.get('window');
 const isWeb = Platform.OS === 'web';
 
-export default function ManageFaculty() {
+export default function ManageStudents() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const [faculty, setFaculty] = useState<FacultyMember[]>([]);
+  const [students, setStudents] = useState<Student[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [importModalVisible, setImportModalVisible] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importPreview, setImportPreview] = useState<any[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [newFaculty, setNewFaculty] = useState({
+  const [newStudent, setNewStudent] = useState({
     prn: '',
     fullName: '',
     email: '',
-    department: 'CSE'
+    branch: 'CSE',
+    yearOfStudy: '1st Year',
+    division: 'A'
   });
+
+  const [yearsOfStudy, setYearsOfStudy] = useState<string[]>([]);
 
   useEffect(() => {
     checkAuth();
-    loadFaculty();
+    loadData();
+    loadMetadata();
   }, []);
+
+  const loadMetadata = async () => {
+    const years = await getDistinctYearsOfStudy();
+    setYearsOfStudy(years);
+  };
 
   const checkAuth = async () => {
     const session = await getSession();
@@ -54,32 +61,43 @@ export default function ManageFaculty() {
     }
   };
 
-  const loadFaculty = async () => {
+  const loadData = async () => {
     setLoading(true);
     try {
-      const data = await getFacultyMembers();
-      setFaculty(data);
+      const studentData = await getAllStudents();
+      setStudents(studentData);
     } catch (error) {
-      console.error('Error loading faculty:', error);
-      Alert.alert('Error', 'Failed to load faculty members');
+      console.error('Error loading data:', error);
+      Alert.alert('Error', 'Failed to load data');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleAddFaculty = async () => {
-    if (!newFaculty.prn || !newFaculty.fullName || !newFaculty.email || !newFaculty.department) {
-      Alert.alert('Error', 'Please enter Full Name, Email, PRN and Department');
+  const handleAddStudent = async () => {
+    if (!newStudent.prn || !newStudent.fullName || !newStudent.email) {
+      Alert.alert('Error', 'Please enter PRN, Full Name and Email');
       return;
     }
     try {
-      await saveFacultyMember(newFaculty.prn, 'password123', newFaculty.fullName, newFaculty.department, newFaculty.email);
+      await saveStudent({
+        ...newStudent,
+        gfmId: '',
+        gfmName: ''
+      });
       setModalVisible(false);
-      setNewFaculty({ prn: '', fullName: '', email: '', department: 'CSE' });
-      loadFaculty();
-      Alert.alert('Success', 'Faculty member added successfully');
+      setNewStudent({ 
+        prn: '', 
+        fullName: '', 
+        email: '', 
+        branch: 'CSE', 
+        yearOfStudy: '1st Year', 
+        division: 'A' 
+      });
+      loadData();
+      Alert.alert('Success', 'Student added successfully');
     } catch (error) {
-      Alert.alert('Error', 'Failed to add faculty member');
+      Alert.alert('Error', 'Failed to add student. Ensure PRN is unique.');
     }
   };
 
@@ -89,21 +107,23 @@ export default function ManageFaculty() {
     
     setImporting(true);
     try {
-        Papa.parse(file, {
-          header: true,
-          skipEmptyLines: true,
-          complete: (results) => {
-            const parsedFaculty = results.data.map((row: any) => ({
-              fullName: row['Full Name'] || row['fullName'] || row['Name'] || row['name'] || '',
-              email: row['Email'] || row['email'] || row['Email ID'] || row['EmailID'] || '',
-              prn: String(row['PRN'] || row['prn'] || row['ID'] || row['id'] || row['Faculty ID'] || ''),
-              department: row['Department'] || row['department'] || row['Dept'] || row['dept'] || 'CSE'
-            })).filter((f: any) => f.fullName && f.prn);
-            
-            setImportPreview(parsedFaculty);
-            setImportModalVisible(true);
-            setImporting(false);
-          },
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: (results) => {
+          const parsedStudents = results.data.map((row: any) => ({
+            fullName: row['Full Name'] || row['fullName'] || row['Name'] || row['name'] || '',
+            email: row['Email'] || row['email'] || row['Email ID'] || row['EmailID'] || '',
+            prn: String(row['PRN'] || row['prn'] || row['Roll No'] || row['rollno'] || row['RollNo'] || ''),
+            branch: row['Branch'] || row['branch'] || row['Department'] || row['department'] || 'CSE',
+            yearOfStudy: row['Year'] || row['year'] || row['Year of Study'] || row['yearOfStudy'] || '1st Year',
+            division: row['Division'] || row['division'] || row['Div'] || row['div'] || 'A'
+          })).filter((s: any) => s.fullName && s.prn);
+          
+          setImportPreview(parsedStudents);
+          setImportModalVisible(true);
+          setImporting(false);
+        },
         error: () => {
           Alert.alert('Error', 'Failed to read CSV file');
           setImporting(false);
@@ -116,9 +136,9 @@ export default function ManageFaculty() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleImportFaculty = async () => {
+  const handleImportStudents = async () => {
     if (importPreview.length === 0) {
-      Alert.alert('Error', 'No faculty to import');
+      Alert.alert('Error', 'No students to import');
       return;
     }
     
@@ -126,9 +146,13 @@ export default function ManageFaculty() {
     let successCount = 0;
     let failCount = 0;
     
-    for (const fac of importPreview) {
+    for (const student of importPreview) {
       try {
-        await saveFacultyMember(fac.prn, 'password123', fac.fullName, fac.department, fac.email);
+        await saveStudent({
+          ...student,
+          gfmId: '',
+          gfmName: ''
+        });
         successCount++;
       } catch (e) {
         failCount++;
@@ -138,46 +162,21 @@ export default function ManageFaculty() {
     setImporting(false);
     setImportModalVisible(false);
     setImportPreview([]);
-    loadFaculty();
-    Alert.alert('Import Complete', `Successfully added ${successCount} faculty. ${failCount > 0 ? `${failCount} failed (duplicate PRN).` : ''}`);
+    loadData();
+    Alert.alert('Import Complete', `Successfully added ${successCount} students. ${failCount > 0 ? `${failCount} failed (duplicate PRN).` : ''}`);
   };
 
-  const handleDeleteFaculty = (prn: string) => {
-    Alert.alert(
-      'Confirm Delete',
-      `Are you sure you want to remove faculty member ${prn}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Delete', 
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteFacultyMember(prn);
-              loadFaculty();
-            } catch (error) {
-              Alert.alert('Error', 'Failed to delete faculty member');
-            }
-          }
-        }
-      ]
-    );
-  };
-
-  const renderFacultyItem = ({ item }: { item: FacultyMember }) => (
-    <View style={styles.facultyCard}>
-      <View style={styles.facultyInfo}>
+  const renderStudentItem = ({ item }: { item: Student }) => (
+    <View style={styles.studentCard}>
+      <View style={styles.studentInfo}>
         <Ionicons name="person-circle-outline" size={40} color={COLORS.primary} />
         <View style={styles.textContainer}>
-          <Text style={styles.facultyName}>{item.fullName || item.prn}</Text>
-          <Text style={styles.facultyPrn}>PRN: {item.prn}</Text>
-          {item.email && <Text style={styles.facultyEmail}>{item.email}</Text>}
-          <Text style={styles.facultyDept}>{item.department || 'No Department'}</Text>
+          <Text style={styles.studentName}>{item.fullName}</Text>
+          <Text style={styles.studentPrn}>PRN: {item.prn}</Text>
+          <Text style={styles.studentDetails}>{item.branch} | {item.yearOfStudy} | Div {item.division}</Text>
+          {item.email && <Text style={styles.studentEmail}>{item.email}</Text>}
         </View>
       </View>
-      <TouchableOpacity onPress={() => handleDeleteFaculty(item.prn)} style={styles.deleteBtn}>
-        <Ionicons name="trash-outline" size={20} color={COLORS.error} />
-      </TouchableOpacity>
     </View>
   );
 
@@ -187,7 +186,7 @@ export default function ManageFaculty() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Manage Faculty</Text>
+        <Text style={styles.headerTitle}>Add Students</Text>
         <View style={{ flexDirection: 'row', gap: 10 }}>
           {isWeb && (
             <TouchableOpacity onPress={() => fileInputRef.current?.click()} style={styles.importBtn}>
@@ -215,12 +214,12 @@ export default function ManageFaculty() {
         <ActivityIndicator size="large" color={COLORS.primary} style={styles.loader} />
       ) : (
         <FlatList
-          data={faculty}
+          data={students}
           keyExtractor={(item) => item.prn}
-          renderItem={renderFacultyItem}
+          renderItem={renderStudentItem}
           contentContainerStyle={styles.listContent}
           ListEmptyComponent={
-            <Text style={styles.emptyText}>No faculty members found. Click + to add or Import from CSV.</Text>
+            <Text style={styles.emptyText}>No students found. Click + to add a student or Import from CSV.</Text>
           }
         />
       )}
@@ -229,7 +228,7 @@ export default function ManageFaculty() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Add Faculty Member</Text>
+              <Text style={styles.modalTitle}>Add New Student</Text>
               <TouchableOpacity onPress={() => setModalVisible(false)}>
                 <Ionicons name="close" size={24} color={COLORS.text} />
               </TouchableOpacity>
@@ -238,49 +237,81 @@ export default function ManageFaculty() {
             <Text style={styles.label}>Full Name *</Text>
             <TextInput
               style={styles.input}
-              placeholder="Faculty Full Name"
-              value={newFaculty.fullName}
-              onChangeText={t => setNewFaculty({...newFaculty, fullName: t})}
+              placeholder="Student's Full Name"
+              value={newStudent.fullName}
+              onChangeText={t => setNewStudent({...newStudent, fullName: t})}
             />
 
             <Text style={styles.label}>Email ID *</Text>
             <TextInput
               style={styles.input}
-              placeholder="faculty@email.com"
-              value={newFaculty.email}
-              onChangeText={t => setNewFaculty({...newFaculty, email: t})}
+              placeholder="student@email.com"
+              value={newStudent.email}
+              onChangeText={t => setNewStudent({...newStudent, email: t})}
               keyboardType="email-address"
               autoCapitalize="none"
             />
-            
-            <Text style={styles.label}>PRN / Username *</Text>
+
+            <Text style={styles.label}>PRN *</Text>
             <TextInput
               style={styles.input}
-              placeholder="PRN / Username"
-              value={newFaculty.prn}
-              onChangeText={t => setNewFaculty({...newFaculty, prn: t})}
+              placeholder="Unique PRN Number"
+              value={newStudent.prn}
+              onChangeText={t => setNewStudent({...newStudent, prn: t})}
               autoCapitalize="characters"
             />
 
-            <Text style={styles.label}>Department *</Text>
-            <View style={styles.pickerWrapper}>
+            <View style={styles.row}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.label}>Branch</Text>
+                <View style={styles.pickerContainer}>
+                  <Picker
+                    selectedValue={newStudent.branch}
+                    onValueChange={v => setNewStudent({...newStudent, branch: v})}
+                  >
+                    <Picker.Item label="CSE" value="CSE" />
+                    <Picker.Item label="IT" value="IT" />
+                    <Picker.Item label="ECE" value="ECE" />
+                    <Picker.Item label="ME" value="ME" />
+                    <Picker.Item label="CE" value="CE" />
+                    <Picker.Item label="AIDS" value="AIDS" />
+                    <Picker.Item label="AIML" value="AIML" />
+                  </Picker>
+                </View>
+              </View>
+              <View style={{ flex: 1, marginLeft: 10 }}>
+                <Text style={styles.label}>Year</Text>
+                <View style={styles.pickerContainer}>
+                  <Picker
+                    selectedValue={newStudent.yearOfStudy}
+                    onValueChange={v => setNewStudent({...newStudent, yearOfStudy: v})}
+                  >
+                    {yearsOfStudy.map(year => (
+                      <Picker.Item key={year} label={year} value={year} />
+                    ))}
+                  </Picker>
+                </View>
+              </View>
+            </View>
+
+            <Text style={styles.label}>Division</Text>
+            <View style={styles.pickerContainer}>
               <Picker
-                selectedValue={newFaculty.department}
-                onValueChange={v => setNewFaculty({...newFaculty, department: v})}
-                style={styles.picker}
+                selectedValue={newStudent.division}
+                onValueChange={v => setNewStudent({...newStudent, division: v})}
               >
-                {DEPARTMENTS.map(d => (
-                  <Picker.Item key={d} label={d} value={d} />
-                ))}
+                <Picker.Item label="A" value="A" />
+                <Picker.Item label="B" value="B" />
+                <Picker.Item label="C" value="C" />
               </Picker>
             </View>
-            
+
             <View style={styles.modalButtons}>
               <TouchableOpacity onPress={() => setModalVisible(false)} style={[styles.modalBtn, styles.cancelBtn]}>
                 <Text style={styles.modalBtnText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={handleAddFaculty} style={[styles.modalBtn, styles.saveBtn]}>
-                <Text style={[styles.modalBtnText, { color: '#fff' }]}>Add</Text>
+              <TouchableOpacity onPress={handleAddStudent} style={[styles.modalBtn, styles.saveBtn]}>
+                <Text style={[styles.modalBtnText, { color: '#fff' }]}>Add Student</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -291,28 +322,26 @@ export default function ManageFaculty() {
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { maxHeight: '80%' }]}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Import Preview ({importPreview.length} faculty)</Text>
+              <Text style={styles.modalTitle}>Import Preview ({importPreview.length} students)</Text>
               <TouchableOpacity onPress={() => { setImportModalVisible(false); setImportPreview([]); }}>
                 <Ionicons name="close" size={24} color={COLORS.text} />
               </TouchableOpacity>
             </View>
             
-              <Text style={styles.helperText}>CSV should have columns: Full Name, Email, PRN, Department</Text>
+              <Text style={styles.helperText}>CSV should have columns: Full Name, Email, PRN</Text>
             
             <ScrollView style={{ maxHeight: 400 }}>
               <View style={styles.previewTable}>
                 <View style={[styles.previewRow, styles.previewHeader]}>
-                  <Text style={[styles.previewCell, { flex: 1.2, color: '#fff' }]}>Full Name</Text>
-                  <Text style={[styles.previewCell, { flex: 1.2, color: '#fff' }]}>Email</Text>
-                  <Text style={[styles.previewCell, { flex: 0.8, color: '#fff' }]}>PRN</Text>
-                  <Text style={[styles.previewCell, { flex: 0.8, color: '#fff' }]}>Dept</Text>
+                  <Text style={[styles.previewCell, { flex: 1.5 }]}>Full Name</Text>
+                  <Text style={[styles.previewCell, { flex: 1.5 }]}>Email</Text>
+                  <Text style={[styles.previewCell, { flex: 1 }]}>PRN</Text>
                 </View>
-                {importPreview.map((f, idx) => (
+                {importPreview.map((s, idx) => (
                   <View key={idx} style={styles.previewRow}>
-                    <Text style={[styles.previewCell, { flex: 1.2 }]}>{f.fullName}</Text>
-                    <Text style={[styles.previewCell, { flex: 1.2 }]}>{f.email}</Text>
-                    <Text style={[styles.previewCell, { flex: 0.8 }]}>{f.prn}</Text>
-                    <Text style={[styles.previewCell, { flex: 0.8 }]}>{f.department}</Text>
+                    <Text style={[styles.previewCell, { flex: 1.5 }]}>{s.fullName}</Text>
+                    <Text style={[styles.previewCell, { flex: 1.5 }]}>{s.email}</Text>
+                    <Text style={[styles.previewCell, { flex: 1 }]}>{s.prn}</Text>
                   </View>
                 ))}
               </View>
@@ -322,7 +351,7 @@ export default function ManageFaculty() {
               <TouchableOpacity onPress={() => { setImportModalVisible(false); setImportPreview([]); }} style={[styles.modalBtn, styles.cancelBtn]}>
                 <Text style={styles.modalBtnText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={handleImportFaculty} disabled={importing} style={[styles.modalBtn, styles.saveBtn]}>
+              <TouchableOpacity onPress={handleImportStudents} disabled={importing} style={[styles.modalBtn, styles.saveBtn]}>
                 {importing ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
@@ -381,7 +410,7 @@ const styles = StyleSheet.create({
   listContent: {
     padding: 20,
   },
-  facultyCard: {
+  studentCard: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -395,7 +424,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
   },
-  facultyInfo: {
+  studentInfo: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
@@ -404,28 +433,25 @@ const styles = StyleSheet.create({
     marginLeft: 15,
     flex: 1,
   },
-  facultyName: {
+  studentName: {
     fontSize: 16,
     fontWeight: 'bold',
     color: COLORS.text,
   },
-  facultyPrn: {
+  studentPrn: {
     fontSize: 13,
     color: COLORS.secondary,
     marginTop: 2,
   },
-  facultyEmail: {
-    fontSize: 12,
-    color: COLORS.primary,
-    marginTop: 2,
-  },
-  facultyDept: {
+  studentDetails: {
     fontSize: 12,
     color: COLORS.textLight,
     marginTop: 2,
   },
-  deleteBtn: {
-    padding: 10,
+  studentEmail: {
+    fontSize: 12,
+    color: COLORS.primary,
+    marginTop: 2,
   },
   emptyText: {
     textAlign: 'center',
@@ -451,7 +477,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 15,
+    marginBottom: 20,
   },
   modalTitle: {
     fontSize: 20,
@@ -471,6 +497,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 12,
     fontSize: 16,
+    backgroundColor: '#fff',
   },
   modalButtons: {
     flexDirection: 'row',
@@ -480,7 +507,7 @@ const styles = StyleSheet.create({
   },
   modalBtn: {
     paddingHorizontal: 20,
-    paddingVertical: 10,
+    paddingVertical: 12,
     borderRadius: 8,
   },
   cancelBtn: {
@@ -516,14 +543,5 @@ const styles = StyleSheet.create({
     padding: 10,
     fontSize: 12,
     color: COLORS.text,
-  },
-  pickerWrapper: {
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 8,
-    marginTop: 5,
-  },
-  picker: {
-    height: 50,
   },
 });

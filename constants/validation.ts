@@ -410,11 +410,14 @@ export const calculatePercentage = (marks: string, maxMarks: string): string => 
 
 // ==================== SANITIZATION HELPERS ====================
 
-export const sanitizeInput = (value: string, type: 'text' | 'number' | 'email' | 'phone'): string => {
+export const sanitizeInput = (value: string, type: 'text' | 'number' | 'decimal' | 'email' | 'phone'): string => {
   switch (type) {
-    case 'number':
     case 'phone':
       return value.replace(/[^\d]/g, '');
+    case 'number':
+      return value.replace(/[^\d]/g, '');
+    case 'decimal':
+      return value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1');
     case 'email':
       return value.trim().toLowerCase();
     case 'text':
