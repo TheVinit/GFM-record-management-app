@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../services/supabase';
+import { supabaseAdmin } from '../services/supabase-admin';
 
 async function resetAdminPassword() {
   const { data, error } = await supabaseAdmin.auth.admin.updateUserById(

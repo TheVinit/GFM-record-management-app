@@ -1,101 +1,117 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
-import { Slot, useRouter, useSegments } from 'expo-router';
-import { initDB } from '../storage/sqlite'; 
-import { getSession } from '../services/session.service';
+import { Slot, useRouter, useSegments } from 'expo-router'
+import React, { useEffect, useRef, useState } from 'react'
+import { ActivityIndicator, StyleSheet, View } from 'react-native'
+import { clearSession, getSession } from '../services/session.service'
+import { supabase } from '../services/supabase'
+import { clearSQLite, initDB } from '../storage/sqlite'
 
 export default function RootLayout() {
-  const [isReady, setIsReady] = useState(false);
-  const router = useRouter();
-  const segments = useSegments() as string[];
-  const isNavigating = useRef(false);
+  const [isReady, setIsReady] = useState(false)
+  const router = useRouter()
+  const segments = useSegments()
 
-  const [dbInitialized, setDbInitialized] = useState(false);
+  // 🔒 Hard boot locks
+  const dbBooted = useRef(false)
+  const authBooted = useRef(false)
 
+  // ------------------------
+  // 1️⃣ SQLite boot (once)
+  // ------------------------
   useEffect(() => {
-    const init = async () => {
-      try {
-        await initDB();
-        setDbInitialized(true);
-      } catch (error) {
-        console.error('DB Init Error:', error);
-      }
-    };
-    init();
-  }, []);
+    if (dbBooted.current) return
+    dbBooted.current = true
 
-  useEffect(() => {
-    if (!dbInitialized) return;
+    initDB()
+      .then(() => console.log('✅ SQLite ready'))
+      .catch(err => console.error('DB init error', err))
+  }, [])
 
-    let isMounted = true;
-    const checkAuth = async () => {
-      try {
-        const session = await getSession();
-        if (!isMounted) return;
+  // ------------------------
+  // 2️⃣ Auth boot (once)
+  // ------------------------
+    useEffect(() => {
+      let mounted = true
 
-        const firstSegment = segments[0];
-        const isAuthRoute = 
-          firstSegment === 'login' || 
-          firstSegment === 'signup' || 
-          !firstSegment;
-
-        let destination: string | null = null;
-
-        if (!session) {
-          if (!isAuthRoute) {
-            destination = '/';
+      const boot = async () => {
+        try {
+          console.log('🚀 [Root] Bootstrapping app...');
+          
+          // 1. Ensure SQLite is ready FIRST (but don't crash if it fails on web)
+          try {
+            await initDB();
+          } catch (dbErr) {
+            console.warn('⚠️ [Root] SQLite Init failed, proceeding with cloud-only mode:', dbErr);
           }
-        } else {
-          if (isAuthRoute) {
-            if (session.role === 'admin') {
-              destination = '/admin/dashboard';
-            } else if (session.role === 'teacher') {
-              destination = '/teacher/dashboard';
-            } else {
-              destination = '/student/dashboard';
-            }
+          
+          const session = await getSession()
+
+
+        if (session) {
+          console.log('✅ Restored session:', session.role)
+
+          const first = segments[0]
+            const isAuth =
+              !first || first === 'login'
+
+          if (isAuth) {
+            const dest =
+              session.role === 'admin'
+                ? '/admin/dashboard'
+                : session.role === 'teacher'
+                ? '/teacher/dashboard'
+                : '/student/dashboard'
+
+            router.replace(dest as any)
+          }
+
+          // Validate with Supabase (background)
+          const { data } = await supabase.auth.getSession()
+          if (!data.session) {
+            console.warn('⚠️ Supabase session invalid — clearing cache')
+            await clearSQLite()
+            await clearSession()
+            router.replace('/')
           }
         }
-
-        if (destination && !isNavigating.current) {
-          const currentPath = '/' + segments.join('/');
-          // Normalize both paths to avoid false mismatches
-          const normalizedPath = currentPath.replace(/\/+$/, '') || '/';
-          const normalizedDest = destination.replace(/\/+$/, '') || '/';
-
-          if (normalizedPath !== normalizedDest) {
-            isNavigating.current = true;
-            console.log(`[AuthGuard] Redirecting from ${normalizedPath} to ${normalizedDest}`);
-            router.replace(normalizedDest as any);
-            setTimeout(() => {
-              isNavigating.current = false;
-            }, 1000);
-          }
-        }
-      } catch (error) {
-        console.error('Auth check error:', error);
+      } catch (e) {
+        console.error('Auth bootstrap failed', e)
       } finally {
-        if (isMounted) {
-          setIsReady(true);
-        }
+        if (mounted) setIsReady(true)
       }
-    };
+    }
 
-    checkAuth();
-    return () => { isMounted = false; };
-  }, [segments, dbInitialized]);
+    boot()
 
+    // ------------------------
+    // 3️⃣ Realtime auth (ONLY future events)
+    // ------------------------
+    const { data: { subscription } } =
+      supabase.auth.onAuthStateChange(async (event) => {
+        if (event === 'SIGNED_OUT') {
+          await clearSQLite()
+          await clearSession()
+          router.replace('/')
+        }
+      })
 
+    return () => {
+      mounted = false
+      subscription.unsubscribe()
+    }
+  }, [])
 
+  // ------------------------
+  // Loader
+  // ------------------------
   if (!isReady) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#007AFF" />
+        <ActivityIndicator size="large" />
       </View>
-    );
+    )
   }
 
-  return <Slot />;
+  return <Slot />
 }
 
 const styles = StyleSheet.create({
@@ -103,6 +119,5 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f8f9fa'
-  }
-});
+  },
+})

@@ -9,11 +9,15 @@ import {
   Alert,
   Modal,
   ActivityIndicator,
-  Image
+  Image,
+  Linking,
+  Platform,
+  useWindowDimensions
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import * as DocumentPicker from 'expo-document-picker';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getSession } from '../../services/session.service';
+import { Ionicons } from '@expo/vector-icons';
 import {
   FeePayment,
   getFeePayments,
@@ -23,29 +27,34 @@ import {
   getStudentInfo
 } from '../../storage/sqlite';
 import { uploadToCloudinary } from '../../services/cloudinaryservices';
-import { Ionicons } from '@expo/vector-icons';
+import { COLORS } from '../../constants/colors';
+import { useRouter } from 'expo-router';
 
-export default function FeePaymentScreen() {
+export default function FeePaymentsScreen() {
+  const router = useRouter();
+  const { width } = useWindowDimensions();
+  const isLargeScreen = width >= 768;
   const [prn, setPrn] = useState('');
-  const [category, setCategory] = useState('');
   const [payments, setPayments] = useState<FeePayment[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [receiptModalVisible, setReceiptModalVisible] = useState(false);
-  const [selectedReceipt, setSelectedReceipt] = useState('');
 
   // Form fields
-  const [academicYear, setAcademicYear] = useState('1st Year');
+  const [academicYear, setAcademicYear] = useState('2024-25');
   const [totalFee, setTotalFee] = useState('');
   const [totalFeeLocked, setTotalFeeLocked] = useState(false);
-  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
   const [amountPaid, setAmountPaid] = useState('');
+  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
   const [paymentMode, setPaymentMode] = useState('UPI');
+  const [category, setCategory] = useState('Open');
   const [receiptUri, setReceiptUri] = useState('');
   const [receiptFileInfo, setReceiptFileInfo] = useState<{ name: string, type: string } | null>(null);
 
-  const academicYears = ['1st Year', '2nd Year', '3rd Year', '4th Year'];
-  const paymentModes = ['Cash', 'Cheque', 'UPI', 'Net Banking', 'Card'];
+  const [selectedReceipt, setSelectedReceipt] = useState('');
+  const [receiptModalVisible, setReceiptModalVisible] = useState(false);
+
+  const academicYears = ['2023-24', '2024-25', '2025-26'];
+  const paymentModes = ['Cash', 'UPI', 'NEFT/RTGS', 'Cheque', 'Demand Draft'];
 
   useEffect(() => {
     loadData();
@@ -53,20 +62,31 @@ export default function FeePaymentScreen() {
 
   const loadData = async () => {
     try {
-      const userPrn = await AsyncStorage.getItem('userPrn');
-      if (!userPrn) return;
-
+      const session = await getSession();
+      if (!session || !session.prn) {
+        Alert.alert('Session Error', 'Please login again');
+        return;
+      }
+      const userPrn = session.prn;
       setPrn(userPrn);
+
       const student = await getStudentInfo(userPrn);
       if (student) {
-        setCategory(student.category);
+        setCategory(student.category || 'Open');
       }
 
-      const paymentData = await getFeePayments(userPrn);
-      setPayments(paymentData);
+      const data = await getFeePayments(userPrn);
+      setPayments(data);
+
+      // Check current year's total fee
+      const existingTotalFee = await getTotalFeeForYear(userPrn, academicYear);
+      if (existingTotalFee) {
+        setTotalFee(existingTotalFee.toString());
+        setTotalFeeLocked(true);
+      }
     } catch (error) {
-      console.error('Error loading fee data:', error);
-      Alert.alert('Error', 'Failed to load fee payment data');
+      console.error('Error loading fee payments:', error);
+      Alert.alert('Error', 'Failed to load fee payments');
     } finally {
       setLoading(false);
     }
@@ -86,6 +106,20 @@ export default function FeePaymentScreen() {
     }
   };
 
+  const viewReceipt = (uri: string) => {
+    if (!uri) return;
+    const isPdf = uri.toLowerCase().endsWith('.pdf') || uri.includes('/raw/upload/');
+    if (isPdf) {
+      Linking.openURL(uri).catch(err => {
+        console.error("Error opening PDF:", err);
+        Alert.alert("Error", "Could not open PDF. Please try again.");
+      });
+    } else {
+      setSelectedReceipt(uri);
+      setReceiptModalVisible(true);
+    }
+  };
+
   const pickReceipt = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -93,26 +127,24 @@ export default function FeePaymentScreen() {
         copyToCacheDirectory: true
       });
 
-    if (result.assets && result.assets[0]) {
-      const file = result.assets[0];
-      
-      // Check file size (max 1MB)
-      if (file.size && file.size > 1024 * 1024) {
-        Alert.alert('Error', 'File size must be less than 1MB');
-        return;
+      if (result.assets && result.assets[0]) {
+        const file = result.assets[0];
+        
+        if (file.size && file.size > 2 * 1024 * 1024) {
+          Alert.alert('Error', 'File size must be less than 2MB');
+          return;
+        }
+
+        setReceiptUri(file.uri);
+        setReceiptFileInfo({
+          name: file.name || 'receipt.jpg',
+          type: file.mimeType || 'image/jpeg'
+        });
+        Alert.alert('Success', 'Receipt selected successfully');
       }
-
-      setReceiptUri(file.uri);
-      setReceiptFileInfo({
-        name: file.name || 'receipt.jpg',
-        type: file.mimeType || 'image/jpeg'
-      });
-      Alert.alert('Success', 'Receipt selected successfully');
-    }
-
     } catch (error) {
       console.error('Error picking receipt:', error);
-      Alert.alert('Error', 'Failed to upload receipt');
+      Alert.alert('Error', 'Failed to pick receipt');
     }
   };
 
@@ -123,28 +155,19 @@ export default function FeePaymentScreen() {
     }
 
     if (!amountPaid || parseFloat(amountPaid) <= 0) {
-      Alert.alert('Error', 'Please enter valid amount');
+      Alert.alert('Error', 'Please enter valid amount paid');
       return false;
     }
 
     const paid = parseFloat(amountPaid);
     const total = parseFloat(totalFee);
 
-    // Calculate total paid so far for this year
     const yearPayments = payments.filter(p => p.academicYear === academicYear);
     const totalPaidSoFar = yearPayments.reduce((sum, p) => sum + p.amountPaid, 0);
     const remaining = total - totalPaidSoFar;
 
     if (paid > remaining) {
       Alert.alert('Error', `Amount exceeds remaining balance of ₹${remaining.toFixed(2)}`);
-      return false;
-    }
-
-    if (!receiptUri) {
-      Alert.alert('Warning', 'Receipt not uploaded. Continue anyway?', [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Continue', onPress: () => savePayment() }
-      ]);
       return false;
     }
 
@@ -159,30 +182,28 @@ export default function FeePaymentScreen() {
       const paid = parseFloat(amountPaid);
       const total = parseFloat(totalFee);
 
-        let finalReceiptUri = receiptUri;
-        if (receiptUri && (receiptUri.startsWith('file://') || receiptUri.startsWith('blob:') || receiptUri.startsWith('data:'))) {
-          const uploadedUrl = await uploadToCloudinary(
-            receiptUri,
-            receiptFileInfo?.type || 'image/jpeg',
-            receiptFileInfo?.name || 'receipt.jpg'
-          );
-          
-          if (uploadedUrl) {
-            finalReceiptUri = uploadedUrl;
-          } else {
-            // If upload failed, we shouldn't save with a local URI that might not persist or is too large
-            Alert.alert('Upload Failed', 'Failed to upload receipt to cloud. Please try again.');
-            setLoading(false);
-            return;
-          }
+      let finalReceiptUri = receiptUri;
+      if (receiptUri && (receiptUri.startsWith('file://') || receiptUri.startsWith('blob:') || receiptUri.startsWith('data:'))) {
+        const uploadedUrl = await uploadToCloudinary(
+          receiptUri,
+          receiptFileInfo?.type || 'image/jpeg',
+          receiptFileInfo?.name || 'receipt.jpg',
+          'fees_gfm'
+        );
+        
+        if (uploadedUrl) {
+          finalReceiptUri = uploadedUrl;
+        } else {
+          Alert.alert('Upload Failed', 'Failed to upload receipt. Please try again.');
+          setLoading(false);
+          return;
         }
+      }
 
-      // Calculate remaining balance
       const yearPayments = payments.filter(p => p.academicYear === academicYear);
       const totalPaidSoFar = yearPayments.reduce((sum, p) => sum + p.amountPaid, 0);
       const remaining = total - totalPaidSoFar - paid;
 
-      // Get next installment number
       const installmentNumber = await getNextInstallmentNumber(prn, academicYear);
 
       const payment: FeePayment = {
@@ -205,7 +226,7 @@ export default function FeePaymentScreen() {
       loadData();
     } catch (error) {
       console.error('Error saving payment:', error);
-      Alert.alert('Error', 'Failed to save payment. Please check your connection.');
+      Alert.alert('Error', 'Failed to save payment');
     } finally {
       setLoading(false);
     }
@@ -219,20 +240,16 @@ export default function FeePaymentScreen() {
   };
 
   const getPaymentStatus = (payment: FeePayment): string => {
-    if (payment.remainingBalance === 0) return '✅ Paid';
-    if (payment.remainingBalance < payment.totalFee) return '⚠️ Partial';
-    return '❌ Unpaid';
+    if (payment.remainingBalance <= 0) return 'Paid';
+    return 'Partial';
   };
 
-  const viewReceipt = (uri: string) => {
-    setSelectedReceipt(uri);
-    setReceiptModalVisible(true);
-  };
+  const styles = createStyles(width, isLargeScreen);
 
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#4CAF50" />
+        <ActivityIndicator size="large" color={COLORS.primary} />
         <Text style={styles.loadingText}>Loading fee payments...</Text>
       </View>
     );
@@ -240,199 +257,232 @@ export default function FeePaymentScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Fee Payments</Text>
-        <TouchableOpacity
-          style={styles.addButton}
-          onPress={() => setShowForm(!showForm)}
-        >
-          <Ionicons name={showForm ? 'close' : 'add'} size={24} color="#fff" />
-        </TouchableOpacity>
+        <View style={styles.headerTop}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color={COLORS.white} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Fee Architecture</Text>
+          <TouchableOpacity
+            style={styles.addButton}
+            onPress={() => setShowForm(!showForm)}
+          >
+            <Ionicons name={showForm ? 'close' : 'add'} size={24} color={COLORS.primary} />
+          </TouchableOpacity>
+        </View>
       </View>
 
-      <ScrollView style={styles.content}>
-        {/* Payment Form */}
+      <ScrollView style={styles.content} contentContainerStyle={isLargeScreen ? { maxWidth: 1000, alignSelf: 'center', width: '100%' } : undefined}>
         {showForm && (
           <View style={styles.formCard}>
-            <Text style={styles.formTitle}>Add Payment</Text>
-
-            {/* Academic Year */}
-            <Text style={styles.label}>Academic Year *</Text>
-            <View style={styles.pickerContainer}>
-              <Picker
-                selectedValue={academicYear}
-                onValueChange={handleYearChange}
-                style={styles.picker}
-              >
-                {academicYears.map(year => (
-                  <Picker.Item key={year} label={year} value={year} />
-                ))}
-              </Picker>
+            <View style={styles.formHeader}>
+              <Ionicons name="card-outline" size={24} color={COLORS.primary} />
+              <Text style={styles.formTitle}>Add New Payment</Text>
             </View>
 
-            {/* Total Fee */}
-            <Text style={styles.label}>Total Fee (₹) *</Text>
-            <TextInput
-              style={[styles.input, totalFeeLocked && styles.inputDisabled]}
-              value={totalFee}
-              onChangeText={setTotalFee}
-              keyboardType="numeric"
-              placeholder="Enter total fee"
-              editable={!totalFeeLocked}
-            />
-            {totalFeeLocked && (
-              <Text style={styles.helperText}>
-                Total fee is locked for this year
-              </Text>
-            )}
+            <View style={styles.formGrid}>
+              <View style={[styles.formField, isLargeScreen && { flex: 1 }]}>
+                <Text style={styles.label}>Academic Year *</Text>
+                <View style={styles.pickerContainer}>
+                  <Picker
+                    selectedValue={academicYear}
+                    onValueChange={handleYearChange}
+                    style={styles.picker}
+                  >
+                    {academicYears.map(year => (
+                      <Picker.Item key={year} label={year} value={year} />
+                    ))}
+                  </Picker>
+                </View>
+              </View>
 
-            {/* Payment Date */}
-            <Text style={styles.label}>Payment Date *</Text>
-            <TextInput
-              style={styles.input}
-              value={paymentDate}
-              onChangeText={setPaymentDate}
-              placeholder="YYYY-MM-DD"
-            />
-
-            {/* Amount Paid */}
-            <Text style={styles.label}>Amount Paid (₹) *</Text>
-            <TextInput
-              style={styles.input}
-              value={amountPaid}
-              onChangeText={setAmountPaid}
-              keyboardType="numeric"
-              placeholder="Enter amount"
-            />
-
-            {/* Payment Mode */}
-            <Text style={styles.label}>Payment Mode *</Text>
-            <View style={styles.pickerContainer}>
-              <Picker
-                selectedValue={paymentMode}
-                onValueChange={setPaymentMode}
-                style={styles.picker}
-              >
-                {paymentModes.map(mode => (
-                  <Picker.Item key={mode} label={mode} value={mode} />
-                ))}
-              </Picker>
+              <View style={[styles.formField, isLargeScreen && { flex: 1 }]}>
+                <Text style={styles.label}>Total Fee (₹) *</Text>
+                <TextInput
+                  style={[styles.input, totalFeeLocked && styles.inputDisabled]}
+                  value={totalFee}
+                  onChangeText={setTotalFee}
+                  keyboardType="numeric"
+                  placeholder="Enter total fee"
+                  editable={!totalFeeLocked}
+                />
+                {totalFeeLocked && (
+                  <Text style={styles.helperText}>Total fee is locked for this year</Text>
+                )}
+              </View>
             </View>
 
-            {/* Receipt Upload */}
-            <Text style={styles.label}>Receipt Upload</Text>
-            <TouchableOpacity style={styles.uploadButton} onPress={pickReceipt}>
-              <Ionicons name="cloud-upload-outline" size={24} color="#4CAF50" />
-              <Text style={styles.uploadText}>
-                {receiptUri ? 'Receipt Uploaded ✓' : 'Upload Receipt'}
-              </Text>
-            </TouchableOpacity>
+            <View style={styles.formGrid}>
+              <View style={[styles.formField, isLargeScreen && { flex: 1 }]}>
+                <Text style={styles.label}>Payment Date *</Text>
+                <TextInput
+                  style={styles.input}
+                  value={paymentDate}
+                  onChangeText={setPaymentDate}
+                  placeholder="YYYY-MM-DD"
+                />
+              </View>
 
-            {/* Submit Button */}
+              <View style={[styles.formField, isLargeScreen && { flex: 1 }]}>
+                <Text style={styles.label}>Amount Paid (₹) *</Text>
+                <TextInput
+                  style={styles.input}
+                  value={amountPaid}
+                  onChangeText={setAmountPaid}
+                  keyboardType="numeric"
+                  placeholder="Enter amount"
+                />
+              </View>
+            </View>
+
+            <View style={styles.formGrid}>
+              <View style={[styles.formField, isLargeScreen && { flex: 1 }]}>
+                <Text style={styles.label}>Payment Mode *</Text>
+                <View style={styles.pickerContainer}>
+                  <Picker
+                    selectedValue={paymentMode}
+                    onValueChange={setPaymentMode}
+                    style={styles.picker}
+                  >
+                    {paymentModes.map(mode => (
+                      <Picker.Item key={mode} label={mode} value={mode} />
+                    ))}
+                  </Picker>
+                </View>
+              </View>
+
+              <View style={[styles.formField, isLargeScreen && { flex: 1 }]}>
+                <Text style={styles.label}>Receipt Upload</Text>
+                <TouchableOpacity style={styles.uploadButton} onPress={pickReceipt}>
+                  <Ionicons name={receiptUri ? "checkmark-circle" : "cloud-upload-outline"} size={20} color={receiptUri ? COLORS.success : COLORS.primary} />
+                  <Text style={[styles.uploadText, receiptUri && { color: COLORS.success }]}>
+                    {receiptUri ? 'Receipt Selected' : 'Upload Receipt'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
             <TouchableOpacity style={styles.submitButton} onPress={savePayment}>
               <Text style={styles.submitText}>Record Payment</Text>
             </TouchableOpacity>
           </View>
         )}
 
-        {/* Payment History */}
         <View style={styles.historyCard}>
-          <Text style={styles.historyTitle}>Payment History</Text>
+          <View style={styles.historyHeader}>
+            <Ionicons name="time-outline" size={22} color={COLORS.primary} />
+            <Text style={styles.historyTitle}>Payment History</Text>
+          </View>
 
           {payments.length === 0 ? (
             <View style={styles.emptyState}>
-              <Text style={styles.emptyEmoji}>💳</Text>
+              <View style={styles.emptyIconContainer}>
+                <Ionicons name="card-outline" size={48} color={COLORS.textLight} />
+              </View>
               <Text style={styles.emptyText}>No payments recorded yet</Text>
+              <TouchableOpacity style={styles.emptyAddButton} onPress={() => setShowForm(true)}>
+                <Text style={styles.emptyAddText}>Add your first payment</Text>
+              </TouchableOpacity>
             </View>
           ) : (
-            payments.map((payment, index) => (
-              <View key={index} style={styles.paymentCard}>
-                  <View style={styles.paymentHeader}>
-                    <Text style={styles.paymentYear}>{payment.academicYear}</Text>
-                    <View style={styles.statusGroup}>
-                      <Text style={[styles.verificationStatus, payment.verificationStatus === 'Verified' ? styles.verifiedText : styles.pendingText]}>
-                        {payment.verificationStatus || 'Pending'}
-                      </Text>
-                      <Text style={styles.paymentStatus}>
-                        {getPaymentStatus(payment)}
-                      </Text>
+            <View style={styles.paymentsList}>
+              {payments.map((payment, index) => (
+                <View key={index} style={styles.paymentCard}>
+                  <View style={styles.paymentCardHeader}>
+                    <View>
+                      <Text style={styles.paymentYear}>{payment.academicYear}</Text>
+                      <Text style={styles.paymentDate}>{payment.paymentDate}</Text>
+                    </View>
+                    <View style={styles.statusBadges}>
+                      <View style={[styles.badge, payment.verificationStatus === 'Verified' ? styles.verifiedBadge : styles.pendingBadge]}>
+                        <Text style={[styles.badgeText, payment.verificationStatus === 'Verified' ? styles.verifiedText : styles.pendingText]}>
+                          {payment.verificationStatus || 'Pending'}
+                        </Text>
+                      </View>
+                      <View style={[styles.badge, payment.remainingBalance <= 0 ? styles.paidBadge : styles.partialBadge]}>
+                        <Text style={[styles.badgeText, payment.remainingBalance <= 0 ? styles.paidText : styles.partialText]}>
+                          {getPaymentStatus(payment)}
+                        </Text>
+                      </View>
                     </View>
                   </View>
 
-                <View style={styles.paymentRow}>
-                  <Text style={styles.paymentLabel}>Installment:</Text>
-                  <Text style={styles.paymentValue}>#{payment.installmentNumber}</Text>
-                </View>
+                  <View style={styles.paymentInfoGrid}>
+                    <View style={styles.infoItem}>
+                      <Text style={styles.infoLabel}>Installment</Text>
+                      <Text style={styles.infoValue}>#{payment.installmentNumber}</Text>
+                    </View>
+                    <View style={styles.infoItem}>
+                      <Text style={styles.infoLabel}>Total Fee</Text>
+                      <Text style={styles.infoValue}>₹{payment.totalFee.toLocaleString()}</Text>
+                    </View>
+                    <View style={styles.infoItem}>
+                      <Text style={styles.infoLabel}>Paid</Text>
+                      <Text style={[styles.infoValue, { color: COLORS.success }]}>₹{payment.amountPaid.toLocaleString()}</Text>
+                    </View>
+                    <View style={styles.infoItem}>
+                      <Text style={styles.infoLabel}>Balance</Text>
+                      <Text style={[styles.infoValue, { color: COLORS.error }]}>₹{payment.remainingBalance.toLocaleString()}</Text>
+                    </View>
+                  </View>
 
-                <View style={styles.paymentRow}>
-                  <Text style={styles.paymentLabel}>Total Fee:</Text>
-                  <Text style={styles.paymentValue}>₹{payment.totalFee.toFixed(2)}</Text>
+                  <View style={styles.paymentFooter}>
+                    <View style={styles.modeContainer}>
+                      <Ionicons name="wallet-outline" size={16} color={COLORS.textSecondary} />
+                      <Text style={styles.modeText}>{payment.paymentMode}</Text>
+                    </View>
+                    {payment.receiptUri && (
+                      <TouchableOpacity
+                        style={styles.viewReceiptButton}
+                        onPress={() => viewReceipt(payment.receiptUri)}
+                      >
+                        <Ionicons name="eye-outline" size={16} color={COLORS.primary} />
+                        <Text style={styles.viewReceiptText}>View Receipt</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
                 </View>
-
-                <View style={styles.paymentRow}>
-                  <Text style={styles.paymentLabel}>Amount Paid:</Text>
-                  <Text style={[styles.paymentValue, styles.amountPaid]}>
-                    ₹{payment.amountPaid.toFixed(2)}
-                  </Text>
-                </View>
-
-                <View style={styles.paymentRow}>
-                  <Text style={styles.paymentLabel}>Remaining:</Text>
-                  <Text style={[styles.paymentValue, styles.remaining]}>
-                    ₹{payment.remainingBalance.toFixed(2)}
-                  </Text>
-                </View>
-
-                <View style={styles.paymentRow}>
-                  <Text style={styles.paymentLabel}>Date:</Text>
-                  <Text style={styles.paymentValue}>{payment.paymentDate}</Text>
-                </View>
-
-                <View style={styles.paymentRow}>
-                  <Text style={styles.paymentLabel}>Mode:</Text>
-                  <Text style={styles.paymentValue}>{payment.paymentMode}</Text>
-                </View>
-
-                {payment.receiptUri && (
-                  <TouchableOpacity
-                    style={styles.viewReceiptButton}
-                    onPress={() => viewReceipt(payment.receiptUri)}
-                  >
-                    <Ionicons name="document-text-outline" size={18} color="#4CAF50" />
-                    <Text style={styles.viewReceiptText}>View Receipt</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            ))
+              ))}
+            </View>
           )}
         </View>
+        <View style={{ height: 40 }} />
       </ScrollView>
 
-      {/* Receipt Modal */}
       <Modal
         visible={receiptModalVisible}
         transparent={true}
         onRequestClose={() => setReceiptModalVisible(false)}
       >
-        <View style={styles.modalContainer}>
+        <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <TouchableOpacity
-              style={styles.closeButton}
-              onPress={() => setReceiptModalVisible(false)}
-            >
-              <Ionicons name="close" size={28} color="#333" />
-            </TouchableOpacity>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Fee Receipt</Text>
+              <TouchableOpacity
+                style={styles.closeButton}
+                onPress={() => setReceiptModalVisible(false)}
+              >
+                <Ionicons name="close" size={24} color={COLORS.text} />
+              </TouchableOpacity>
+            </View>
             
-            {selectedReceipt.endsWith('.pdf') ? (
-              <Text style={styles.pdfText}>PDF Preview Not Available</Text>
-            ) : (
-              <Image
-                source={{ uri: selectedReceipt }}
-                style={styles.receiptImage}
-                resizeMode="contain"
-              />
-            )}
+            <View style={styles.receiptContainer}>
+              {selectedReceipt.toLowerCase().endsWith('.pdf') ? (
+                <View style={styles.pdfPlaceholder}>
+                  <Ionicons name="document-text-outline" size={64} color={COLORS.textLight} />
+                  <Text style={styles.pdfText}>PDF View not available in preview</Text>
+                  <TouchableOpacity style={styles.downloadBtn} onPress={() => Linking.openURL(selectedReceipt)}>
+                    <Text style={styles.downloadBtnText}>Open PDF</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <Image
+                  source={{ uri: selectedReceipt }}
+                  style={styles.receiptImage}
+                  resizeMode="contain"
+                />
+              )}
+            </View>
           </View>
         </View>
       </Modal>
@@ -440,257 +490,213 @@ export default function FeePaymentScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f7fa'
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center'
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 16,
-    color: '#666'
-  },
+const createStyles = (width: number, isLargeScreen: boolean) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: COLORS.background },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background },
+  loadingText: { marginTop: 12, fontSize: 16, color: COLORS.textSecondary },
   header: {
-    backgroundColor: '#4CAF50',
+    backgroundColor: COLORS.primary,
+    paddingTop: Platform.OS === 'ios' ? 60 : 40,
+    paddingBottom: 40,
+    paddingHorizontal: 20,
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
+  },
+  headerTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: 60,
-    paddingBottom: 20,
-    paddingHorizontal: 20
   },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff'
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  addButton: {
-    backgroundColor: 'rgba(255,255,255,0.3)',
-    padding: 10,
-    borderRadius: 50
-  },
-  content: {
-    flex: 1,
-    padding: 16
-  },
-  formCard: {
-    backgroundColor: '#fff',
-    padding: 20,
-    borderRadius: 12,
-    marginBottom: 16,
-    shadowColor: '#000',
+  headerTitle: { fontSize: 22, fontWeight: 'bold', color: COLORS.white },
+  addButton: { 
+    width: 40, 
+    height: 40, 
+    borderRadius: 20, 
+    backgroundColor: COLORS.white, 
+    justifyContent: 'center', 
+    alignItems: 'center',
+    shadowColor: COLORS.black,
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.2,
     shadowRadius: 4,
     elevation: 3
   },
-  formTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 20
+  content: { flex: 1, padding: 20, marginTop: -25 },
+  formCard: {
+    backgroundColor: COLORS.white,
+    padding: 24,
+    borderRadius: 20,
+    marginBottom: 20,
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 12,
+    elevation: 5
   },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#555',
-    marginBottom: 8,
-    marginTop: 12
+  formHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 24, gap: 10 },
+  formTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.text },
+  formGrid: { flexDirection: isLargeScreen ? 'row' : 'column', gap: 16, marginBottom: 16 },
+  formField: { marginBottom: 0 },
+  label: { fontSize: 14, fontWeight: '600', color: COLORS.textSecondary, marginBottom: 8 },
+  input: { 
+    borderWidth: 1.5, 
+    borderColor: COLORS.border, 
+    borderRadius: 12, 
+    padding: 14, 
+    fontSize: 16, 
+    color: COLORS.text,
+    backgroundColor: COLORS.white
   },
-  input: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    backgroundColor: '#fff'
+  inputDisabled: { backgroundColor: COLORS.background, color: COLORS.textLight, borderColor: COLORS.borderLight },
+  helperText: { fontSize: 12, color: COLORS.textLight, marginTop: 6, fontStyle: 'italic' },
+  pickerContainer: { 
+    borderWidth: 1.5, 
+    borderColor: COLORS.border, 
+    borderRadius: 12, 
+    overflow: 'hidden',
+    backgroundColor: COLORS.white
   },
-  inputDisabled: {
-    backgroundColor: '#f0f0f0',
-    color: '#999'
-  },
-  helperText: {
-    fontSize: 12,
-    color: '#999',
-    marginTop: 4,
-    fontStyle: 'italic'
-  },
-  pickerContainer: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    overflow: 'hidden'
-  },
-  picker: {
-    height: 50
-  },
+  picker: { height: 50 },
   uploadButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#4CAF50',
+    borderWidth: 1.5,
+    borderColor: COLORS.primary,
     borderStyle: 'dashed',
-    borderRadius: 8,
-    padding: 16,
-    gap: 8
-  },
-  uploadText: {
-    fontSize: 16,
-    color: '#4CAF50',
-    fontWeight: '600'
-  },
-  submitButton: {
-    backgroundColor: '#4CAF50',
-    padding: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 20
-  },
-  submitText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold'
-  },
-  historyCard: {
-    backgroundColor: '#fff',
-    padding: 20,
     borderRadius: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    padding: 14,
+    gap: 10,
+    backgroundColor: `${COLORS.primary}05`
+  },
+  uploadText: { fontSize: 15, color: COLORS.primary, fontWeight: '600' },
+  submitButton: { 
+    backgroundColor: COLORS.primary, 
+    padding: 16, 
+    borderRadius: 12, 
+    alignItems: 'center', 
+    marginTop: 8,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4
+  },
+  submitText: { color: COLORS.white, fontSize: 16, fontWeight: 'bold' },
+  historyCard: { 
+    backgroundColor: COLORS.white, 
+    padding: 24, 
+    borderRadius: 20,
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 12,
     elevation: 3
   },
-  historyTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 16
+  historyHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 20, gap: 10 },
+  historyTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.text },
+  emptyState: { alignItems: 'center', paddingVertical: 40 },
+  emptyIconContainer: { 
+    width: 80, 
+    height: 80, 
+    borderRadius: 40, 
+    backgroundColor: COLORS.background, 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    marginBottom: 16 
   },
-  emptyState: {
-    alignItems: 'center',
-    paddingVertical: 40
+  emptyText: { fontSize: 16, color: COLORS.textLight, marginBottom: 20 },
+  emptyAddButton: { 
+    paddingVertical: 10, 
+    paddingHorizontal: 20, 
+    borderRadius: 10, 
+    backgroundColor: `${COLORS.primary}10` 
   },
-  emptyEmoji: {
-    fontSize: 64,
-    marginBottom: 12
+  emptyAddText: { color: COLORS.primary, fontWeight: '600' },
+  paymentsList: { gap: 16 },
+  paymentCard: { 
+    backgroundColor: COLORS.background, 
+    padding: 18, 
+    borderRadius: 16, 
+    borderLeftWidth: 4, 
+    borderLeftColor: COLORS.primary 
   },
-  emptyText: {
-    fontSize: 16,
-    color: '#999'
-  },
-  paymentCard: {
-    backgroundColor: '#f9f9f9',
-    padding: 16,
-    borderRadius: 8,
-    marginBottom: 12,
-    borderLeftWidth: 4,
-    borderLeftColor: '#4CAF50'
-  },
-  paymentHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 12,
+  paymentCardHeader: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'flex-start',
+    marginBottom: 16,
     paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0'
+    borderBottomColor: COLORS.border
   },
-  paymentYear: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333'
+  paymentYear: { fontSize: 17, fontWeight: 'bold', color: COLORS.text },
+  paymentDate: { fontSize: 13, color: COLORS.textSecondary, marginTop: 2 },
+  statusBadges: { flexDirection: 'row', gap: 8 },
+  badge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  badgeText: { fontSize: 11, fontWeight: 'bold' },
+  verifiedBadge: { backgroundColor: `${COLORS.success}15` },
+  verifiedText: { color: COLORS.success },
+  pendingBadge: { backgroundColor: `${COLORS.warning}15` },
+  pendingText: { color: COLORS.warning },
+  paidBadge: { backgroundColor: `${COLORS.success}15` },
+  paidText: { color: COLORS.success },
+  partialBadge: { backgroundColor: `${COLORS.warning}15` },
+  partialText: { color: COLORS.warning },
+  paymentInfoGrid: { 
+    flexDirection: 'row', 
+    flexWrap: 'wrap', 
+    gap: 12,
+    marginBottom: 16
   },
-    paymentStatus: {
-      fontSize: 14,
-      fontWeight: '600'
-    },
-    statusGroup: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 10
-    },
-    verificationStatus: {
-      fontSize: 12,
-      fontWeight: 'bold',
-      paddingHorizontal: 8,
-      paddingVertical: 2,
-      borderRadius: 4,
-      overflow: 'hidden',
-      backgroundColor: '#f0f0f0'
-    },
-    verifiedText: {
-      color: '#4CAF50',
-      backgroundColor: '#E8F5E9'
-    },
-    pendingText: {
-      color: '#FF9800',
-      backgroundColor: '#FFF3E0'
-    },
-  paymentRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 6
-  },
-  paymentLabel: {
-    fontSize: 14,
-    color: '#666'
-  },
-  paymentValue: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333'
-  },
-  amountPaid: {
-    color: '#4CAF50'
-  },
-  remaining: {
-    color: '#FF9800'
-  },
-  viewReceiptButton: {
-    flexDirection: 'row',
+  infoItem: { flex: 1, minWidth: '45%' },
+  infoLabel: { fontSize: 12, color: COLORS.textLight, marginBottom: 4 },
+  infoValue: { fontSize: 15, fontWeight: 'bold', color: COLORS.text },
+  paymentFooter: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
     alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 12,
-    padding: 10,
-    backgroundColor: '#E8F5E9',
-    borderRadius: 6,
-    gap: 6
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border
   },
-  viewReceiptText: {
-    color: '#4CAF50',
-    fontWeight: '600'
+  modeContainer: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  modeText: { fontSize: 13, color: COLORS.textSecondary, fontWeight: '500' },
+  viewReceiptButton: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    paddingVertical: 6, 
+    paddingHorizontal: 12, 
+    backgroundColor: `${COLORS.primary}10`, 
+    borderRadius: 8, 
+    gap: 6 
   },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.9)',
-    justifyContent: 'center',
-    alignItems: 'center'
+  viewReceiptText: { color: COLORS.primary, fontSize: 13, fontWeight: 'bold' },
+  modalOverlay: { flex: 1, backgroundColor: COLORS.overlay, justifyContent: 'center', alignItems: 'center', padding: 20 },
+  modalContent: { width: '100%', maxWidth: 600, maxHeight: '80%', backgroundColor: COLORS.white, borderRadius: 24, overflow: 'hidden' },
+  modalHeader: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    padding: 20, 
+    borderBottomWidth: 1, 
+    borderBottomColor: COLORS.border 
   },
-  modalContent: {
-    width: '90%',
-    height: '80%',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16
-  },
-  closeButton: {
-    alignSelf: 'flex-end',
-    marginBottom: 12
-  },
-  receiptImage: {
-    width: '100%',
-    height: '100%'
-  },
-  pdfText: {
-    textAlign: 'center',
-    marginTop: 100,
-    fontSize: 18,
-    color: '#666'
-  }
+  modalTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.text },
+  closeButton: { padding: 4 },
+  receiptContainer: { padding: 20, alignItems: 'center', justifyContent: 'center', minHeight: 300 },
+  receiptImage: { width: '100%', height: 400 },
+  pdfPlaceholder: { alignItems: 'center', gap: 16 },
+  pdfText: { fontSize: 16, color: COLORS.textSecondary, textAlign: 'center' },
+  downloadBtn: { backgroundColor: COLORS.primary, paddingVertical: 12, paddingHorizontal: 24, borderRadius: 12 },
+  downloadBtnText: { color: COLORS.white, fontWeight: 'bold' }
 });
+

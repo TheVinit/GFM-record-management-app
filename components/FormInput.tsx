@@ -61,7 +61,8 @@ interface FormPickerProps {
   items: string[];
   error?: string;
   enabled?: boolean;
-  containerStyle?: ViewStyle; // 👈 Added
+  containerStyle?: ViewStyle;
+  placeholder?: string;
 }
 
 export const FormPicker: React.FC<FormPickerProps> = ({
@@ -71,7 +72,8 @@ export const FormPicker: React.FC<FormPickerProps> = ({
   items,
   error,
   enabled = true,
-  containerStyle // 👈 Added
+  containerStyle,
+  placeholder
 }) => {
   return (
     <View style={[styles.inputContainer, containerStyle]}>
@@ -79,10 +81,23 @@ export const FormPicker: React.FC<FormPickerProps> = ({
       <View style={[styles.pickerContainer, error && styles.inputError]}>
         <Picker
           selectedValue={selectedValue}
-          onValueChange={onValueChange}
+          onValueChange={(value) => {
+            if (value !== '' && value !== '__placeholder__') {
+              onValueChange(value);
+            }
+          }}
           style={styles.picker}
           enabled={enabled}
         >
+          {placeholder && (
+            <Picker.Item 
+              key="__placeholder__" 
+              label={placeholder} 
+              value="__placeholder__" 
+              enabled={false}
+              color="#999"
+            />
+          )}
           {items.map((item) => (
             <Picker.Item key={item} label={item} value={item} />
           ))}

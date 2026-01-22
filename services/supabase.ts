@@ -1,19 +1,48 @@
 import 'react-native-url-polyfill/auto';
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://csvywizljbjpobeeadne.supabase.co';
-const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNzdnl3aXpsamJqcG9iZWVhZG5lIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY1NjMxNDUsImV4cCI6MjA4MjEzOTE0NX0.TJ2QUeXpuokfjT6XcsD5L2SbSQY1Zn3mm9VWb92P1H4';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNzdnl3aXpsamJqcG9iZWVhZG5lIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NjU2MzE0NSwiZXhwIjoyMDgyMTM5MTQ1fQ.cso43tJ2sUywp00QUVG1F_bIecqQGGz7wbusqBA2T3c';
+const getEnvVar = (key: string): string => {
+  // Try process.env (Node/Metro)
+  if (typeof process !== 'undefined' && process.env && process.env[key]) {
+    return process.env[key] as string;
+  }
+  
+  // Try EXPO_PUBLIC prefix if not found
+  if (!key.startsWith('EXPO_PUBLIC_')) {
+    const expoKey = `EXPO_PUBLIC_${key}`;
+    if (typeof process !== 'undefined' && process.env && process.env[expoKey]) {
+      return process.env[expoKey] as string;
+    }
+  }
+
+  // Try globalThis (Expo injected)
+  if (typeof globalThis !== 'undefined' && (globalThis as any).__EXPO_ENV__?.[key]) {
+    return (globalThis as any).__EXPO_ENV__[key];
+  }
+
+  // Fallback for common Vite prefixes in .env
+  const viteKey = key.replace('EXPO_PUBLIC_', 'VITE_');
+  if (typeof process !== 'undefined' && process.env && process.env[viteKey]) {
+    return process.env[viteKey] as string;
+  }
+
+  return '';
+};
+
+const supabaseUrl = (getEnvVar('EXPO_PUBLIC_SUPABASE_URL') || 'https://pgmrerxzioafpzwclqmx.supabase.co').trim();
+const supabaseAnonKey = (getEnvVar('EXPO_PUBLIC_SUPABASE_ANON_KEY') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBnbXJlcnh6aW9hZnB6d2NscW14Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgwNzMwOTQsImV4cCI6MjA4MzY0OTA5NH0.Zp5dTkhxMTzw8A5zo2zgm95d-Uu-8q7VQcvLqbjEYok').trim();
+
+if (typeof window !== 'undefined') {
+  console.log('🔌 [Supabase] Connection Host:', supabaseUrl.split('//')[1]?.split('.')[0] || 'unknown');
+}
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.error("❌ Supabase URL or Anon Key is missing in environment variables!");
+  console.log("Current URL:", supabaseUrl);
+  console.log("Current Key length:", supabaseAnonKey?.length);
+}
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
-// Separate client for admin operations
-export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false
-  }
-});
 
 export const uploadToSupabase = async (uri: string, bucket: string) => {
   try {
@@ -48,5 +77,20 @@ export const uploadToSupabase = async (uri: string, bucket: string) => {
   } catch (error) {
     console.error('Error uploading to Supabase:', error);
     throw error;
+  }
+};
+
+export const checkSupabaseConnectivity = async (): Promise<{ ok: boolean; message?: string }> => {
+  try {
+    const { error } = await supabase
+      .from('profiles')
+      .select('id')
+      .limit(1);
+    if (error) {
+      return { ok: false, message: error.message };
+    }
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, message: e?.message || 'Unknown error' };
   }
 };

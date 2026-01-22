@@ -1,17 +1,23 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert,
-  Image, KeyboardAvoidingView, Platform, ActivityIndicator
-} from 'react-native';
-import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
-import { FormInput, FormPicker, FormDatePicker } from '../../components/FormInput';
-import { saveStudentInfo, getStudentInfo, Student } from '../../storage/sqlite';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Image, KeyboardAvoidingView, Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
+} from 'react-native';
+import { FormDatePicker, FormInput, FormPicker } from '../../components/FormInput';
+import { calculatePercentage, sanitizeInput, validateStep } from '../../constants/validation';
 import { markProfileComplete } from '../../services/auth.service';
-import { getUserPrn } from '../../services/session.service';
-import { validateStep, calculatePercentage, sanitizeInput } from '../../constants/validation';
 import { uploadToCloudinary } from '../../services/cloudinaryservices';
+import { getUserPrn } from '../../services/session.service';
+import { getStudentInfo, saveStudentInfo, Student } from '../../storage/sqlite';
 
 export default function PersonalInfoForm() {
   const router = useRouter();
@@ -38,7 +44,7 @@ export default function PersonalInfoForm() {
       try {
         const prn = await getUserPrn();
         if (!prn) {
-          router.replace('/login?role=student' as any);
+          router.replace('/' as any);
           return;
         }
         setFormData(prev => ({ ...prev, prn }));
@@ -50,7 +56,7 @@ export default function PersonalInfoForm() {
     loadData();
   }, []);
 
-  const updateField = (field: keyof Student, value: string, type?: 'text' | 'number' | 'phone' | 'email') => {
+  const updateField = (field: keyof Student, value: string, type?: 'text' | 'number' | 'decimal' | 'phone' | 'email') => {
     const sanitizedValue = type ? sanitizeInput(value, type) : value;
     setFormData(prev => ({ ...prev, [field]: sanitizedValue }));
     if (errors[field]) setErrors(prev => ({ ...prev, [field]: '' }));
@@ -109,9 +115,10 @@ export default function PersonalInfoForm() {
     setLoading(true);
     try {
       let finalUrl = formData.photoUri;
-        if (formData.photoUri && (formData.photoUri.startsWith('file://') || formData.photoUri.startsWith('blob:') || formData.photoUri.startsWith('data:'))) {
-          const uploaded = await uploadToCloudinary(formData.photoUri, 'image/jpeg', `profile_${formData.prn}.jpg`, 'photo_gfm_record');
-          if (!uploaded) {
+      if (formData.photoUri && (formData.photoUri.startsWith('file://') || formData.photoUri.startsWith('blob:') || formData.photoUri.startsWith('data:'))) {
+        console.log('📤 Uploading photo...');
+        const uploaded = await uploadToCloudinary(formData.photoUri, 'image/jpeg', `profile_${formData.prn}.jpg`, 'photo_gfm_record');
+        if (!uploaded) {
           if (Platform.OS === 'web') {
             alert("Error: Photo upload failed. Please try again.");
           } else {
@@ -121,11 +128,18 @@ export default function PersonalInfoForm() {
           return;
         }
         finalUrl = uploaded;
+        console.log('✅ Photo uploaded:', finalUrl);
       }
 
       const finalData = { ...formData, photoUri: finalUrl };
+      console.log('📝 Saving profile data:', JSON.stringify(finalData, null, 2));
+      
       await saveStudentInfo(finalData);
+      console.log('✅ Student info saved');
+      
       await markProfileComplete(formData.prn);
+      console.log('✅ Profile marked as complete');
+      
       await AsyncStorage.setItem('personalInfoCompleted', 'true');
 
       if (Platform.OS === 'web') {
@@ -137,7 +151,7 @@ export default function PersonalInfoForm() {
         ]);
       }
     } catch (e: any) {
-      console.error("Finish Error:", e);
+      console.error("❌ Finish Error:", e);
       if (Platform.OS === 'web') {
         alert("Error: Failed to save profile. " + (e.message || "Check connection."));
       } else {
@@ -507,7 +521,7 @@ export default function PersonalInfoForm() {
                   <FormInput 
                     containerStyle={styles.halfWidth} 
                     label="Marks Obtained" 
-                    keyboardType="numeric" 
+                    keyboardType="number-pad" 
                     value={formData.diplomaMarks} 
                     onChangeText={v => updateField('diplomaMarks', v, 'number')} 
                     placeholder="e.g., 850"
@@ -516,7 +530,7 @@ export default function PersonalInfoForm() {
                   <FormInput 
                     containerStyle={styles.halfWidth} 
                     label="Max Marks" 
-                    keyboardType="numeric" 
+                    keyboardType="number-pad" 
                     value={formData.diplomaMaxMarks} 
                     onChangeText={v => updateField('diplomaMaxMarks', v, 'number')} 
                     placeholder="e.g., 1000"
@@ -534,9 +548,9 @@ export default function PersonalInfoForm() {
                   <FormInput 
                     containerStyle={styles.halfWidth} 
                     label="Diploma CGPA" 
-                    keyboardType="numeric"
+                    keyboardType="decimal-pad"
                     value={formData.diplomaCgpa} 
-                    onChangeText={v => updateField('diplomaCgpa', v, 'number')} 
+                    onChangeText={v => updateField('diplomaCgpa', v, 'decimal')} 
                     placeholder="e.g., 9.5"
                     error={errors.diplomaCgpa}
                   />
@@ -553,7 +567,7 @@ export default function PersonalInfoForm() {
                   <FormInput 
                     containerStyle={styles.halfWidth} 
                     label="Passing Year" 
-                    keyboardType="numeric" 
+                    keyboardType="number-pad" 
                     maxLength={4} 
                     value={formData.diplomaYear} 
                     onChangeText={v => updateField('diplomaYear', v, 'number')} 
@@ -576,17 +590,17 @@ export default function PersonalInfoForm() {
               />
               <FormInput 
                 label="JEE Percentile (Optional)" 
-                keyboardType="numeric" 
+                keyboardType="decimal-pad" 
                 value={formData.jeePercentile} 
-                onChangeText={v => updateField('jeePercentile', v, 'number')} 
+                onChangeText={v => updateField('jeePercentile', v, 'decimal')} 
                 placeholder="e.g., 95.5"
                 error={errors.jeePercentile}
               />
               <FormInput 
                 label="MHT-CET Percentile (Optional)" 
-                keyboardType="numeric" 
+                keyboardType="decimal-pad" 
                 value={formData.mhtCetPercentile} 
-                onChangeText={v => updateField('mhtCetPercentile', v, 'number')} 
+                onChangeText={v => updateField('mhtCetPercentile', v, 'decimal')} 
                 placeholder="e.g., 92.3"
                 error={errors.mhtCetPercentile}
               />

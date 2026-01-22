@@ -16,7 +16,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { Picker } from '@react-native-picker/picker';
-import { getFacultyMembers, saveFacultyMember, deleteFacultyMember, FacultyMember } from '../../storage/sqlite';
+import { getAttendanceTakers, saveAttendanceTaker, deleteAttendanceTaker, FacultyMember } from '../../storage/sqlite';
 import { getSession } from '../../services/session.service';
 import { COLORS } from '../../constants/colors';
 import Papa from 'papaparse';
@@ -26,16 +26,16 @@ const DEPARTMENTS = ['CSE', 'IT', 'ECE', 'ME', 'CE', 'EE', 'AIDS', 'AIML'];
 const { width } = Dimensions.get('window');
 const isWeb = Platform.OS === 'web';
 
-export default function ManageFaculty() {
+export default function ManageAttendanceTakers() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const [faculty, setFaculty] = useState<FacultyMember[]>([]);
+  const [takers, setTakers] = useState<FacultyMember[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [importModalVisible, setImportModalVisible] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importPreview, setImportPreview] = useState<any[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [newFaculty, setNewFaculty] = useState({
+  const [newTaker, setNewTaker] = useState({
     prn: '',
     fullName: '',
     email: '',
@@ -44,7 +44,7 @@ export default function ManageFaculty() {
 
   useEffect(() => {
     checkAuth();
-    loadFaculty();
+    loadTakers();
   }, []);
 
   const checkAuth = async () => {
@@ -54,32 +54,32 @@ export default function ManageFaculty() {
     }
   };
 
-  const loadFaculty = async () => {
+  const loadTakers = async () => {
     setLoading(true);
     try {
-      const data = await getFacultyMembers();
-      setFaculty(data);
+      const data = await getAttendanceTakers();
+      setTakers(data);
     } catch (error) {
-      console.error('Error loading faculty:', error);
-      Alert.alert('Error', 'Failed to load faculty members');
+      console.error('Error loading takers:', error);
+      Alert.alert('Error', 'Failed to load attendance takers');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleAddFaculty = async () => {
-    if (!newFaculty.prn || !newFaculty.fullName || !newFaculty.email || !newFaculty.department) {
+  const handleAddTaker = async () => {
+    if (!newTaker.prn || !newTaker.fullName || !newTaker.email || !newTaker.department) {
       Alert.alert('Error', 'Please enter Full Name, Email, PRN and Department');
       return;
     }
     try {
-      await saveFacultyMember(newFaculty.prn, 'password123', newFaculty.fullName, newFaculty.department, newFaculty.email);
+      await saveAttendanceTaker(newTaker.prn, 'password123', newTaker.fullName, newTaker.department, newTaker.email);
       setModalVisible(false);
-      setNewFaculty({ prn: '', fullName: '', email: '', department: 'CSE' });
-      loadFaculty();
-      Alert.alert('Success', 'Faculty member added successfully');
+      setNewTaker({ prn: '', fullName: '', email: '', department: 'CSE' });
+      loadTakers();
+      Alert.alert('Success', 'Attendance Taker added successfully');
     } catch (error) {
-      Alert.alert('Error', 'Failed to add faculty member');
+      Alert.alert('Error', 'Failed to add attendance taker');
     }
   };
 
@@ -93,14 +93,14 @@ export default function ManageFaculty() {
           header: true,
           skipEmptyLines: true,
           complete: (results) => {
-            const parsedFaculty = results.data.map((row: any) => ({
+            const parsedTakers = results.data.map((row: any) => ({
               fullName: row['Full Name'] || row['fullName'] || row['Name'] || row['name'] || '',
               email: row['Email'] || row['email'] || row['Email ID'] || row['EmailID'] || '',
               prn: String(row['PRN'] || row['prn'] || row['ID'] || row['id'] || row['Faculty ID'] || ''),
               department: row['Department'] || row['department'] || row['Dept'] || row['dept'] || 'CSE'
             })).filter((f: any) => f.fullName && f.prn);
             
-            setImportPreview(parsedFaculty);
+            setImportPreview(parsedTakers);
             setImportModalVisible(true);
             setImporting(false);
           },
@@ -116,9 +116,9 @@ export default function ManageFaculty() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleImportFaculty = async () => {
+  const handleImportTakers = async () => {
     if (importPreview.length === 0) {
-      Alert.alert('Error', 'No faculty to import');
+      Alert.alert('Error', 'No takers to import');
       return;
     }
     
@@ -126,9 +126,9 @@ export default function ManageFaculty() {
     let successCount = 0;
     let failCount = 0;
     
-    for (const fac of importPreview) {
+    for (const taker of importPreview) {
       try {
-        await saveFacultyMember(fac.prn, 'password123', fac.fullName, fac.department, fac.email);
+        await saveAttendanceTaker(taker.prn, 'password123', taker.fullName, taker.department, taker.email);
         successCount++;
       } catch (e) {
         failCount++;
@@ -138,14 +138,14 @@ export default function ManageFaculty() {
     setImporting(false);
     setImportModalVisible(false);
     setImportPreview([]);
-    loadFaculty();
-    Alert.alert('Import Complete', `Successfully added ${successCount} faculty. ${failCount > 0 ? `${failCount} failed (duplicate PRN).` : ''}`);
+    loadTakers();
+    Alert.alert('Import Complete', `Successfully added ${successCount} attendance takers. ${failCount > 0 ? `${failCount} failed (duplicate PRN).` : ''}`);
   };
 
-  const handleDeleteFaculty = (prn: string) => {
+  const handleDeleteTaker = (prn: string) => {
     Alert.alert(
       'Confirm Delete',
-      `Are you sure you want to remove faculty member ${prn}?`,
+      `Are you sure you want to remove attendance taker ${prn}?`,
       [
         { text: 'Cancel', style: 'cancel' },
         { 
@@ -153,10 +153,10 @@ export default function ManageFaculty() {
           style: 'destructive',
           onPress: async () => {
             try {
-              await deleteFacultyMember(prn);
-              loadFaculty();
+              await deleteAttendanceTaker(prn);
+              loadTakers();
             } catch (error) {
-              Alert.alert('Error', 'Failed to delete faculty member');
+              Alert.alert('Error', 'Failed to delete attendance taker');
             }
           }
         }
@@ -164,10 +164,10 @@ export default function ManageFaculty() {
     );
   };
 
-  const renderFacultyItem = ({ item }: { item: FacultyMember }) => (
+  const renderTakerItem = ({ item }: { item: FacultyMember }) => (
     <View style={styles.facultyCard}>
       <View style={styles.facultyInfo}>
-        <Ionicons name="person-circle-outline" size={40} color={COLORS.primary} />
+        <Ionicons name="person-circle-outline" size={40} color={COLORS.secondary} />
         <View style={styles.textContainer}>
           <Text style={styles.facultyName}>{item.fullName || item.prn}</Text>
           <Text style={styles.facultyPrn}>PRN: {item.prn}</Text>
@@ -175,7 +175,7 @@ export default function ManageFaculty() {
           <Text style={styles.facultyDept}>{item.department || 'No Department'}</Text>
         </View>
       </View>
-      <TouchableOpacity onPress={() => handleDeleteFaculty(item.prn)} style={styles.deleteBtn}>
+      <TouchableOpacity onPress={() => handleDeleteTaker(item.prn)} style={styles.deleteBtn}>
         <Ionicons name="trash-outline" size={20} color={COLORS.error} />
       </TouchableOpacity>
     </View>
@@ -187,7 +187,7 @@ export default function ManageFaculty() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Manage Faculty</Text>
+        <Text style={styles.headerTitle}>Manage Attendance Takers</Text>
         <View style={{ flexDirection: 'row', gap: 10 }}>
           {isWeb && (
             <TouchableOpacity onPress={() => fileInputRef.current?.click()} style={styles.importBtn}>
@@ -212,15 +212,15 @@ export default function ManageFaculty() {
         )}
 
       {loading ? (
-        <ActivityIndicator size="large" color={COLORS.primary} style={styles.loader} />
+        <ActivityIndicator size="large" color={COLORS.secondary} style={styles.loader} />
       ) : (
         <FlatList
-          data={faculty}
+          data={takers}
           keyExtractor={(item) => item.prn}
-          renderItem={renderFacultyItem}
+          renderItem={renderTakerItem}
           contentContainerStyle={styles.listContent}
           ListEmptyComponent={
-            <Text style={styles.emptyText}>No faculty members found. Click + to add or Import from CSV.</Text>
+            <Text style={styles.emptyText}>No attendance takers found. Click + to add or Import from CSV.</Text>
           }
         />
       )}
@@ -229,7 +229,7 @@ export default function ManageFaculty() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Add Faculty Member</Text>
+              <Text style={styles.modalTitle}>Add Attendance Taker</Text>
               <TouchableOpacity onPress={() => setModalVisible(false)}>
                 <Ionicons name="close" size={24} color={COLORS.text} />
               </TouchableOpacity>
@@ -238,17 +238,17 @@ export default function ManageFaculty() {
             <Text style={styles.label}>Full Name *</Text>
             <TextInput
               style={styles.input}
-              placeholder="Faculty Full Name"
-              value={newFaculty.fullName}
-              onChangeText={t => setNewFaculty({...newFaculty, fullName: t})}
+              placeholder="Full Name"
+              value={newTaker.fullName}
+              onChangeText={t => setNewTaker({...newTaker, fullName: t})}
             />
 
             <Text style={styles.label}>Email ID *</Text>
             <TextInput
               style={styles.input}
-              placeholder="faculty@email.com"
-              value={newFaculty.email}
-              onChangeText={t => setNewFaculty({...newFaculty, email: t})}
+              placeholder="taker@email.com"
+              value={newTaker.email}
+              onChangeText={t => setNewTaker({...newTaker, email: t})}
               keyboardType="email-address"
               autoCapitalize="none"
             />
@@ -257,16 +257,16 @@ export default function ManageFaculty() {
             <TextInput
               style={styles.input}
               placeholder="PRN / Username"
-              value={newFaculty.prn}
-              onChangeText={t => setNewFaculty({...newFaculty, prn: t})}
+              value={newTaker.prn}
+              onChangeText={t => setNewTaker({...newTaker, prn: t})}
               autoCapitalize="characters"
             />
 
             <Text style={styles.label}>Department *</Text>
             <View style={styles.pickerWrapper}>
               <Picker
-                selectedValue={newFaculty.department}
-                onValueChange={v => setNewFaculty({...newFaculty, department: v})}
+                selectedValue={newTaker.department}
+                onValueChange={v => setNewTaker({...newTaker, department: v})}
                 style={styles.picker}
               >
                 {DEPARTMENTS.map(d => (
@@ -279,7 +279,7 @@ export default function ManageFaculty() {
               <TouchableOpacity onPress={() => setModalVisible(false)} style={[styles.modalBtn, styles.cancelBtn]}>
                 <Text style={styles.modalBtnText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={handleAddFaculty} style={[styles.modalBtn, styles.saveBtn]}>
+              <TouchableOpacity onPress={handleAddTaker} style={[styles.modalBtn, styles.saveBtn]}>
                 <Text style={[styles.modalBtnText, { color: '#fff' }]}>Add</Text>
               </TouchableOpacity>
             </View>
@@ -291,7 +291,7 @@ export default function ManageFaculty() {
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { maxHeight: '80%' }]}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Import Preview ({importPreview.length} faculty)</Text>
+              <Text style={styles.modalTitle}>Import Preview ({importPreview.length} takers)</Text>
               <TouchableOpacity onPress={() => { setImportModalVisible(false); setImportPreview([]); }}>
                 <Ionicons name="close" size={24} color={COLORS.text} />
               </TouchableOpacity>
@@ -322,7 +322,7 @@ export default function ManageFaculty() {
               <TouchableOpacity onPress={() => { setImportModalVisible(false); setImportPreview([]); }} style={[styles.modalBtn, styles.cancelBtn]}>
                 <Text style={styles.modalBtnText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={handleImportFaculty} disabled={importing} style={[styles.modalBtn, styles.saveBtn]}>
+              <TouchableOpacity onPress={handleImportTakers} disabled={importing} style={[styles.modalBtn, styles.saveBtn]}>
                 {importing ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
@@ -347,7 +347,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: 20,
-    backgroundColor: COLORS.primary,
+    backgroundColor: COLORS.secondary,
     paddingTop: Platform.OS === 'ios' ? 50 : 20,
   },
   headerTitle: {
