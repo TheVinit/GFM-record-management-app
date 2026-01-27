@@ -711,24 +711,23 @@ export const saveAcademicRecord = async (record: AcademicRecord) => {
 };
 
 export const getFeePaymentsByFilter = async (dept: string, year: string, div: string): Promise<any[]> => {
-  let query = supabase
-    .from('students')
-    .select(`
-      prn,
-      full_name,
-      year_of_study,
-      fee_payments (
-        id,
-        total_fee,
-        amount_paid,
-        remaining_balance,
-        receipt_uri,
-        verification_status,
-        payment_date,
-        installment_number,
-        academic_year
-      )
-    `);
+  const db = await dbPromise;
+  
+  let query = `
+    SELECT s.prn, s.fullName, s.yearOfStudy, s.permanentAddress, s.temporaryAddress,
+           f.id, 
+           COALESCE(f.totalFee, 50000) as totalFee, 
+           COALESCE(f.amountPaid, 0) as paidAmount, 
+           COALESCE(f.remainingBalance, 50000) as lastBalance,
+           f.receiptUri, f.verificationStatus, f.paymentDate, f.installmentNumber
+    FROM students s
+    LEFT JOIN (
+      SELECT * FROM fee_payments 
+      WHERE id IN (SELECT MAX(id) FROM fee_payments GROUP BY prn)
+    ) f ON s.prn = f.prn AND (f.academicYear = ? OR ? = 'All')
+    WHERE 1=1
+  `;
+  const params: any[] = [year, year];
 
   if (dept !== 'All') query = query.eq('branch', dept);
   if (year !== 'All') query = query.eq('year_of_study', year);
@@ -800,9 +799,20 @@ export const getAllCoursesDef = async (): Promise<CourseDef[]> => {
     .select('*')
     .order('semester', { ascending: true });
   
-  if (error) return [];
-  return data.map(toCamelCase) as CourseDef[];
-};
+  let query = `
+    SELECT 
+      COUNT(DISTINCT s.prn) as totalStudents,
+      SUM(CASE WHEN COALESCE(f.remainingBalance, 50000) > 0 THEN 1 ELSE 0 END) as studentsWithRemaining,
+      SUM(COALESCE(f.remainingBalance, 50000)) as totalRemainingAmount
+    FROM students s
+    LEFT JOIN (
+      SELECT prn, remainingBalance, academicYear
+      FROM fee_payments 
+      WHERE id IN (SELECT MAX(id) FROM fee_payments GROUP BY prn)
+    ) f ON s.prn = f.prn AND (f.academicYear = ? OR ? = 'All')
+    WHERE 1=1
+  `;
+  const params: any[] = [year, year];
 
 export const saveCourseDef = async (course: CourseDef) => {
   const snakeData = toSnakeCase(course);

@@ -675,21 +675,12 @@ export default function TeacherDashboard() {
           <Text style={styles.collegeName}>GFM Record</Text>
           <Text style={styles.tagline}>{userRole === 'admin' ? 'Management Portal' : 'Faculty Portal'}</Text>
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 15 }}>
-          {teacherName ? (
-            <View style={{ alignItems: 'flex-end', marginRight: 10 }}>
-              <Text style={{ color: '#fff', fontSize: 14, fontWeight: 'bold' }}>{teacherName}</Text>
-              {teacherDept && <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 11 }}>{teacherDept}</Text>}
-            </View>
-          ) : null}
-          <TouchableOpacity onPress={async () => { await clearSession(); router.replace('/'); }} style={styles.logoutBtn}>
-            <Ionicons name="log-out-outline" size={20} color="#fff" />
-            <Text style={styles.logoutText}>Logout</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  };
+      <TouchableOpacity onPress={async () => { await clearSession(); router.replace('/'); }} style={styles.logoutBtn}>
+        <Ionicons name="log-out-outline" size={20} color="#fff" />
+        <Text style={styles.logoutText}>Logout</Text>
+      </TouchableOpacity>
+    </View>
+  );
 
   const renderFilters = () => {
     const isAttendance = activeModuleGroup === 'Attendance';
@@ -2903,23 +2894,17 @@ return (
               <Text style={[styles.tableCell, { width: 150 }]}>{f.fullName}</Text>
               <Text style={[styles.tableCell, { width: 80 }]}>{f.yearOfStudy}</Text>
               <Text style={[styles.tableCell, { width: 80 }]}>₹{f.totalFee || 0}</Text>
-<Text style={[styles.tableCell, { width: 80, color: COLORS.success }]}>₹{f.paidAmount || 0}</Text>
-                  <Text style={[styles.tableCell, { width: 80, color: (f.lastBalance || 0) > 0 ? COLORS.error : COLORS.success }]}>₹{f.lastBalance || 0}</Text>
-                  <Text style={[styles.tableCell, { 
-                    width: 80, 
-                    color: (f.lastBalance || 0) > 0 
-                      ? (f.paidAmount > 0 ? COLORS.warning : COLORS.error) 
-                      : (f.totalFee > 0 ? COLORS.success : COLORS.error),
-                    fontWeight: 'bold'
-                  }]}>
-                    {(f.lastBalance || 0) > 0 ? (f.paidAmount > 0 ? 'Remaining' : 'Not Paid') : (f.totalFee > 0 ? 'Paid' : 'Not Paid')}
-                  </Text>
-                  <View style={{ width: 120, flexDirection: 'row', gap: 5, alignItems: 'center' }}>
-                    {f.receiptUri && (
-                      <TouchableOpacity onPress={() => handleViewDocument(f.receiptUri)}>
-                        <Ionicons name="receipt-outline" size={20} color={COLORS.secondary} />
-                      </TouchableOpacity>
-                    )}
+              <Text style={[styles.tableCell, { width: 80, color: COLORS.success }]}>₹{f.paidAmount || 0}</Text>
+                <Text style={[styles.tableCell, { width: 80, color: (f.lastBalance || 0) > 0 ? COLORS.error : COLORS.success }]}>₹{f.lastBalance || 0}</Text>
+                <Text style={[styles.tableCell, { width: 80, color: (f.lastBalance || 0) > 0 ? COLORS.warning : COLORS.success }]}>
+                  {(f.lastBalance || 0) > 0 ? (f.paidAmount > 0 ? 'Remaining' : 'Not Paid') : (f.totalFee > 0 ? 'Paid' : 'Not Paid')}
+                </Text>
+                <View style={{ width: 120, flexDirection: 'row', gap: 5, alignItems: 'center' }}>
+                  {f.receiptUri && (
+                    <TouchableOpacity onPress={() => Alert.alert('Receipt', 'Viewing receipt: ' + f.receiptUri)}>
+                      <Ionicons name="receipt-outline" size={20} color={COLORS.secondary} />
+                    </TouchableOpacity>
+                  )}
                   {f.verificationStatus !== 'Verified' ? (
                     <TouchableOpacity onPress={() => handleVerify('fee_payments', f.id, 'Verified')}>
                       <Ionicons name="checkmark-circle-outline" size={20} color={COLORS.success} />

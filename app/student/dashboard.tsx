@@ -84,7 +84,10 @@ export default function StudentDashboard() {
 
   const checkAuth = async () => {
     const session = await getSession();
-    if (!session || session.role !== 'student') { router.replace('/'); return null; }
+    if (!session || session.role !== 'student') {
+      router.replace('/');
+      return null;
+    }
     return session;
   };
 

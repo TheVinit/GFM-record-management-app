@@ -40,14 +40,14 @@ export default function AdminDashboard() {
     loadStats();
   }, []);
 
-  const checkAuth = async () => {
-    const session = await getSession();
-    if (!session || session.role !== 'admin') {
-      router.replace('/');
-    } else {
-      setAdminName(session.fullName || 'Admin');
-    }
-  };
+    const checkAuth = async () => {
+      const session = await getSession();
+      if (!session || session.role !== 'admin') {
+        router.replace('/');
+      } else {
+        setAdminName(session.fullName || 'Admin');
+      }
+    };
 
   const loadStats = async () => {
     try {
@@ -72,19 +72,10 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleLogout = async () => {
-    if (Platform.OS === 'web') {
-      if (confirm('Are you sure you want to logout?')) {
-        await clearSession();
-        router.replace('/');
-      }
-    } else {
-      Alert.alert('Logout', 'Are you sure you want to logout?', [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Logout', style: 'destructive', onPress: async () => { await clearSession(); router.replace('/'); } }
-      ]);
-    }
-  };
+    const handleLogout = async () => {
+      await clearSession();
+      router.replace('/');
+    };
 
   const onRefresh = () => {
     setRefreshing(true);
