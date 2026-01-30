@@ -5,7 +5,7 @@ import { COLORS } from '../../constants/colors';
 import { getAllInternshipsByFilter } from '../../storage/sqlite';
 import { styles } from './dashboard.styles';
 
-export const InternshipsManagement = ({ filters, handleVerify, handleViewDocument }: any) => {
+export const InternshipsManagement = ({ students, filters, handleVerify, handleViewDocument }: any) => {
     const [internships, setInternships] = useState<any[]>([]);
 
     const isWeb = Platform.OS === 'web';
@@ -19,7 +19,12 @@ export const InternshipsManagement = ({ filters, handleVerify, handleViewDocumen
     const loadInternships = async () => {
         if (!filters?.dept) return;
         const data = await getAllInternshipsByFilter(filters.dept, filters.year, filters.div, filters.sem);
-        setInternships(data);
+
+        // Filter based on authorized student list
+        const authorizedPrns = new Set(students.map((s: any) => s.prn));
+        const filtered = data.filter((i: any) => authorizedPrns.has(i.prn));
+
+        setInternships(filtered);
     };
 
     const exportInternshipsCSV = () => {

@@ -50,16 +50,18 @@ export const StudentManagement = ({ students, filters, onViewDetails, onPrint, h
                 <View style={styles.table}>
                     <View style={[styles.tableRow, styles.tableHeader]}>
                         <Text style={[styles.tableCell, { width: 100 }]}>PRN</Text>
-                        <Text style={[styles.tableCell, { width: 200 }]}>Name</Text>
+                        <Text style={[styles.tableCell, { width: 180 }]}>Name</Text>
                         <Text style={[styles.tableCell, { width: 50 }]}>Div</Text>
+                        <Text style={[styles.tableCell, { width: 150 }]}>GFM Name</Text>
                         <Text style={[styles.tableCell, { width: 80 }]}>Status</Text>
                         <Text style={[styles.tableCell, { width: 150 }]}>Actions</Text>
                     </View>
                     {students.map((s: Student) => (
                         <View key={s.prn} style={styles.tableRow}>
                             <Text style={[styles.tableCell, { width: 100 }]}>{s.prn}</Text>
-                            <Text style={[styles.tableCell, { width: 200 }]}>{s.fullName}</Text>
+                            <Text style={[styles.tableCell, { width: 180 }]}>{s.fullName}</Text>
                             <Text style={[styles.tableCell, { width: 50 }]}>{s.division}</Text>
+                            <Text style={[styles.tableCell, { width: 150, fontStyle: 'italic', fontSize: 13 }]}>{s.gfmName || 'Not Assigned'}</Text>
                             <Text style={[styles.tableCell, { width: 80, color: s.verificationStatus === 'Verified' ? COLORS.success : COLORS.warning }]}>
                                 {s.verificationStatus || 'Pending'}
                             </Text>

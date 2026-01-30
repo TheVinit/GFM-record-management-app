@@ -3,7 +3,7 @@ import { Picker } from '@react-native-picker/picker'; // Original used Picker
 import React, { useEffect, useState } from 'react';
 import { Alert, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { COLORS } from '../../constants/colors';
-import { BRANCH_MAPPINGS } from '../../constants/Mappings';
+import { BRANCH_MAPPINGS, DISPLAY_YEARS } from '../../constants/Mappings';
 import { CourseDef, saveCourseDef } from '../../storage/sqlite';
 import { styles } from './dashboard.styles';
 
@@ -11,7 +11,8 @@ export const CoursesManagement = ({ courses, filters, loadData }: { courses: Cou
     const [modalOpen, setModalOpen] = useState(false);
     const [newCourse, setNewCourse] = useState<CourseDef>({
         courseCode: '', courseName: '', department: filters.dept === 'All' ? 'CSE' : filters.dept,
-        semester: filters.sem === 'All' ? 3 : (filters.sem || 3), credits: 3, iseMax: 20, mseMax: 30, eseMax: 50
+        semester: filters.sem === 'All' ? 3 : (filters.sem || 3), credits: 3, iseMax: 20, mseMax: 30, eseMax: 50,
+        yearOfStudy: filters.year === 'All' ? 'SE' : (filters.year || 'SE')
     });
 
     useEffect(() => {
@@ -19,7 +20,8 @@ export const CoursesManagement = ({ courses, filters, loadData }: { courses: Cou
             setNewCourse(prev => ({
                 ...prev,
                 department: filters.dept === 'All' ? prev.department : filters.dept,
-                semester: filters.sem === 'All' ? prev.semester : (filters.sem || prev.semester)
+                semester: filters.sem === 'All' ? prev.semester : (filters.sem || prev.semester),
+                yearOfStudy: filters.year === 'All' ? prev.yearOfStudy : (filters.year || prev.yearOfStudy)
             }));
         }
     }, [filters]);
@@ -58,7 +60,8 @@ export const CoursesManagement = ({ courses, filters, loadData }: { courses: Cou
             <View style={styles.table}>
                 <View style={[styles.tableRow, styles.tableHeader]}>
                     <Text style={[styles.tableCell, { flex: 0.7 }]}>Code</Text>
-                    <Text style={[styles.tableCell, { flex: 1.8 }]}>Name</Text>
+                    <Text style={[styles.tableCell, { flex: 1.4 }]}>Name</Text>
+                    <Text style={[styles.tableCell, { flex: 0.4 }]}>Year</Text>
                     <Text style={[styles.tableCell, { flex: 0.4 }]}>Sem</Text>
                     <Text style={[styles.tableCell, { flex: 0.4 }]}>Cr</Text>
                     <Text style={[styles.tableCell, { flex: 0.4 }]}>ISE</Text>
@@ -68,7 +71,8 @@ export const CoursesManagement = ({ courses, filters, loadData }: { courses: Cou
                 {courses.map(c => (
                     <View key={c.courseCode} style={styles.tableRow}>
                         <Text style={[styles.tableCell, { flex: 0.7 }]}>{c.courseCode}</Text>
-                        <Text style={[styles.tableCell, { flex: 1.8 }]}>{c.courseName}</Text>
+                        <Text style={[styles.tableCell, { flex: 1.4 }]}>{c.courseName}</Text>
+                        <Text style={[styles.tableCell, { flex: 0.4 }]}>{c.yearOfStudy}</Text>
                         <Text style={[styles.tableCell, { flex: 0.4 }]}>{c.semester}</Text>
                         <Text style={[styles.tableCell, { flex: 0.4 }]}>{c.credits}</Text>
                         <Text style={[styles.tableCell, { flex: 0.4 }]}>{c.iseMax}</Text>
@@ -91,6 +95,18 @@ export const CoursesManagement = ({ courses, filters, loadData }: { courses: Cou
                                 >
                                     {Object.keys(BRANCH_MAPPINGS).map(d => (
                                         <Picker.Item key={d} label={BRANCH_MAPPINGS[d]} value={d} />
+                                    ))}
+                                </Picker>
+                            </View>
+
+                            <Text style={styles.filterLabel}>Year of Study</Text>
+                            <View style={[styles.pickerWrapper, { width: '100%', marginBottom: 15 }]}>
+                                <Picker
+                                    selectedValue={newCourse.yearOfStudy}
+                                    onValueChange={v => setNewCourse({ ...newCourse, yearOfStudy: v })}
+                                >
+                                    {DISPLAY_YEARS.map(y => (
+                                        <Picker.Item key={y.value} label={y.label} value={y.value} />
                                     ))}
                                 </Picker>
                             </View>

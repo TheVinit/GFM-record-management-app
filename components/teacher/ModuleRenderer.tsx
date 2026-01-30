@@ -8,6 +8,7 @@ import { AdminReportsManagement } from './AdminReportsManagement';
 import { AnalyticsManagement } from './AnalyticsManagement';
 import { AttendanceManagement } from './AttendanceManagement';
 import { AttendanceSummaryManagement } from './AttendanceSummaryManagement';
+import { BatchInfoManagement } from './BatchInfoManagement';
 import { CoursesManagement } from './CoursesManagement';
 import { FeeManagement } from './FeeManagement';
 import { InternshipsManagement } from './InternshipsManagement';
@@ -30,7 +31,8 @@ export const ModuleRenderer = ({
     onQuickEdit,
     onRefresh,
     onViewDocument,
-    yearsOfStudy
+    yearsOfStudy,
+    batchConfig
 }: any) => {
     const filters = currentModule === 'analytics' || currentModule === 'attendance' || currentModule === 'attendance-summary' || currentModule === 'admin-reports' ? attFilters : gfmFilters;
 
@@ -73,9 +75,11 @@ export const ModuleRenderer = ({
         case 'attendance-summary':
             return <AttendanceSummaryManagement students={students} filters={filters} />;
         case 'attendance':
-            return <AttendanceManagement filters={filters} loadData={onRefresh} />;
+            return <AttendanceManagement students={students} filters={filters} loadData={onRefresh} batchConfig={batchConfig} />;
         case 'admin-reports':
             return <AdminReportsManagement filters={filters} />;
+        case 'batch-info':
+            return <BatchInfoManagement batchConfig={batchConfig} />;
         default:
             return <Text>Select a module from sidebar</Text>;
     }

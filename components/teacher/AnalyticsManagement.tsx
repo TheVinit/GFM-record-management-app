@@ -61,18 +61,29 @@ export const AnalyticsManagement = ({ students, filters }: any) => {
         const acts = await getAllActivitiesByFilter(dept, year, div, sem, activityType);
         const interns = await getAllInternshipsByFilter(dept, year, div);
         const fees = await getFeePaymentsByFilter(dept, year, div);
-        const feeAnalytics = await getFeeAnalytics(dept, year, div);
+        const feeAnalyticsRaw = await getFeeAnalytics(dept, year, div);
+
+        // Filter all data based on authorized student list
+        const authorizedPrns = new Set(students.map((s: any) => s.prn));
+        const filteredActs = acts.filter((a: any) => authorizedPrns.has(a.prn));
+        const filteredInterns = interns.filter((i: any) => authorizedPrns.has(i.prn));
+        const filteredFees = fees.filter((f: any) => authorizedPrns.has(f.prn));
+
+        // Fee analytics needs a bit more care since it's a summary object
+        // Actually, we can recalculate it from filteredFees or just use the local student count
+        const totalRemaining = filteredFees.reduce((acc: number, f: any) => acc + (f.lastBalance || 0), 0);
+        const paidAmount = filteredFees.reduce((acc: number, f: any) => acc + (f.paidAmount || 0), 0);
 
         setStats({
             total, verified, pending, deptWise,
             feeStats: {
-                total: (feeAnalytics?.totalRemainingAmount || 0) + (fees.reduce((acc: number, f: any) => acc + (f.paidAmount || 0), 0)),
-                paid: fees.reduce((acc: number, f: any) => acc + (f.paidAmount || 0), 0)
+                total: totalRemaining + paidAmount,
+                paid: paidAmount
             },
             moduleStats: {
-                activities: { total: acts.length, verified: acts.filter((a: any) => a.verificationStatus === 'Verified').length },
-                internships: { total: interns.length, verified: interns.filter((i: any) => i.verificationStatus === 'Verified').length },
-                fees: { total: fees.length, verified: fees.filter((f: any) => f.verificationStatus === 'Verified').length }
+                activities: { total: filteredActs.length, verified: filteredActs.filter((a: any) => a.verificationStatus === 'Verified').length },
+                internships: { total: filteredInterns.length, verified: filteredInterns.filter((i: any) => i.verificationStatus === 'Verified').length },
+                fees: { total: filteredFees.length, verified: filteredFees.filter((f: any) => f.verificationStatus === 'Verified').length }
             }
         });
         setLoading(false);

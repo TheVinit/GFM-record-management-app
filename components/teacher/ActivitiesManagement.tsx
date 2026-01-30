@@ -5,7 +5,7 @@ import { COLORS } from '../../constants/colors';
 import { getAllActivitiesByFilter } from '../../storage/sqlite';
 import { styles } from './dashboard.styles';
 
-export const ActivitiesManagement = ({ filters, handleVerify, handleViewDocument }: any) => {
+export const ActivitiesManagement = ({ students, filters, handleVerify, handleViewDocument }: any) => {
     const [activities, setActivities] = useState<any[]>([]);
 
     const isWeb = Platform.OS === 'web';
@@ -19,7 +19,12 @@ export const ActivitiesManagement = ({ filters, handleVerify, handleViewDocument
     const loadActivities = async () => {
         if (!filters?.dept) return;
         const data = await getAllActivitiesByFilter(filters.dept, filters.year, filters.div, filters.sem, filters.activityType);
-        setActivities(data);
+
+        // Filter based on authorized student list
+        const authorizedPrns = new Set(students.map((s: any) => s.prn));
+        const filtered = data.filter((a: any) => authorizedPrns.has(a.prn));
+
+        setActivities(filtered);
     };
 
     const exportActivitiesCSV = () => {

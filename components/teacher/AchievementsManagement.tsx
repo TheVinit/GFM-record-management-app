@@ -5,7 +5,7 @@ import { COLORS } from '../../constants/colors';
 import { getAchievementsByFilter } from '../../storage/sqlite';
 import { styles } from './dashboard.styles';
 
-export const AchievementsManagement = ({ filters, handleVerify, handleViewDocument }: any) => {
+export const AchievementsManagement = ({ students, filters, handleVerify, handleViewDocument }: any) => {
     const [achievements, setAchievements] = useState<any[]>([]);
 
     const isWeb = Platform.OS === 'web';
@@ -19,7 +19,12 @@ export const AchievementsManagement = ({ filters, handleVerify, handleViewDocume
     const loadAchievements = async () => {
         if (!filters?.dept) return;
         const data = await getAchievementsByFilter(filters.dept, filters.year, filters.div, filters.sem);
-        setAchievements(data);
+
+        // Filter based on authorized student list
+        const authorizedPrns = new Set(students.map((s: any) => s.prn));
+        const filtered = data.filter((a: any) => authorizedPrns.has(a.prn));
+
+        setAchievements(filtered);
     };
 
     const exportAchievementsCSV = () => {

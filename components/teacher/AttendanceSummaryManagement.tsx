@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { COLORS } from '../../constants/colors';
+import { YEAR_MAPPINGS } from '../../constants/Mappings';
 import { getSession } from '../../services/session.service';
 import { logCommunication } from '../../services/student.service';
 import { supabase } from '../../services/supabase';
@@ -22,6 +23,7 @@ export const AttendanceSummaryManagement = ({ filters }: any) => {
     const [records, setRecords] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+    const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
 
     // Follow-up Modal State
     const [callModalVisible, setCallModalVisible] = useState(false);
@@ -49,21 +51,19 @@ export const AttendanceSummaryManagement = ({ filters }: any) => {
         }
         setConfig(batchConfig);
 
-        const today = new Date().toISOString().split('T')[0];
         // Normalize division: 'A2' -> 'A'
         const mainDivision = batchConfig.division ? batchConfig.division[0].toUpperCase() : '';
 
         // Match session's academic_year with batchConfig's class (e.g. 'SE') if academicYear is a session year (2024-25)
-        // Actually, usually academic_year in session table is 2024-25. But here it seems logic is trying to match something specific.
-        // Keeping logic as is from dashboard.tsx
         const academicMatch = batchConfig.class || batchConfig.academicYear;
+        const fullYearName = YEAR_MAPPINGS[academicMatch] || academicMatch;
 
         const { data: divSession } = await supabase
             .from('attendance_sessions')
             .select('*')
-            .eq('date', today)
+            .eq('date', selectedDate)
             .eq('department', batchConfig.department || s.department)
-            .eq('academic_year', academicMatch)
+            .or(`academic_year.eq."${academicMatch}",academic_year.eq."${fullYearName}"`)
             .eq('division', mainDivision)
             .maybeSingle();
 
@@ -170,29 +170,64 @@ export const AttendanceSummaryManagement = ({ filters }: any) => {
         );
     }
 
-    if (!session) {
-        return (
-            <View style={styles.moduleCard}>
-                <Ionicons name="today-outline" size={48} color={COLORS.textLight} style={{ alignSelf: 'center', marginBottom: 15 }} />
-                <Text style={styles.emptyText}>No attendance session found for today.</Text>
-                <Text style={styles.helperText}>Wait for the subject teacher to submit attendance.</Text>
-
-                <TouchableOpacity style={[styles.actionBtn, { alignSelf: 'center', marginTop: 15 }]} onPress={loadGfmDashboard}>
-                    <Text style={styles.actionBtnText}>Refresh</Text>
-                </TouchableOpacity>
-            </View>
-        );
-    }
-
     return (
         <View style={{ flex: 1 }}>
-            <EnhancedAttendanceSummary
-                session={session}
-                records={records}
-                config={config}
-                onFollowUp={openCallFollowup}
-                refreshTrigger={loadGfmDashboard}
-            />
+            <View style={[styles.moduleCard, { marginBottom: 15, paddingVertical: 15 }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                        <Ionicons name="calendar-outline" size={20} color={COLORS.primary} style={{ marginRight: 10 }} />
+                        <Text style={{ fontWeight: 'bold', color: COLORS.text }}>Review Date:</Text>
+                        <TextInput
+                            style={[styles.input, { flex: 1, height: 40, marginLeft: 10, marginBottom: 0 }]}
+                            value={selectedDate}
+                            onChangeText={setSelectedDate}
+                            placeholder="YYYY-MM-DD"
+                        />
+                    </View>
+                    <TouchableOpacity
+                        style={[styles.actionBtn, { marginLeft: 10, paddingVertical: 8 }]}
+                        onPress={loadGfmDashboard}
+                    >
+                        <Ionicons name="search" size={18} color="#fff" />
+                        <Text style={[styles.actionBtnText, { marginLeft: 5 }]}>Load</Text>
+                    </TouchableOpacity>
+                </View>
+                <View style={{ flexDirection: 'row', marginTop: 10, gap: 10 }}>
+                    <TouchableOpacity
+                        onPress={() => {
+                            const today = new Date().toISOString().split('T')[0];
+                            setSelectedDate(today);
+                        }}
+                        style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 15, backgroundColor: selectedDate === new Date().toISOString().split('T')[0] ? COLORS.primary + '20' : '#f0f0f0' }}
+                    >
+                        <Text style={{ fontSize: 12, color: selectedDate === new Date().toISOString().split('T')[0] ? COLORS.primary : COLORS.textLight }}>Today</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        onPress={() => {
+                            const d = new Date();
+                            d.setDate(d.getDate() - 1);
+                            setSelectedDate(d.toISOString().split('T')[0]);
+                        }}
+                        style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 15, backgroundColor: '#f0f0f0' }}
+                    >
+                        <Text style={{ fontSize: 12, color: COLORS.textLight }}>Yesterday</Text>
+                    </TouchableOpacity>
+                </View>
+            </View>
+
+            {session ? (
+                <EnhancedAttendanceSummary
+                    students={records}
+                    batchConfig={config}
+                    onRefresh={loadGfmDashboard}
+                />
+            ) : (
+                <View style={styles.moduleCard}>
+                    <Ionicons name="today-outline" size={48} color={COLORS.textLight} style={{ alignSelf: 'center', marginBottom: 15 }} />
+                    <Text style={styles.emptyText}>No attendance records for {selectedDate}</Text>
+                    <Text style={styles.helperText}>Wait for the subject teacher to submit attendance or pick another date.</Text>
+                </View>
+            )}
 
             {/* Follow Up Modal */}
             <Modal visible={callModalVisible} transparent animationType="slide">

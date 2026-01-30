@@ -196,6 +196,7 @@ export interface CourseDef {
   iseMax: number;
   mseMax: number;
   eseMax: number;
+  yearOfStudy: string;
 }
 
 export interface FacultyMember {
@@ -298,6 +299,22 @@ export const initDB = async () => {
         full_name TEXT,
         data TEXT,
         updatedAt INTEGER
+      );
+    `);
+
+      // 5. Courses Definition Cache
+      await db.runAsync(`
+      CREATE TABLE IF NOT EXISTS courses_def (
+        id INTEGER PRIMARY KEY,
+        course_code TEXT,
+        course_name TEXT,
+        department TEXT,
+        semester INTEGER,
+        credits INTEGER,
+        ise_max INTEGER,
+        mse_max INTEGER,
+        ese_max INTEGER,
+        year_of_study TEXT
       );
     `);
 
@@ -830,13 +847,46 @@ export const getFeeAnalytics = async (dept: string, year: string, div: string) =
 };
 
 export const getAllCoursesDef = async (): Promise<CourseDef[]> => {
+  const db = await dbPromise;
+
+  // 1. Try Cache
+  try {
+    const cached = await db.getAllAsync('SELECT * FROM courses_def');
+    if (cached && cached.length > 0) {
+      return cached.map(toCamelCase) as CourseDef[];
+    }
+  } catch (e) {
+    console.warn('Cache read failed for courses_def:', e);
+  }
+
+  // 2. Fetch from Supabase
   const { data, error } = await supabase
     .from('courses_def')
     .select('*')
-    .order('semester', { ascending: true });
+    .order('course_name');
 
-  if (error) return [];
-  return data.map(toCamelCase) as CourseDef[];
+  if (error) {
+    console.error('❌ Error fetching courses_def:', error);
+    throw error;
+  }
+
+  // 3. Update Local Cache immediately
+  try {
+    if (db) {
+      await db.runAsync('DELETE FROM courses_def');
+      for (const c of data) {
+        await db.runAsync(
+          'INSERT INTO courses_def (id, course_code, course_name, department, semester, credits, ise_max, mse_max, ese_max, year_of_study) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [c.id, c.course_code, c.course_name, c.department, c.semester, c.credits, c.ise_max, c.mse_max, c.ese_max, c.year_of_study]
+        );
+      }
+    }
+    return data.map(toCamelCase) as CourseDef[];
+  } catch (e) {
+    console.warn('⚠️ Local cache update failed:', e);
+    // If cache update fails, still return the fetched data
+    return data.map(toCamelCase) as CourseDef[];
+  }
 };
 
 export const saveCourseDef = async (course: CourseDef) => {
@@ -845,7 +895,7 @@ export const saveCourseDef = async (course: CourseDef) => {
 
   const { error } = await supabase
     .from('courses_def')
-    .insert(snakeData);
+    .upsert(snakeData);
 
   if (error) throw error;
 };

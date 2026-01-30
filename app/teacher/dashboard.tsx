@@ -24,7 +24,7 @@ import {
 } from '../../storage/sqlite';
 
 import { COLORS } from '../../constants/colors';
-import { BRANCH_MAPPINGS, DISPLAY_YEARS } from '../../constants/Mappings';
+import { BRANCH_MAPPINGS, DISPLAY_YEARS, YEAR_MAPPINGS } from '../../constants/Mappings';
 import { clearSession, getSession } from '../../services/session.service';
 
 import { AcademicViewModal } from '../../components/teacher/AcademicViewModal';
@@ -37,12 +37,12 @@ import { StudentDetailsModal } from '../../components/teacher/StudentDetailsModa
 
 const isWeb = Platform.OS === 'web';
 
-type Module = 'courses' | 'students' | 'academic' | 'fees' | 'activities' | 'achievements' | 'internships' | 'analytics' | 'attendance' | 'attendance-summary' | 'admin-reports';
+type Module = 'courses' | 'students' | 'academic' | 'fees' | 'activities' | 'achievements' | 'internships' | 'analytics' | 'attendance' | 'attendance-summary' | 'admin-reports' | 'batch-info';
 
 export default function TeacherDashboard() {
   const { width } = useWindowDimensions();
   const [currentModule, setCurrentModule] = useState<Module>('analytics');
-  const [activeModuleGroup, setActiveModuleGroup] = useState<'Attendance' | 'GFM'>('Attendance');
+  const [activeModuleGroup, setActiveModuleGroup] = useState<'Attendance' | 'GFM' | 'ADMIN'>('Attendance');
   const [loading, setLoading] = useState(true);
   const [teacherId, setTeacherId] = useState('');
   const [teacherPrn, setTeacherPrn] = useState('');
@@ -129,8 +129,16 @@ export default function TeacherDashboard() {
         filtered = allStudents.filter(s => {
           if (config) {
             const matchDept = s.branch === config.department;
-            const matchYear = s.yearOfStudy === config.academicYear;
-            const matchDiv = s.division === config.division;
+
+            // Normalize year (e.g., 'SE' and 'Second Year' both become 'Second Year')
+            const normalizedConfigYear = YEAR_MAPPINGS[config.class] || config.class;
+            const normalizedStudentYear = YEAR_MAPPINGS[s.yearOfStudy] || s.yearOfStudy;
+            const matchYear = normalizedConfigYear === normalizedStudentYear;
+
+            // Normalize division (e.g., 'A2' becomes 'A')
+            const configMainDiv = config.division ? config.division[0].toUpperCase() : '';
+            const studentMainDiv = s.division ? s.division[0].toUpperCase() : '';
+            const matchDiv = configMainDiv === studentMainDiv;
 
             if (matchDept && matchYear && matchDiv) {
               const rollNo = parseInt(s.prn.slice(-3));
@@ -141,7 +149,6 @@ export default function TeacherDashboard() {
                 return rollNo >= fromVal && rollNo <= toVal;
               }
             }
-            // If they have a config but student doesn't match, or rollNo is invalid for range
             return false;
           }
 
@@ -204,7 +211,7 @@ export default function TeacherDashboard() {
     }
   };
 
-  const SidebarItem = ({ id, icon, label, group }: { id: Module, icon: any, label: string, group: 'Attendance' | 'GFM' }) => (
+  const SidebarItem = ({ id, icon, label, group }: { id: Module, icon: any, label: string, group: 'Attendance' | 'GFM' | 'ADMIN' }) => (
     <TouchableOpacity
       style={[
         styles.sidebarItem,
@@ -332,25 +339,27 @@ export default function TeacherDashboard() {
         {/* Sidebar */}
         <View style={[styles.sidebar, isSidebarCollapsed && { width: 70 }]}>
           <ScrollView>
-            {!isSidebarCollapsed && <Text style={{ fontSize: 11, fontWeight: 'bold', color: COLORS.textLight, paddingHorizontal: 20, marginVertical: 10 }}>GENERAL</Text>}
-            <SidebarItem id="analytics" icon="bar-chart-outline" label="Analytics" group="Attendance" />
-            <SidebarItem id="students" icon="people-outline" label="Manage Students" group="GFM" />
+            {userRole === 'teacher' && (
+              <>
+                {!isSidebarCollapsed && <Text style={{ fontSize: 11, fontWeight: 'bold', color: COLORS.textLight, paddingHorizontal: 20, marginVertical: 10, marginTop: 20 }}>GFM</Text>}
+                <SidebarItem id="batch-info" icon="information-circle-outline" label="My Batch Info" group="GFM" />
+                <SidebarItem id="students" icon="people-outline" label="My Students" group="GFM" />
+                <SidebarItem id="academic" icon="school-outline" label="Academic Data" group="GFM" />
+                <SidebarItem id="fees" icon="card-outline" label="Fee Status" group="GFM" />
+                <SidebarItem id="activities" icon="layers-outline" label="Activities" group="GFM" />
+                <SidebarItem id="achievements" icon="trophy-outline" label="Achievements" group="GFM" />
+                <SidebarItem id="internships" icon="briefcase-outline" label="Internships" group="GFM" />
+                <SidebarItem id="analytics" icon="analytics-outline" label="Batch Analytics" group="GFM" />
 
-            {!isSidebarCollapsed && <Text style={{ fontSize: 11, fontWeight: 'bold', color: COLORS.textLight, paddingHorizontal: 20, marginVertical: 10, marginTop: 20 }}>ACADEMIC</Text>}
-            <SidebarItem id="courses" icon="book-outline" label="Courses" group="GFM" />
-            <SidebarItem id="academic" icon="school-outline" label="Academic Data" group="GFM" />
-            <SidebarItem id="attendance" icon="calendar-outline" label="Daily Attendance" group="Attendance" />
-            <SidebarItem id="attendance-summary" icon="list-outline" label="Attendance Summary" group="Attendance" />
-
-            {!isSidebarCollapsed && <Text style={{ fontSize: 11, fontWeight: 'bold', color: COLORS.textLight, paddingHorizontal: 20, marginVertical: 10, marginTop: 20 }}>RECORDS</Text>}
-            <SidebarItem id="fees" icon="card-outline" label="Fee Tracking" group="GFM" />
-            <SidebarItem id="activities" icon="rocket-outline" label="Activities" group="GFM" />
-            <SidebarItem id="achievements" icon="trophy-outline" label="Achievements" group="GFM" />
-            <SidebarItem id="internships" icon="briefcase-outline" label="Internships" group="GFM" />
+                {!isSidebarCollapsed && <Text style={{ fontSize: 11, fontWeight: 'bold', color: COLORS.textLight, paddingHorizontal: 20, marginVertical: 10, marginTop: 20 }}>ATTENDANCE</Text>}
+                <SidebarItem id="attendance-summary" icon="list-outline" label="Attendance Log" group="Attendance" />
+              </>
+            )}
 
             {userRole === 'admin' && (
               <>
                 {!isSidebarCollapsed && <Text style={{ fontSize: 11, fontWeight: 'bold', color: COLORS.textLight, paddingHorizontal: 20, marginVertical: 10, marginTop: 20 }}>ADMIN</Text>}
+                <SidebarItem id="courses" icon="book-outline" label="Courses Management" group="ADMIN" />
                 <SidebarItem id="admin-reports" icon="document-text-outline" label="Admin Reports" group="Attendance" />
               </>
             )}
@@ -383,6 +392,7 @@ export default function TeacherDashboard() {
               onRefresh={loadData}
               onViewDocument={handleViewDocument}
               yearsOfStudy={yearsOfStudy}
+              batchConfig={batchConfig}
             />
           </ScrollView>
         </View>

@@ -18,6 +18,7 @@ import { COLORS } from '../constants/colors';
 import { checkIfPreInformed, initiateCall, savePreInformedAbsence, updateFollowUpStatus } from '../services/call.service';
 import { getSession } from '../services/session.service';
 import { pickAbsenceProof, uploadAbsenceProof } from '../services/storage.service';
+import { supabase } from '../services/supabase';
 
 interface EnhancedAttendanceSummaryProps {
     students: any[];
@@ -54,6 +55,18 @@ export const EnhancedAttendanceSummary: React.FC<EnhancedAttendanceSummaryProps>
     }, [students]);
 
     const loadPreInformedStatus = async () => {
+        const todayStr = new Date().toISOString().split('T')[0];
+
+        // Fetch calls for today for this batch area
+        const { data: todayCalls } = await supabase
+            .from('communication_logs')
+            .select('student_prn')
+            .eq('communication_type', 'call')
+            .gte('created_at', todayStr + 'T00:00:00')
+            .lte('created_at', todayStr + 'T23:59:59');
+
+        const calledPrns = new Set(todayCalls?.map((c: any) => c.student_prn) || []);
+
         const today = new Date();
         const enhanced = await Promise.all(
             students.map(async (student) => {
@@ -64,6 +77,7 @@ export const EnhancedAttendanceSummary: React.FC<EnhancedAttendanceSummaryProps>
                     preInformedReason: preInformed?.reason,
                     preInformedEndDate: preInformed?.end_date,
                     preInformedProof: preInformed?.proof_url,
+                    calledToday: calledPrns.has(student.prn)
                 };
             })
         );
@@ -264,6 +278,15 @@ export const EnhancedAttendanceSummary: React.FC<EnhancedAttendanceSummaryProps>
                             ]}>
                                 {student.status || 'Unknown'}
                             </Text>
+
+                            <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center', marginTop: 5 }}>
+                                {student.calledToday && (
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.secondary + '20', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 }}>
+                                        <Ionicons name="call" size={14} color={COLORS.secondary} />
+                                        <Text style={{ fontSize: 11, color: COLORS.secondary, fontWeight: 'bold', marginLeft: 4 }}>Called Today</Text>
+                                    </View>
+                                )}
+                            </View>
 
                             {student.isPreInformed && (
                                 <View style={styles.preInformedBadge}>

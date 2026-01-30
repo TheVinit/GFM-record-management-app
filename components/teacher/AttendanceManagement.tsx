@@ -9,27 +9,41 @@ import {
     AttendanceSession,
     createAttendanceSession,
     getAttendanceRecords,
-    getStudentsByDivision,
     saveAttendanceRecords,
     Student,
     toCamelCase
 } from '../../storage/sqlite';
 import { styles } from './dashboard.styles';
 
-export const AttendanceManagement = ({ filters, loadData }: { filters: any, loadData: () => void }) => {
+export const AttendanceManagement = ({
+    students: authorizedStudents,
+    filters,
+    loadData,
+    batchConfig
+}: {
+    students: Student[],
+    filters: any,
+    loadData: () => void,
+    batchConfig?: any
+}) => {
     const [students, setStudents] = useState<Student[]>([]);
     const [absentPrns, setAbsentPrns] = useState<Set<string>>(new Set());
     const [loading, setLoading] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [session, setSession] = useState<AttendanceSession | null>(null);
+    const [calledPrns, setCalledPrns] = useState<Set<string>>(new Set());
 
     const isWeb = Platform.OS === 'web';
 
     useEffect(() => {
-        if (filters.dept !== 'All' && filters.year !== 'All' && filters.div !== 'All') {
+        const dept = batchConfig?.department || filters.dept;
+        const year = batchConfig?.class || filters.year;
+        const div = batchConfig?.division || filters.div;
+
+        if (dept !== 'All' && year !== 'All' && div !== 'All') {
             initAttendance();
         }
-    }, [filters]);
+    }, [filters, batchConfig]);
 
     const initAttendance = async () => {
         setLoading(true);
@@ -37,15 +51,19 @@ export const AttendanceManagement = ({ filters, loadData }: { filters: any, load
         if (!s) return;
 
         try {
+            const dept = batchConfig?.department || filters.dept;
+            const year = batchConfig?.class || filters.year;
+            const div = batchConfig?.division || filters.div;
+
             // Check if attendance already taken today for this division
             const today = new Date().toISOString().split('T')[0];
             const { data: existingSession, error } = await supabase
                 .from('attendance_sessions')
                 .select('*')
                 .eq('date', today)
-                .eq('department', filters.dept)
-                .eq('academic_year', filters.year)
-                .eq('division', filters.div)
+                .eq('department', dept)
+                .eq('academic_year', year)
+                .eq('division', div)
                 .maybeSingle();
 
             if (existingSession) {
@@ -58,8 +76,23 @@ export const AttendanceManagement = ({ filters, loadData }: { filters: any, load
                 setAbsentPrns(new Set());
             }
 
-            const studentList = await getStudentsByDivision(filters.dept, filters.year, filters.div, true);
-            setStudents(studentList);
+            // Fetch calls for today
+            const { data: todayCalls } = await supabase
+                .from('communication_logs')
+                .select('student_prn')
+                .eq('communication_type', 'call')
+                .gte('created_at', today + 'T00:00:00')
+                .lte('created_at', today + 'T23:59:59');
+
+            if (todayCalls) {
+                setCalledPrns(new Set(todayCalls.map(c => c.student_prn)));
+            }
+
+            setStudents(authorizedStudents || []);
+
+            if (todayCalls) {
+                setCalledPrns(new Set(todayCalls.map(c => c.student_prn)));
+            }
 
         } catch (e) {
             console.error(e);
@@ -96,14 +129,21 @@ export const AttendanceManagement = ({ filters, loadData }: { filters: any, load
         setSubmitting(true);
         try {
             const s = await getSession();
+            const dept = batchConfig?.department || filters.dept;
+            const year = batchConfig?.class || filters.year;
+            const div = batchConfig?.division || filters.div;
+
             const newSession = await createAttendanceSession({
-                teacherId: s!.userId,
+                teacherId: s!.id,
                 date: new Date().toISOString().split('T')[0],
-                academicYear: filters.year,
-                department: filters.dept,
-                class: filters.year, // Using year as class for now as per schema
-                division: filters.div,
-                locked: true
+                academicYear: year,
+                department: dept,
+                class: year,
+                division: div,
+                locked: true,
+                batchName: batchConfig?.batchName || `${dept} ${year} Div ${div}`,
+                rbtFrom: batchConfig?.rbtFrom,
+                rbtTo: batchConfig?.rbtTo
             });
 
             const records: AttendanceRecord[] = students.map(st => ({
@@ -124,13 +164,13 @@ export const AttendanceManagement = ({ filters, loadData }: { filters: any, load
         }
     };
 
-    if (filters.dept === 'All' || filters.year === 'All' || filters.div === 'All') {
+    if ((!batchConfig) && (filters.dept === 'All' || filters.year === 'All' || filters.div === 'All')) {
         return (
             <View style={[styles.moduleCard, { alignItems: 'center', padding: 40 }]}>
                 <Ionicons name="filter-outline" size={48} color={COLORS.primary} />
-                <Text style={{ marginTop: 10, fontSize: 16, fontWeight: 'bold' }}>Select Filters</Text>
+                <Text style={{ marginTop: 10, fontSize: 16, fontWeight: 'bold' }}>Configuration Required</Text>
                 <Text style={{ textAlign: 'center', color: COLORS.textLight, marginTop: 5 }}>
-                    Please select Department, Year, and Division to take attendance.
+                    Your batch configuration is missing or incomplete. Please contact the Administrator.
                 </Text>
             </View>
         );
@@ -144,7 +184,7 @@ export const AttendanceManagement = ({ filters, loadData }: { filters: any, load
                 <View>
                     <Text style={styles.moduleTitle}>Attendance Taker</Text>
                     <Text style={styles.helperText}>
-                        {filters.year} {filters.div} | {students.length} Students
+                        {(batchConfig?.class || filters.year)} {(batchConfig?.division || filters.div)} | {students.length} Students
                     </Text>
                 </View>
                 {session?.locked ? (
@@ -197,6 +237,11 @@ export const AttendanceManagement = ({ filters, loadData }: { filters: any, load
                                     }}>
                                         {isAbsent ? 'ABSENT' : 'PRESENT'}
                                     </Text>
+                                    {calledPrns.has(item.prn) && (
+                                        <View style={{ position: 'absolute', top: -5, right: -5, backgroundColor: COLORS.secondary, borderRadius: 10, width: 18, height: 18, justifyContent: 'center', alignItems: 'center' }}>
+                                            <Ionicons name="call" size={10} color="#fff" />
+                                        </View>
+                                    )}
                                 </View>
                             </TouchableOpacity>
                         );
