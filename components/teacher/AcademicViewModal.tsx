@@ -7,7 +7,7 @@ import { styles } from './dashboard.styles';
 import { DetailItem } from './DetailItem';
 
 interface AcademicViewModalProps {
-    student: Student;
+    student: Student | null;
     visible: boolean;
     onClose: () => void;
 }
@@ -24,6 +24,7 @@ export const AcademicViewModal = ({ student, visible, onClose }: AcademicViewMod
     }, [visible, student]);
 
     const loadAcademicData = async () => {
+        if (!student) return;
         setLoading(true);
         try {
             const records = await getAcademicRecordsByStudent(student.prn);
@@ -47,16 +48,18 @@ export const AcademicViewModal = ({ student, visible, onClose }: AcademicViewMod
                     </View>
 
                     <ScrollView>
-                        <View style={[styles.detailSection, { backgroundColor: '#fff', elevation: 0, borderWidth: 1, borderColor: '#eee' }]}>
-                            <View style={styles.detailGrid}>
-                                <DetailItem label="Name" value={student.fullName} />
-                                <DetailItem label="PRN" value={student.prn} />
-                                <DetailItem label="Dept" value={student.branch} />
-                                <DetailItem label="Div" value={student.division} />
-                                <DetailItem label="SGPA" value={academicRecords.length > 0 ? academicRecords[academicRecords.length - 1].sgpa : 'N/A'} />
-                                <DetailItem label="CGPA" value={academicRecords.length > 0 ? academicRecords[academicRecords.length - 1].cgpa : 'N/A'} />
+                        {student && (
+                            <View style={[styles.detailSection, { backgroundColor: '#fff', elevation: 0, borderWidth: 1, borderColor: '#eee' }]}>
+                                <View style={styles.detailGrid}>
+                                    <DetailItem label="Name" value={student.fullName} />
+                                    <DetailItem label="PRN" value={student.prn} />
+                                    <DetailItem label="Dept" value={student.branch} />
+                                    <DetailItem label="Div" value={student.division} />
+                                    <DetailItem label="SGPA" value={academicRecords.length > 0 ? academicRecords[academicRecords.length - 1].sgpa : 'N/A'} />
+                                    <DetailItem label="CGPA" value={academicRecords.length > 0 ? academicRecords[academicRecords.length - 1].cgpa : 'N/A'} />
+                                </View>
                             </View>
-                        </View>
+                        )}
 
                         <Text style={[styles.sectionTitle, { marginTop: 10 }]}>Semester Report</Text>
                         {loading ? (

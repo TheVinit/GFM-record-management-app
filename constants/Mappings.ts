@@ -36,8 +36,8 @@ export const REVERSE_YEAR_MAPPINGS: Record<string, string> = Object.entries(YEAR
 export const getFullBranchName = (abbr: string): string => BRANCH_MAPPINGS[abbr] || abbr;
 export const getFullYearName = (abbr: string): string => YEAR_MAPPINGS[abbr] || abbr;
 export const DISPLAY_YEARS = [
-    { label: 'First Year', value: 'FE' },
-    { label: 'Second Year', value: 'SE' },
-    { label: 'Third Year', value: 'TE' },
-    { label: 'Final Year', value: 'BE' }
+    { label: 'First Year', value: 'First Year' },
+    { label: 'Second Year', value: 'Second Year' },
+    { label: 'Third Year', value: 'Third Year' },
+    { label: 'Final Year', value: 'Final Year' }
 ];

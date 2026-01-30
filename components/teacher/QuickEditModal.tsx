@@ -88,7 +88,7 @@ export const QuickEditModal = ({ visible, onClose, section, editData, setEditDat
                         </TouchableOpacity>
                     </View>
                     <ScrollView style={{ paddingBottom: 20 }}>
-                        {renderFields()}
+                        {editData && renderFields()}
                     </ScrollView>
                     <View style={[styles.row, { marginTop: 20 }]}>
                         <TouchableOpacity style={[styles.btn, styles.cancelBtn]} onPress={onClose}>

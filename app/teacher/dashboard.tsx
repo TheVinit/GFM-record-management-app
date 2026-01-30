@@ -18,6 +18,7 @@ import {
   getAllCoursesDef,
   getAllStudents,
   getDistinctYearsOfStudy,
+  getTeacherBatchConfig,
   saveStudentInfo,
   Student
 } from '../../storage/sqlite';
@@ -36,13 +37,14 @@ import { StudentDetailsModal } from '../../components/teacher/StudentDetailsModa
 
 const isWeb = Platform.OS === 'web';
 
-type Module = 'courses' | 'students' | 'academic' | 'fee' | 'activities' | 'achievements' | 'internships' | 'analytics' | 'attendance' | 'attendance-summary' | 'admin-reports' | 'batch-config';
+type Module = 'courses' | 'students' | 'academic' | 'fees' | 'activities' | 'achievements' | 'internships' | 'analytics' | 'attendance' | 'attendance-summary' | 'admin-reports';
 
 export default function TeacherDashboard() {
   const { width } = useWindowDimensions();
   const [currentModule, setCurrentModule] = useState<Module>('analytics');
   const [activeModuleGroup, setActiveModuleGroup] = useState<'Attendance' | 'GFM'>('Attendance');
   const [loading, setLoading] = useState(true);
+  const [teacherId, setTeacherId] = useState('');
   const [teacherPrn, setTeacherPrn] = useState('');
   const [teacherName, setTeacherName] = useState('');
   const [teacherDept, setTeacherDept] = useState('');
@@ -64,6 +66,8 @@ export default function TeacherDashboard() {
   const [editingStudent, setEditingStudent] = useState<any>(null);
   const [editData, setEditData] = useState<any>({});
   const [isSaving, setIsSaving] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [batchConfig, setBatchConfig] = useState<any>(null);
 
   // Filters
   const [gfmDeptFilter, setGfmDeptFilter] = useState('All');
@@ -91,11 +95,12 @@ export default function TeacherDashboard() {
       router.replace('/');
       return;
     }
+    setTeacherId(session.id);
     setTeacherPrn(session.prn ?? '');
     setTeacherName(session.fullName ?? '');
     setTeacherDept(session.department ?? '');
     setUserRole(session.role ?? '');
-    loadData();
+    loadData(session.role, session.prn, session.id);
   };
 
   const loadYears = async () => {
@@ -103,12 +108,53 @@ export default function TeacherDashboard() {
     setYearsOfStudy(years);
   };
 
-  const loadData = async () => {
+  const loadData = async (roleOverride?: string, prnOverride?: string, idOverride?: string) => {
     setLoading(true);
     try {
       const allStudents = await getAllStudents();
-      setStudents(allStudents);
-      setFilteredStudents(allStudents);
+      const session = await getSession();
+      const role = roleOverride || session?.role || userRole;
+      const prn = prnOverride || session?.prn || teacherPrn;
+      const tId = idOverride || session?.id || teacherId;
+      const name = session?.fullName || teacherName;
+
+      // Fetch batch assignment
+      const config = await getTeacherBatchConfig(tId);
+      setBatchConfig(config);
+
+      let filtered = allStudents;
+      if (role === 'teacher') {
+        // Strict filtering: If batch config exists, use it as primary filter.
+        // Otherwise fallback to direct GFM assignment.
+        filtered = allStudents.filter(s => {
+          if (config) {
+            const matchDept = s.branch === config.department;
+            const matchYear = s.yearOfStudy === config.academicYear;
+            const matchDiv = s.division === config.division;
+
+            if (matchDept && matchYear && matchDiv) {
+              const rollNo = parseInt(s.prn.slice(-3));
+              const fromVal = parseInt(config.rbtFrom);
+              const toVal = parseInt(config.rbtTo);
+
+              if (!isNaN(rollNo) && !isNaN(fromVal) && !isNaN(toVal)) {
+                return rollNo >= fromVal && rollNo <= toVal;
+              }
+            }
+            // If they have a config but student doesn't match, or rollNo is invalid for range
+            return false;
+          }
+
+          // Fallback to direct GFM match if no batch config
+          const isGfmForStudent = (s.gfmId && (s.gfmId === prn || s.gfmId === tId)) ||
+            (s.gfmName && name && s.gfmName.toLowerCase() === name.toLowerCase());
+
+          return isGfmForStudent;
+        });
+      }
+
+      setStudents(filtered);
+      setFilteredStudents(filtered);
       const allCourses = await getAllCoursesDef();
       setCourses(allCourses);
     } catch (e) {
@@ -119,17 +165,19 @@ export default function TeacherDashboard() {
   };
 
   const handleLogout = async () => {
-    Alert.alert("Logout", "Are you sure?", [
-      { text: "Cancel" },
-      {
-        text: "Logout",
-        style: "destructive",
-        onPress: async () => {
-          await clearSession();
-          router.replace('/');
-        }
-      }
-    ]);
+    const logout = async () => {
+      await clearSession();
+      router.replace('/');
+    };
+
+    if (isWeb) {
+      if (window.confirm("Are you sure you want to logout?")) logout();
+    } else {
+      Alert.alert("Logout", "Are you sure?", [
+        { text: "Cancel" },
+        { text: "Logout", style: "destructive", onPress: logout }
+      ]);
+    }
   };
 
   const openQuickEdit = (student: Student, section: string) => {
@@ -158,14 +206,18 @@ export default function TeacherDashboard() {
 
   const SidebarItem = ({ id, icon, label, group }: { id: Module, icon: any, label: string, group: 'Attendance' | 'GFM' }) => (
     <TouchableOpacity
-      style={[styles.sidebarItem, currentModule === id && styles.sidebarItemActive]}
+      style={[
+        styles.sidebarItem,
+        currentModule === id && styles.sidebarItemActive,
+        isSidebarCollapsed && { paddingHorizontal: 0, justifyContent: 'center' }
+      ]}
       onPress={() => {
         setCurrentModule(id);
         setActiveModuleGroup(group);
       }}
     >
       <Ionicons name={icon} size={22} color={currentModule === id ? '#fff' : COLORS.textSecondary} />
-      {width > 800 && (
+      {!isSidebarCollapsed && width > 800 && (
         <Text style={[styles.sidebarText, currentModule === id && styles.sidebarTextActive]}>{label}</Text>
       )}
     </TouchableOpacity>
@@ -173,6 +225,24 @@ export default function TeacherDashboard() {
 
   const renderFilters = () => {
     const isAttendance = activeModuleGroup === 'Attendance';
+    const isTeacher = userRole === 'teacher';
+
+    if (isTeacher) {
+      return (
+        <View style={styles.filterContainer}>
+          <View style={[styles.filterItem, { flex: 1, minWidth: 200 }]}>
+            <Ionicons name="search-outline" size={20} color={COLORS.textLight} style={{ position: 'absolute', left: 12, zIndex: 1 }} />
+            <TextInput
+              style={[styles.input, { flex: 1, paddingLeft: 40, marginBottom: 0 }]}
+              placeholder="Search students..."
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+          </View>
+        </View>
+      );
+    }
+
     const dept = isAttendance ? attDeptFilter : gfmDeptFilter;
     const year = isAttendance ? attYearFilter : gfmYearFilter;
     const div = isAttendance ? attDivFilter : gfmDivFilter;
@@ -244,8 +314,13 @@ export default function TeacherDashboard() {
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <Text style={styles.collegeName}>GFM Record Management</Text>
-          <Text style={styles.tagline}>{teacherName} | {teacherDept} Department</Text>
+          <TouchableOpacity onPress={() => setIsSidebarCollapsed(!isSidebarCollapsed)} style={{ marginRight: 15 }}>
+            <Ionicons name={isSidebarCollapsed ? "menu-outline" : "close-outline"} size={26} color="#fff" />
+          </TouchableOpacity>
+          <View>
+            <Text style={styles.collegeName}>GFM Record Management</Text>
+            <Text style={styles.tagline}>{teacherName} | {teacherDept} Department</Text>
+          </View>
         </View>
         <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
           <Ionicons name="log-out-outline" size={20} color="#fff" />
@@ -255,19 +330,19 @@ export default function TeacherDashboard() {
 
       <View style={styles.mainContent}>
         {/* Sidebar */}
-        <View style={styles.sidebar}>
+        <View style={[styles.sidebar, isSidebarCollapsed && { width: 70 }]}>
           <ScrollView>
-            <Text style={{ fontSize: 11, fontWeight: 'bold', color: COLORS.textLight, paddingHorizontal: 20, marginVertical: 10 }}>GENERAL</Text>
+            {!isSidebarCollapsed && <Text style={{ fontSize: 11, fontWeight: 'bold', color: COLORS.textLight, paddingHorizontal: 20, marginVertical: 10 }}>GENERAL</Text>}
             <SidebarItem id="analytics" icon="bar-chart-outline" label="Analytics" group="Attendance" />
             <SidebarItem id="students" icon="people-outline" label="Manage Students" group="GFM" />
 
-            <Text style={{ fontSize: 11, fontWeight: 'bold', color: COLORS.textLight, paddingHorizontal: 20, marginVertical: 10, marginTop: 20 }}>ACADEMIC</Text>
+            {!isSidebarCollapsed && <Text style={{ fontSize: 11, fontWeight: 'bold', color: COLORS.textLight, paddingHorizontal: 20, marginVertical: 10, marginTop: 20 }}>ACADEMIC</Text>}
             <SidebarItem id="courses" icon="book-outline" label="Courses" group="GFM" />
             <SidebarItem id="academic" icon="school-outline" label="Academic Data" group="GFM" />
             <SidebarItem id="attendance" icon="calendar-outline" label="Daily Attendance" group="Attendance" />
             <SidebarItem id="attendance-summary" icon="list-outline" label="Attendance Summary" group="Attendance" />
 
-            <Text style={{ fontSize: 11, fontWeight: 'bold', color: COLORS.textLight, paddingHorizontal: 20, marginVertical: 10, marginTop: 20 }}>RECORDS</Text>
+            {!isSidebarCollapsed && <Text style={{ fontSize: 11, fontWeight: 'bold', color: COLORS.textLight, paddingHorizontal: 20, marginVertical: 10, marginTop: 20 }}>RECORDS</Text>}
             <SidebarItem id="fees" icon="card-outline" label="Fee Tracking" group="GFM" />
             <SidebarItem id="activities" icon="rocket-outline" label="Activities" group="GFM" />
             <SidebarItem id="achievements" icon="trophy-outline" label="Achievements" group="GFM" />
@@ -275,8 +350,7 @@ export default function TeacherDashboard() {
 
             {userRole === 'admin' && (
               <>
-                <Text style={{ fontSize: 11, fontWeight: 'bold', color: COLORS.textLight, paddingHorizontal: 20, marginVertical: 10, marginTop: 20 }}>ADMIN</Text>
-                <SidebarItem id="batch-config" icon="settings-outline" label="Batch Configuration" group="GFM" />
+                {!isSidebarCollapsed && <Text style={{ fontSize: 11, fontWeight: 'bold', color: COLORS.textLight, paddingHorizontal: 20, marginVertical: 10, marginTop: 20 }}>ADMIN</Text>}
                 <SidebarItem id="admin-reports" icon="document-text-outline" label="Admin Reports" group="Attendance" />
               </>
             )}
@@ -301,7 +375,7 @@ export default function TeacherDashboard() {
               activityTypeFilter={activityTypeFilter}
               onViewStudentDetails={setSelectedStudentForDetails}
               onViewAcademicRecord={setSelectedStudentForAcademicView}
-              onPrintStudent={(s) => {
+              onPrintStudent={(s: Student) => {
                 setStudentForPrint(s);
                 setPrintOptionsVisible(true);
               }}
@@ -319,7 +393,7 @@ export default function TeacherDashboard() {
         visible={!!selectedStudentForDetails}
         student={selectedStudentForDetails}
         onClose={() => setSelectedStudentForDetails(null)}
-        onViewDocument={handleViewDocument}
+        onExportPDF={(student: Student, options: any) => exportStudentPDF(student, options, setLoading)}
         onQuickEdit={openQuickEdit}
       />
 
@@ -336,14 +410,14 @@ export default function TeacherDashboard() {
         isSaving={isSaving}
         onClose={() => setEditModalVisible(false)}
         onSave={handleQuickSave}
-        onDataChange={setEditData}
+        setEditData={setEditData}
       />
 
       <PrintOptionsModal
         visible={printOptionsVisible}
-        studentName={studentForPrint?.fullName || ''}
-        options={printOptions}
-        onOptionsChange={setPrintOptions}
+        student={studentForPrint}
+        printOptions={printOptions}
+        setPrintOptions={setPrintOptions}
         onClose={() => setPrintOptionsVisible(false)}
         onGenerate={() => {
           if (studentForPrint) {

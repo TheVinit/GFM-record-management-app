@@ -8,7 +8,6 @@ import { AdminReportsManagement } from './AdminReportsManagement';
 import { AnalyticsManagement } from './AnalyticsManagement';
 import { AttendanceManagement } from './AttendanceManagement';
 import { AttendanceSummaryManagement } from './AttendanceSummaryManagement';
-import { BatchConfigManagement } from './BatchConfigManagement';
 import { CoursesManagement } from './CoursesManagement';
 import { FeeManagement } from './FeeManagement';
 import { InternshipsManagement } from './InternshipsManagement';
@@ -35,7 +34,7 @@ export const ModuleRenderer = ({
 }: any) => {
     const filters = currentModule === 'analytics' || currentModule === 'attendance' || currentModule === 'attendance-summary' || currentModule === 'admin-reports' ? attFilters : gfmFilters;
 
-    if (!filters && currentModule !== 'batch-config') return <ActivityIndicator size="small" color={COLORS.primary} />;
+    if (!filters) return <ActivityIndicator size="small" color={COLORS.primary} />;
 
     switch (currentModule) {
         case 'analytics':
@@ -77,8 +76,6 @@ export const ModuleRenderer = ({
             return <AttendanceManagement filters={filters} loadData={onRefresh} />;
         case 'admin-reports':
             return <AdminReportsManagement filters={filters} />;
-        case 'batch-config':
-            return <BatchConfigManagement loadData={onRefresh} yearsOfStudy={yearsOfStudy} />;
         default:
             return <Text>Select a module from sidebar</Text>;
     }
