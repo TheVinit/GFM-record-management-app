@@ -21,11 +21,11 @@ const LOGO_LEFT_IMG = require('../../assets/images/left.png');
 const LOGO_RIGHT_IMG = require('../../assets/images/right.jpeg');
 
 interface StudentDetailsModalProps {
-    student: Student;
+    student: Student | null;
     visible: boolean;
     onClose: () => void;
-    onExportPDF: (student: Student, options: any) => Promise<void>;
-    onQuickEdit: (student: Student, section: string) => void;
+    onExportPDF: (student: any, options: any) => Promise<void>;
+    onQuickEdit: (student: any, section: string) => void;
 }
 
 export const StudentDetailsModal = ({ student, visible, onClose, onExportPDF, onQuickEdit }: StudentDetailsModalProps) => {
@@ -42,13 +42,15 @@ export const StudentDetailsModal = ({ student, visible, onClose, onExportPDF, on
     }, [visible, student]);
 
     const prepareHtml = async () => {
+        if (!student) return;
         setTemplateLoading(true);
         try {
-            const academicRecords = await getAcademicRecordsByStudent(student.prn);
-            const fees = await getFeePayments(student.prn);
-            const activities = await getStudentActivities(student.prn);
-            const achievements = await getAchievements(student.prn);
-            const internships = await getInternships(student.prn);
+            const currentStudent = student; // Local variable for type narrowing
+            const academicRecords = await getAcademicRecordsByStudent(currentStudent.prn);
+            const fees = await getFeePayments(currentStudent.prn);
+            const activities = await getStudentActivities(currentStudent.prn);
+            const achievements = await getAchievements(currentStudent.prn);
+            const internships = await getInternships(currentStudent.prn);
 
             let totalPaid = 0;
             let lastBalance = 0;
@@ -119,41 +121,41 @@ export const StudentDetailsModal = ({ student, visible, onClose, onExportPDF, on
 
             const b64LogoLeft = await getBase64Image(LOGO_LEFT_IMG);
             const b64LogoRight = await getBase64Image(LOGO_RIGHT_IMG);
-            const b64StudentPhoto = await getBase64Image(student.photoUri || 'https://via.placeholder.com/150');
+            const b64StudentPhoto = await getBase64Image(currentStudent.photoUri || 'https://via.placeholder.com/150');
 
             const dataMap = {
                 college_logo_left: b64LogoLeft,
                 college_logo_right: b64LogoRight,
                 report_title: "Full Student Academic Record",
                 gen_date: new Date().toLocaleDateString(),
-                filters_used: `${getFullBranchName(student.branch)} | ${getFullYearName(student.yearOfStudy)} | Div: ${student.division}`,
+                filters_used: `${getFullBranchName(currentStudent.branch)} | ${getFullYearName(currentStudent.yearOfStudy)} | Div: ${currentStudent.division}`,
                 student_photo: b64StudentPhoto,
-                full_name: (student.fullName || '').toUpperCase(),
-                prn: student.prn || '',
-                branch: getFullBranchName(student.branch) || '',
-                year: getFullYearName(student.yearOfStudy) || '',
-                division: student.division || '',
-                dob: student.dob || '',
-                gender: student.gender || '',
-                email: student.email || '',
-                phone: student.phone || '',
-                aadhar: student.aadhar || '',
-                category: student.category || '',
-                permanent_addr: student.permanentAddress || '',
-                temp_addr: student.temporaryAddress || student.permanentAddress || '',
-                father_name: student.fatherName || '',
-                mother_name: student.motherName || '',
-                father_phone: student.fatherPhone || 'N/A',
-                annual_income: `₹${student.annualIncome || '0'}`,
-                ssc_school: student.sscSchool || 'N/A',
-                ssc_total: student.sscMaxMarks ? student.sscMaxMarks.toString() : 'N/A',
-                ssc_obtained: student.sscMarks ? student.sscMarks.toString() : 'N/A',
-                ssc_perc: student.sscPercentage ? student.sscPercentage.toString() : '0',
-                hsc_diploma_label: (student.admissionType === 'DSE' || !!student.diplomaCollege) ? 'Diploma' : 'HSC (12th)',
-                hsc_diploma_college: (student.admissionType === 'DSE' || !!student.diplomaCollege) ? (student.diplomaCollege || 'N/A') : (student.hscCollege || 'N/A'),
-                hsc_diploma_total: (student.admissionType === 'DSE' || !!student.diplomaCollege) ? (student.diplomaMaxMarks || 'N/A') : (student.hscMaxMarks || 'N/A'),
-                hsc_diploma_obtained: (student.admissionType === 'DSE' || !!student.diplomaCollege) ? (student.diplomaMarks || 'N/A') : (student.hscMarks || 'N/A'),
-                hsc_diploma_perc: (student.admissionType === 'DSE' || !!student.diplomaCollege) ? (student.diplomaPercentage || '0') : (student.hscPercentage || '0'),
+                full_name: (currentStudent.fullName || '').toUpperCase(),
+                prn: currentStudent.prn || '',
+                branch: getFullBranchName(currentStudent.branch) || '',
+                year: getFullYearName(currentStudent.yearOfStudy) || '',
+                division: currentStudent.division || '',
+                dob: currentStudent.dob || '',
+                gender: currentStudent.gender || '',
+                email: currentStudent.email || '',
+                phone: currentStudent.phone || '',
+                aadhar: currentStudent.aadhar || '',
+                category: currentStudent.category || '',
+                permanent_addr: currentStudent.permanentAddress || '',
+                temp_addr: currentStudent.temporaryAddress || currentStudent.permanentAddress || '',
+                father_name: currentStudent.fatherName || '',
+                mother_name: currentStudent.motherName || '',
+                father_phone: currentStudent.fatherPhone || 'N/A',
+                annual_income: `₹${currentStudent.annualIncome || '0'}`,
+                ssc_school: currentStudent.sscSchool || 'N/A',
+                ssc_total: currentStudent.sscMaxMarks ? currentStudent.sscMaxMarks.toString() : 'N/A',
+                ssc_obtained: currentStudent.sscMarks ? currentStudent.sscMarks.toString() : 'N/A',
+                ssc_perc: currentStudent.sscPercentage ? currentStudent.sscPercentage.toString() : '0',
+                hsc_diploma_label: (currentStudent.admissionType === 'DSE' || !!currentStudent.diplomaCollege) ? 'Diploma' : 'HSC (12th)',
+                hsc_diploma_college: (currentStudent.admissionType === 'DSE' || !!currentStudent.diplomaCollege) ? (currentStudent.diplomaCollege || 'N/A') : (currentStudent.hscCollege || 'N/A'),
+                hsc_diploma_total: (currentStudent.admissionType === 'DSE' || !!currentStudent.diplomaCollege) ? (currentStudent.diplomaMaxMarks || 'N/A') : (currentStudent.hscMaxMarks || 'N/A'),
+                hsc_diploma_obtained: (currentStudent.admissionType === 'DSE' || !!currentStudent.diplomaCollege) ? (currentStudent.diplomaMarks || 'N/A') : (currentStudent.hscMarks || 'N/A'),
+                hsc_diploma_perc: (currentStudent.admissionType === 'DSE' || !!currentStudent.diplomaCollege) ? (currentStudent.diplomaPercentage || '0') : (currentStudent.hscPercentage || '0'),
                 sgpa: academicRecords.length > 0 ? academicRecords[academicRecords.length - 1].sgpa?.toString() || 'N/A' : 'N/A',
                 cgpa: academicRecords.length > 0 ? academicRecords[academicRecords.length - 1].cgpa?.toString() || 'N/A' : 'N/A',
                 total_fee: fees.length > 0 ? (fees[0].totalFee || 0).toString() : '0',
@@ -198,7 +200,11 @@ export const StudentDetailsModal = ({ student, visible, onClose, onExportPDF, on
                     </View>
 
                     <ScrollView style={{ flex: 1, backgroundColor: '#f5f5f5' }}>
-                        {viewMode === 'template' ? (
+                        {!student ? (
+                            <View style={{ padding: 40, alignItems: 'center' }}>
+                                <ActivityIndicator size="large" color={COLORS.secondary} />
+                            </View>
+                        ) : viewMode === 'template' ? (
                             isWeb ? (
                                 <View style={{ padding: 20, alignItems: 'center' }}>
                                     {templateLoading ? (

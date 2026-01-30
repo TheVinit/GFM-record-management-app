@@ -27,16 +27,16 @@ export const PrintOptionsModal = ({ visible, onClose, student, printOptions, set
                         </TouchableOpacity>
                     </View>
 
-                    <Text style={[styles.helperText, { marginBottom: 20 }]}>Select modules to include in the report for {student?.fullName}</Text>
+                    <Text style={[styles.helperText, { marginBottom: 20 }]}>Select modules to include in the report for {student?.fullName || 'the student'}</Text>
 
                     <View style={{ marginBottom: 20 }}>
                         <Checkbox label="Personal Details (Always included)" value={true} onValueChange={() => { }} disabled={true} />
-                        <Checkbox label="Academic Performance" value={printOptions.academic || printOptions.all} onValueChange={(v) => setPrintOptions({ ...printOptions, academic: v, all: false })} />
-                        <Checkbox label="Fee Payment Details" value={printOptions.fees || printOptions.all} onValueChange={(v) => setPrintOptions({ ...printOptions, fees: v, all: false })} />
-                        <Checkbox label="Activities & Achievements" value={printOptions.activities || printOptions.all} onValueChange={(v) => setPrintOptions({ ...printOptions, activities: v, all: false })} />
-                        <Checkbox label="Internship Details" value={printOptions.internships || printOptions.all} onValueChange={(v) => setPrintOptions({ ...printOptions, internships: v, all: false })} />
+                        <Checkbox label="Academic Performance" value={!!printOptions?.academic || !!printOptions?.all} onValueChange={(v) => setPrintOptions({ ...printOptions, academic: v, all: false })} />
+                        <Checkbox label="Fee Payment Details" value={!!printOptions?.fees || !!printOptions?.all} onValueChange={(v) => setPrintOptions({ ...printOptions, fees: v, all: false })} />
+                        <Checkbox label="Activities & Achievements" value={!!printOptions?.activities || !!printOptions?.all} onValueChange={(v) => setPrintOptions({ ...printOptions, activities: v, all: false })} />
+                        <Checkbox label="Internship Details" value={!!printOptions?.internships || !!printOptions?.all} onValueChange={(v) => setPrintOptions({ ...printOptions, internships: v, all: false })} />
                         <View style={{ height: 1, backgroundColor: '#eee', marginVertical: 10 }} />
-                        <Checkbox label="Select All Modules" value={printOptions.all} onValueChange={(v) => setPrintOptions({
+                        <Checkbox label="Select All Modules" value={!!printOptions?.all} onValueChange={(v) => setPrintOptions({
                             personal: true, academic: v, fees: v, activities: v, internships: v, all: v
                         })} />
                     </View>

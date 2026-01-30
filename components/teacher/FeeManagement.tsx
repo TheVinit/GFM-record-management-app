@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { Alert, Platform, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { COLORS } from '../../constants/colors';
 import { getFullYearName } from '../../constants/Mappings';
-import { getFeeAnalytics, getFeePaymentsByFilter } from '../../storage/sqlite';
+import { getFeePaymentsByFilter } from '../../storage/sqlite';
 import { styles } from './dashboard.styles';
 
 export const FeeManagement = ({ students, filters, handleVerify }: any) => {
@@ -22,10 +22,33 @@ export const FeeManagement = ({ students, filters, handleVerify }: any) => {
 
     const loadFeeData = async () => {
         if (!filters) return;
-        const s = await getFeeAnalytics(filters.dept, filters.year, filters.div);
-        const data = await getFeePaymentsByFilter(filters.dept, filters.year, filters.div);
-        setStats(s);
-        setFeeData(data);
+
+        // Fetch department-level data
+        const rawFeeData = await getFeePaymentsByFilter(filters.dept, filters.year, filters.div);
+
+        // Create PRN set for O(1) lookup of assigned students
+        const assignedPrns = new Set(students.map((s: any) => s.prn));
+
+        // Filter: Keep only students assigned to this teacher
+        const filtered = rawFeeData.filter(f => assignedPrns.has(f.prn));
+        setFeeData(filtered);
+
+        // Recalculate stats locally for assigned students only
+        let studentsWithRemaining = 0;
+        let totalRemainingAmount = 0;
+
+        filtered.forEach(f => {
+            if ((f.lastBalance || 0) > 0) {
+                studentsWithRemaining++;
+                totalRemainingAmount += f.lastBalance;
+            }
+        });
+
+        setStats({
+            totalStudents: filtered.length,
+            studentsWithRemaining,
+            totalRemainingAmount
+        });
     };
 
     const filteredFeeData = feeData.filter(f => {

@@ -67,13 +67,9 @@ export const StudentManagement = ({ students, filters, onViewDetails, onPrint, h
                                 <TouchableOpacity onPress={() => onViewDetails(s)}>
                                     <Ionicons name="eye-outline" size={20} color={COLORS.secondary} />
                                 </TouchableOpacity>
-                                {/* Print Button */}
-                                <TouchableOpacity onPress={() => onPrint(s)}>
-                                    <Ionicons name="print-outline" size={20} color={COLORS.primary} />
-                                </TouchableOpacity>
                                 {/* Verify Button */}
                                 {s.verificationStatus !== 'Verified' && (
-                                    <TouchableOpacity onPress={() => handleVerify('students', s.id, 'Verified')}>
+                                    <TouchableOpacity onPress={() => handleVerify('students', s.prn, 'Verified')}>
                                         <Ionicons name="checkmark-circle-outline" size={20} color={COLORS.success} />
                                     </TouchableOpacity>
                                 )}

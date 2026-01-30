@@ -50,8 +50,7 @@ export default function RootLayout() {
           console.log('✅ Restored session:', session.role)
 
           const first = segments[0]
-          const isAuth =
-            !first || first === 'login'
+          const isAuth = !first
 
           if (isAuth) {
             const dest =
