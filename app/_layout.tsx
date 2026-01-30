@@ -29,39 +29,46 @@ export default function RootLayout() {
   // ------------------------
   // 2️⃣ Auth boot (once)
   // ------------------------
-    useEffect(() => {
-      let mounted = true
+  useEffect(() => {
+    let mounted = true
 
-      const boot = async () => {
+    const boot = async () => {
+      try {
+        console.log('🚀 [Root] Bootstrapping app...');
+
+        // 1. Ensure SQLite is ready FIRST (but don't crash if it fails on web)
         try {
-          console.log('🚀 [Root] Bootstrapping app...');
-          
-          // 1. Ensure SQLite is ready FIRST (but don't crash if it fails on web)
-          try {
-            await initDB();
-          } catch (dbErr) {
-            console.warn('⚠️ [Root] SQLite Init failed, proceeding with cloud-only mode:', dbErr);
-          }
-          
-          const session = await getSession()
+          await initDB();
+        } catch (dbErr) {
+          console.warn('⚠️ [Root] SQLite Init failed, proceeding with cloud-only mode:', dbErr);
+        }
+
+        const session = await getSession()
 
 
         if (session) {
           console.log('✅ Restored session:', session.role)
 
           const first = segments[0]
-            const isAuth =
-              !first || first === 'login'
+          const isAuth =
+            !first || first === 'login'
 
           if (isAuth) {
             const dest =
               session.role === 'admin'
                 ? '/admin/dashboard'
                 : session.role === 'teacher'
-                ? '/teacher/dashboard'
-                : '/student/dashboard'
+                  ? '/teacher/dashboard'
+                  : '/student/dashboard'
 
-            router.replace(dest as any)
+            // ⚠️ Set ready before navigating
+            if (mounted) setIsReady(true)
+
+            // Wait a tick for Slot to mount
+            setTimeout(() => {
+              router.replace(dest as any)
+            }, 0)
+            return;
           }
 
           // Validate with Supabase (background)

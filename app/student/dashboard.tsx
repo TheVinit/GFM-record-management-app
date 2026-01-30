@@ -15,7 +15,10 @@ import {
   useWindowDimensions,
   View
 } from 'react-native';
+import { ChangePasswordModal } from '../../components/ChangePasswordModal';
+import { COLORS } from '../../constants/colors';
 import { logout } from '../../services/auth.service';
+import { populateTemplate } from '../../services/pdf-template.service';
 import { getSession, saveSession } from '../../services/session.service';
 import {
   getAcademicRecordsByStudent,
@@ -35,26 +38,210 @@ const FALLBACK_LOGO = "https://via.placeholder.com/80?text=LOGO";
 
 const getBase64Image = (source: any, timeout = 5000): Promise<string> => {
   return new Promise((resolve) => {
-    if (typeof window === 'undefined' || !source) return resolve('');
+    // If we're not on web, we can't use document/canvas for conversion
+    // We return the original URI or fallback
+    if (!isWeb || typeof window === 'undefined' || !source) {
+      if (!source) return resolve('');
+      let url = typeof source === 'string' ? source : Image.resolveAssetSource(source)?.uri;
+      return resolve(url || '');
+    }
+
     if (typeof source === 'string' && source.startsWith('data:')) return resolve(source);
     let url = typeof source === 'string' ? source : Image.resolveAssetSource(source)?.uri;
     if (!url) return resolve('');
-    const img = document.createElement('img');
-    img.setAttribute('crossOrigin', 'anonymous');
-    const timer = setTimeout(() => { img.src = ""; resolve(url || ''); }, timeout);
-    img.onload = () => {
-      clearTimeout(timer);
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext('2d');
-      ctx?.drawImage(img, 0, 0);
-      try { resolve(canvas.toDataURL('image/png')); } catch (e) { resolve(url || ''); }
-    };
-    img.onerror = () => { clearTimeout(timer); resolve(url?.includes('supabase.co') ? FALLBACK_LOGO : (url || '')); };
-    img.src = url;
+
+    try {
+      const img = document.createElement('img');
+      img.setAttribute('crossOrigin', 'anonymous');
+      const timer = setTimeout(() => { img.src = ""; resolve(url || ''); }, timeout);
+      img.onload = () => {
+        clearTimeout(timer);
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0);
+        try { resolve(canvas.toDataURL('image/png')); } catch (e) { resolve(url || ''); }
+      };
+      img.onerror = () => { clearTimeout(timer); resolve(url?.includes('supabase.co') ? FALLBACK_LOGO : (url || '')); };
+      img.src = url;
+    } catch (e) {
+      console.warn('getBase64Image error:', e);
+      resolve(url || '');
+    }
   });
 };
+
+const createStyles = (width: number, isLargeScreen: boolean, isXLargeScreen: boolean) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: COLORS.background },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background },
+  loadingContent: { alignItems: 'center' },
+  loadingText: { marginTop: 16, fontSize: 16, color: COLORS.textSecondary },
+  errorContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background, padding: 24 },
+  errorContent: { alignItems: 'center', maxWidth: 320 },
+  errorIcon: { width: 80, height: 80, borderRadius: 40, backgroundColor: `${COLORS.primary}15`, justifyContent: 'center', alignItems: 'center', marginBottom: 24 },
+  errorTitle: { fontSize: 22, fontWeight: 'bold', color: COLORS.text, marginBottom: 8 },
+  errorText: { fontSize: 15, color: COLORS.textSecondary, textAlign: 'center', marginBottom: 24, lineHeight: 22 },
+  primaryButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.primary, paddingHorizontal: 24, paddingVertical: 14, borderRadius: 12, gap: 8 },
+  primaryButtonText: { color: COLORS.white, fontSize: 16, fontWeight: '600' },
+  header: {
+    backgroundColor: COLORS.primary,
+    paddingTop: Platform.OS === 'ios' ? 60 : 20,
+    paddingBottom: isLargeScreen ? 40 : 30,
+    paddingHorizontal: isLargeScreen ? 32 : 20,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24
+  },
+  headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: isLargeScreen ? 32 : 24 },
+  headerBrand: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  brandName: { fontSize: isLargeScreen ? 22 : 18, fontWeight: 'bold', color: COLORS.white },
+  logoutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: isLargeScreen ? 16 : 10,
+    paddingVertical: isLargeScreen ? 10 : 8,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.15)'
+  },
+  logoutText: { color: COLORS.white, fontWeight: '600', fontSize: 14 },
+  profileSection: { flexDirection: 'row', alignItems: 'center' },
+  profileImageContainer: { position: 'relative' },
+  profileImage: {
+    width: isLargeScreen ? 88 : 72,
+    height: isLargeScreen ? 88 : 72,
+    borderRadius: isLargeScreen ? 44 : 36,
+    borderWidth: 3,
+    borderColor: COLORS.white
+  },
+  viewBadge: { position: 'absolute', bottom: 0, right: 0, width: 26, height: 26, borderRadius: 13, backgroundColor: COLORS.secondary, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: COLORS.white },
+  profileInfo: { flex: 1, marginLeft: isLargeScreen ? 20 : 16 },
+  welcomeLabel: { fontSize: isLargeScreen ? 15 : 13, color: 'rgba(255,255,255,0.8)', marginBottom: 4 },
+  profileName: { fontSize: isLargeScreen ? 26 : 20, fontWeight: 'bold', color: COLORS.white, marginBottom: 6 },
+  prnBadge: { backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 12, paddingVertical: 5, borderRadius: 12, alignSelf: 'flex-start' },
+  prnText: { fontSize: isLargeScreen ? 14 : 12, color: COLORS.white, fontWeight: '500' },
+  statsContainer: {
+    flexDirection: 'row',
+    marginHorizontal: isLargeScreen ? 32 : 16,
+    marginTop: -20,
+    gap: isLargeScreen ? 16 : 12
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: COLORS.white,
+    borderRadius: 16,
+    padding: isLargeScreen ? 20 : 16,
+    alignItems: 'center',
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 12,
+    elevation: 4
+  },
+  statIconBg: {
+    width: isLargeScreen ? 52 : 44,
+    height: isLargeScreen ? 52 : 44,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: isLargeScreen ? 12 : 10
+  },
+  statLabel: { fontSize: isLargeScreen ? 13 : 12, color: COLORS.textLight, marginBottom: 4 },
+  statValue: { fontSize: isLargeScreen ? 17 : 15, fontWeight: 'bold', color: COLORS.text },
+  modulesSection: { padding: isLargeScreen ? 32 : 20 },
+  sectionTitle: { fontSize: isLargeScreen ? 20 : 18, fontWeight: 'bold', color: COLORS.text, marginBottom: 16 },
+  modulesGrid: {
+    flexDirection: isLargeScreen ? 'row' : 'column',
+    flexWrap: 'wrap',
+    gap: isLargeScreen ? 16 : 12
+  },
+  moduleCard: {
+    backgroundColor: COLORS.white,
+    padding: isLargeScreen ? 20 : 16,
+    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 1,
+    shadowRadius: 8,
+    elevation: 2
+  },
+  moduleIconBg: {
+    width: isLargeScreen ? 56 : 48,
+    height: isLargeScreen ? 56 : 48,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: isLargeScreen ? 16 : 14
+  },
+  moduleTitle: { flex: 1, fontSize: isLargeScreen ? 16 : 15, fontWeight: '600', color: COLORS.text },
+  editButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.primary,
+    marginHorizontal: isLargeScreen ? 32 : 20,
+    padding: isLargeScreen ? 18 : 16,
+    borderRadius: 14,
+    gap: 8,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4
+  },
+  editButtonText: { color: COLORS.white, fontSize: 16, fontWeight: 'bold' },
+  footer: { padding: 20, alignItems: 'center' },
+  footerText: { fontSize: 12, color: COLORS.textLight },
+  modalContainer: { flex: 1, backgroundColor: COLORS.background },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: isLargeScreen ? 24 : 16, paddingTop: Platform.OS === 'ios' ? 60 : 20, paddingBottom: 16, backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  modalCloseBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: COLORS.background, justifyContent: 'center', alignItems: 'center' },
+  modalTitle: { fontSize: isLargeScreen ? 20 : 18, fontWeight: 'bold', color: COLORS.text },
+  modalTabs: { flexDirection: 'row', backgroundColor: COLORS.white, paddingHorizontal: isLargeScreen ? 24 : 16, paddingBottom: 12, gap: 12 },
+  modalTab: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, borderRadius: 10, backgroundColor: COLORS.background, gap: 6, maxWidth: 200 },
+  modalTabActive: { backgroundColor: `${COLORS.primary}12` },
+  modalTabText: { fontSize: 14, color: COLORS.textLight, fontWeight: '500' },
+  modalTabTextActive: { color: COLORS.primary },
+  modalContent: { flex: 1 },
+  modalProfileHeader: { alignItems: 'center', paddingVertical: isLargeScreen ? 32 : 24, backgroundColor: COLORS.white, marginBottom: 16 },
+  modalProfileImage: {
+    width: isLargeScreen ? 120 : 100,
+    height: isLargeScreen ? 120 : 100,
+    borderRadius: isLargeScreen ? 60 : 50,
+    borderWidth: 3,
+    borderColor: COLORS.primary,
+    marginBottom: 16
+  },
+  modalProfileName: { fontSize: isLargeScreen ? 26 : 22, fontWeight: 'bold', color: COLORS.text, marginBottom: 4 },
+  modalProfilePrn: { fontSize: isLargeScreen ? 15 : 14, color: COLORS.textSecondary, marginBottom: 12 },
+  statusBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, gap: 6 },
+  verifiedBadge: { backgroundColor: `${COLORS.success}15` },
+  rejectedBadge: { backgroundColor: `${COLORS.error}15` },
+  pendingBadge: { backgroundColor: `${COLORS.warning}15` },
+  statusText: { fontSize: 13, fontWeight: '600' },
+  templateContainer: { padding: isLargeScreen ? 24 : 16 },
+  templateLoading: { alignItems: 'center', paddingVertical: 60 },
+  templateLoadingText: { marginTop: 16, fontSize: 14, color: COLORS.textSecondary },
+  templatePlaceholder: { alignItems: 'center', paddingVertical: 60 },
+  templatePlaceholderText: { fontSize: 14, color: COLORS.textLight, textAlign: 'center' },
+  modalFooter: { flexDirection: 'row', padding: isLargeScreen ? 20 : 16, backgroundColor: COLORS.white, borderTopWidth: 1, borderTopColor: COLORS.border, gap: 12 },
+  footerBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: isLargeScreen ? 16 : 14, borderRadius: 12, gap: 8, maxWidth: isLargeScreen ? 220 : undefined },
+  secondaryBtn: { backgroundColor: `${COLORS.primary}12` },
+  secondaryBtnText: { color: COLORS.primary, fontSize: 15, fontWeight: '600' },
+  primaryBtn: { backgroundColor: COLORS.primary },
+  primaryBtnText: { color: COLORS.white, fontSize: 15, fontWeight: '600' },
+  incompleteOverlay: { flex: 1, backgroundColor: COLORS.overlay, justifyContent: 'center', alignItems: 'center', padding: 20 },
+  incompleteCard: { backgroundColor: COLORS.white, borderRadius: 24, padding: isLargeScreen ? 32 : 24, width: '100%', maxWidth: 440, alignItems: 'center' },
+  incompleteIcon: { width: 80, height: 80, borderRadius: 40, backgroundColor: `${COLORS.warning}15`, justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
+  incompleteTitle: { fontSize: 20, fontWeight: 'bold', color: COLORS.text, marginBottom: 8 },
+  incompleteSubtitle: { fontSize: 14, color: COLORS.textSecondary, textAlign: 'center', marginBottom: 20 },
+  missingList: { maxHeight: 200, width: '100%', marginBottom: 20 },
+  missingItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 14, backgroundColor: `${COLORS.error}08`, borderRadius: 10, marginBottom: 8, gap: 10 },
+  missingText: { fontSize: 14, color: COLORS.error, fontWeight: '500' },
+  completeBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.primary, paddingVertical: 14, paddingHorizontal: 24, borderRadius: 12, gap: 8, width: '100%' },
+  completeBtnText: { color: COLORS.white, fontSize: 16, fontWeight: 'bold' },
+});
 
 export default function StudentDashboard() {
   const router = useRouter();
@@ -185,7 +372,7 @@ export default function StudentDashboard() {
       if (session) {
         setSessionData({ email: session.email, password: session.password || '' });
         if (session.firstLogin && session.role === 'student') setShowPasswordModal(true);
-        const data = await getStudentInfo(session.prn);
+        const data = await getStudentInfo(session.prn as string);
         setProfile(data);
         if (data) await prepareTemplateHtml(data);
         if (data && !session.firstLogin) {
@@ -512,173 +699,3 @@ const ProfileRow: React.FC<{ label: string; value?: string; isLargeScreen: boole
   </View>
 );
 
-const createStyles = (width: number, isLargeScreen: boolean, isXLargeScreen: boolean) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.background },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background },
-  loadingContent: { alignItems: 'center' },
-  loadingText: { marginTop: 16, fontSize: 16, color: COLORS.textSecondary },
-  errorContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background, padding: 24 },
-  errorContent: { alignItems: 'center', maxWidth: 320 },
-  errorIcon: { width: 80, height: 80, borderRadius: 40, backgroundColor: `${COLORS.primary}15`, justifyContent: 'center', alignItems: 'center', marginBottom: 24 },
-  errorTitle: { fontSize: 22, fontWeight: 'bold', color: COLORS.text, marginBottom: 8 },
-  errorText: { fontSize: 15, color: COLORS.textSecondary, textAlign: 'center', marginBottom: 24, lineHeight: 22 },
-  primaryButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.primary, paddingHorizontal: 24, paddingVertical: 14, borderRadius: 12, gap: 8 },
-  primaryButtonText: { color: COLORS.white, fontSize: 16, fontWeight: '600' },
-  header: {
-    backgroundColor: COLORS.primary,
-    paddingTop: Platform.OS === 'ios' ? 60 : 20,
-    paddingBottom: isLargeScreen ? 40 : 30,
-    paddingHorizontal: isLargeScreen ? 32 : 20,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24
-  },
-  headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: isLargeScreen ? 32 : 24 },
-  headerBrand: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  brandName: { fontSize: isLargeScreen ? 22 : 18, fontWeight: 'bold', color: COLORS.white },
-  logoutButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: isLargeScreen ? 16 : 10,
-    paddingVertical: isLargeScreen ? 10 : 8,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.15)'
-  },
-  logoutText: { color: COLORS.white, fontWeight: '600', fontSize: 14 },
-  profileSection: { flexDirection: 'row', alignItems: 'center' },
-  profileImageContainer: { position: 'relative' },
-  profileImage: {
-    width: isLargeScreen ? 88 : 72,
-    height: isLargeScreen ? 88 : 72,
-    borderRadius: isLargeScreen ? 44 : 36,
-    borderWidth: 3,
-    borderColor: COLORS.white
-  },
-  viewBadge: { position: 'absolute', bottom: 0, right: 0, width: 26, height: 26, borderRadius: 13, backgroundColor: COLORS.secondary, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: COLORS.white },
-  profileInfo: { flex: 1, marginLeft: isLargeScreen ? 20 : 16 },
-  welcomeLabel: { fontSize: isLargeScreen ? 15 : 13, color: 'rgba(255,255,255,0.8)', marginBottom: 4 },
-  profileName: { fontSize: isLargeScreen ? 26 : 20, fontWeight: 'bold', color: COLORS.white, marginBottom: 6 },
-  prnBadge: { backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 12, paddingVertical: 5, borderRadius: 12, alignSelf: 'flex-start' },
-  prnText: { fontSize: isLargeScreen ? 14 : 12, color: COLORS.white, fontWeight: '500' },
-  statsContainer: {
-    flexDirection: 'row',
-    marginHorizontal: isLargeScreen ? 32 : 16,
-    marginTop: -20,
-    gap: isLargeScreen ? 16 : 12
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: COLORS.white,
-    borderRadius: 16,
-    padding: isLargeScreen ? 20 : 16,
-    alignItems: 'center',
-    shadowColor: COLORS.shadow,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 1,
-    shadowRadius: 12,
-    elevation: 4
-  },
-  statIconBg: {
-    width: isLargeScreen ? 52 : 44,
-    height: isLargeScreen ? 52 : 44,
-    borderRadius: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: isLargeScreen ? 12 : 10
-  },
-  statLabel: { fontSize: isLargeScreen ? 13 : 12, color: COLORS.textLight, marginBottom: 4 },
-  statValue: { fontSize: isLargeScreen ? 17 : 15, fontWeight: 'bold', color: COLORS.text },
-  modulesSection: { padding: isLargeScreen ? 32 : 20 },
-  sectionTitle: { fontSize: isLargeScreen ? 20 : 18, fontWeight: 'bold', color: COLORS.text, marginBottom: 16 },
-  modulesGrid: {
-    flexDirection: isLargeScreen ? 'row' : 'column',
-    flexWrap: 'wrap',
-    gap: isLargeScreen ? 16 : 12
-  },
-  moduleCard: {
-    backgroundColor: COLORS.white,
-    padding: isLargeScreen ? 20 : 16,
-    borderRadius: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    shadowColor: COLORS.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 1,
-    shadowRadius: 8,
-    elevation: 2
-  },
-  moduleIconBg: {
-    width: isLargeScreen ? 56 : 48,
-    height: isLargeScreen ? 56 : 48,
-    borderRadius: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: isLargeScreen ? 16 : 14
-  },
-  moduleTitle: { flex: 1, fontSize: isLargeScreen ? 16 : 15, fontWeight: '600', color: COLORS.text },
-  editButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: COLORS.primary,
-    marginHorizontal: isLargeScreen ? 32 : 20,
-    padding: isLargeScreen ? 18 : 16,
-    borderRadius: 14,
-    gap: 8,
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4
-  },
-  editButtonText: { color: COLORS.white, fontSize: 16, fontWeight: 'bold' },
-  footer: { padding: 20, alignItems: 'center' },
-  footerText: { fontSize: 12, color: COLORS.textLight },
-  modalContainer: { flex: 1, backgroundColor: COLORS.background },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: isLargeScreen ? 24 : 16, paddingTop: Platform.OS === 'ios' ? 60 : 20, paddingBottom: 16, backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: COLORS.border },
-  modalCloseBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: COLORS.background, justifyContent: 'center', alignItems: 'center' },
-  modalTitle: { fontSize: isLargeScreen ? 20 : 18, fontWeight: 'bold', color: COLORS.text },
-  modalTabs: { flexDirection: 'row', backgroundColor: COLORS.white, paddingHorizontal: isLargeScreen ? 24 : 16, paddingBottom: 12, gap: 12 },
-  modalTab: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, borderRadius: 10, backgroundColor: COLORS.background, gap: 6, maxWidth: 200 },
-  modalTabActive: { backgroundColor: `${COLORS.primary}12` },
-  modalTabText: { fontSize: 14, color: COLORS.textLight, fontWeight: '500' },
-  modalTabTextActive: { color: COLORS.primary },
-  modalContent: { flex: 1 },
-  modalProfileHeader: { alignItems: 'center', paddingVertical: isLargeScreen ? 32 : 24, backgroundColor: COLORS.white, marginBottom: 16 },
-  modalProfileImage: {
-    width: isLargeScreen ? 120 : 100,
-    height: isLargeScreen ? 120 : 100,
-    borderRadius: isLargeScreen ? 60 : 50,
-    borderWidth: 3,
-    borderColor: COLORS.primary,
-    marginBottom: 16
-  },
-  modalProfileName: { fontSize: isLargeScreen ? 26 : 22, fontWeight: 'bold', color: COLORS.text, marginBottom: 4 },
-  modalProfilePrn: { fontSize: isLargeScreen ? 15 : 14, color: COLORS.textSecondary, marginBottom: 12 },
-  statusBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, gap: 6 },
-  verifiedBadge: { backgroundColor: `${COLORS.success}15` },
-  rejectedBadge: { backgroundColor: `${COLORS.error}15` },
-  pendingBadge: { backgroundColor: `${COLORS.warning}15` },
-  statusText: { fontSize: 13, fontWeight: '600' },
-  templateContainer: { padding: isLargeScreen ? 24 : 16 },
-  templateLoading: { alignItems: 'center', paddingVertical: 60 },
-  templateLoadingText: { marginTop: 16, fontSize: 14, color: COLORS.textSecondary },
-  templatePlaceholder: { alignItems: 'center', paddingVertical: 60 },
-  templatePlaceholderText: { fontSize: 14, color: COLORS.textLight, textAlign: 'center' },
-  modalFooter: { flexDirection: 'row', padding: isLargeScreen ? 20 : 16, backgroundColor: COLORS.white, borderTopWidth: 1, borderTopColor: COLORS.border, gap: 12 },
-  footerBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: isLargeScreen ? 16 : 14, borderRadius: 12, gap: 8, maxWidth: isLargeScreen ? 220 : undefined },
-  secondaryBtn: { backgroundColor: `${COLORS.primary}12` },
-  secondaryBtnText: { color: COLORS.primary, fontSize: 15, fontWeight: '600' },
-  primaryBtn: { backgroundColor: COLORS.primary },
-  primaryBtnText: { color: COLORS.white, fontSize: 15, fontWeight: '600' },
-  incompleteOverlay: { flex: 1, backgroundColor: COLORS.overlay, justifyContent: 'center', alignItems: 'center', padding: 20 },
-  incompleteCard: { backgroundColor: COLORS.white, borderRadius: 24, padding: isLargeScreen ? 32 : 24, width: '100%', maxWidth: 440, alignItems: 'center' },
-  incompleteIcon: { width: 80, height: 80, borderRadius: 40, backgroundColor: `${COLORS.warning}15`, justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
-  incompleteTitle: { fontSize: 20, fontWeight: 'bold', color: COLORS.text, marginBottom: 8 },
-  incompleteSubtitle: { fontSize: 14, color: COLORS.textSecondary, textAlign: 'center', marginBottom: 20 },
-  missingList: { maxHeight: 200, width: '100%', marginBottom: 20 },
-  missingItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 14, backgroundColor: `${COLORS.error}08`, borderRadius: 10, marginBottom: 8, gap: 10 },
-  missingText: { fontSize: 14, color: COLORS.error, fontWeight: '500' },
-  completeBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.primary, paddingVertical: 14, paddingHorizontal: 24, borderRadius: 12, gap: 8, width: '100%' },
-  completeBtnText: { color: COLORS.white, fontSize: 16, fontWeight: 'bold' },
-});

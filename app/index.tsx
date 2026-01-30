@@ -1,5 +1,4 @@
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
@@ -15,6 +14,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import { COLORS } from '../constants/colors';
 import { login } from '../services/auth.service';
 
 const { width, height } = Dimensions.get('window');
@@ -26,6 +26,7 @@ export default function Index() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [focusedInput, setFocusedInput] = useState<string | null>(null);
+  const passwordRef = React.useRef<TextInput>(null);
 
   const handleLogin = async () => {
     if (!identifier.trim()) {
@@ -58,16 +59,13 @@ export default function Index() {
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
     >
-      <LinearGradient
-        colors={['#667eea', '#764ba2', '#f093fb']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.gradient}
-      >
+      <View style={styles.contentWrapper}>
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
           {/* Header Section */}
           <View style={styles.header}>
@@ -106,6 +104,10 @@ export default function Index() {
                   autoCapitalize="none"
                   onFocus={() => setFocusedInput('identifier')}
                   onBlur={() => setFocusedInput(null)}
+                  returnKeyType="next"
+                  onSubmitEditing={() => passwordRef.current?.focus()}
+                  blurOnSubmit={false}
+                  disableFullscreenUI={true}
                 />
               </View>
             </View>
@@ -124,6 +126,7 @@ export default function Index() {
                   style={styles.inputIcon}
                 />
                 <TextInput
+                  ref={passwordRef}
                   style={[styles.input, { flex: 1 }]}
                   placeholder="Enter your password"
                   placeholderTextColor="#999"
@@ -132,6 +135,9 @@ export default function Index() {
                   secureTextEntry={!showPassword}
                   onFocus={() => setFocusedInput('password')}
                   onBlur={() => setFocusedInput(null)}
+                  returnKeyType="done"
+                  onSubmitEditing={handleLogin}
+                  disableFullscreenUI={true}
                 />
                 <TouchableOpacity
                   onPress={() => setShowPassword(!showPassword)}
@@ -161,21 +167,16 @@ export default function Index() {
               disabled={loading}
               activeOpacity={0.8}
             >
-              <LinearGradient
-                colors={loading ? ['#ccc', '#999'] : ['#667eea', '#764ba2']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.loginButtonGradient}
-              >
+              <View style={[styles.loginButtonContent, loading && { backgroundColor: COLORS.border }]}>
                 {loading ? (
-                  <ActivityIndicator color="#fff" size="small" />
+                  <ActivityIndicator color={COLORS.white} size="small" />
                 ) : (
                   <>
                     <Text style={styles.loginButtonText}>Sign In</Text>
-                    <Ionicons name="arrow-forward" size={20} color="#fff" style={{ marginLeft: 8 }} />
+                    <Ionicons name="arrow-forward" size={20} color={COLORS.white} style={{ marginLeft: 8 }} />
                   </>
                 )}
-              </LinearGradient>
+              </View>
             </TouchableOpacity>
 
             {/* Quick Access Info */}
@@ -193,7 +194,7 @@ export default function Index() {
             <Text style={styles.footerSubtext}>Secure • Reliable • Efficient</Text>
           </View>
         </ScrollView>
-      </LinearGradient>
+      </View>
     </KeyboardAvoidingView>
   );
 }
@@ -201,14 +202,16 @@ export default function Index() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: COLORS.primary,
   },
-  gradient: {
+  contentWrapper: {
     flex: 1,
+    backgroundColor: COLORS.primary,
   },
   scrollContent: {
     flexGrow: 1,
     padding: 24,
-    paddingTop: Platform.OS === 'ios' ? 80 : 60,
+    paddingTop: Platform.OS === 'ios' ? 60 : 40,
     paddingBottom: 40,
   },
   header: {
@@ -227,9 +230,9 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.3)',
   },
   logo: {
-    fontSize: 36,
+    fontSize: 32,
     fontWeight: 'bold',
-    color: '#fff',
+    color: COLORS.white,
     marginBottom: 8,
     letterSpacing: 1,
   },
@@ -241,30 +244,30 @@ const styles = StyleSheet.create({
   divider: {
     width: 60,
     height: 3,
-    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
     borderRadius: 2,
     marginTop: 15,
   },
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: COLORS.white,
     borderRadius: 24,
-    padding: 28,
+    padding: 32,
     elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
+    shadowColor: COLORS.black,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
   },
   welcomeText: {
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: 'bold',
-    color: '#333',
+    color: COLORS.text,
     marginBottom: 8,
   },
   instructionText: {
     fontSize: 14,
-    color: '#666',
-    marginBottom: 30,
+    color: COLORS.textSecondary,
+    marginBottom: 32,
   },
   inputGroup: {
     marginBottom: 20,
@@ -278,16 +281,16 @@ const styles = StyleSheet.create({
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#e0e0e0',
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
     borderRadius: 12,
-    backgroundColor: '#f9f9f9',
+    backgroundColor: COLORS.background,
     paddingHorizontal: 15,
     height: 56,
   },
   inputContainerFocused: {
-    borderColor: '#667eea',
-    backgroundColor: '#fff',
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.white,
   },
   inputIcon: {
     marginRight: 12,
@@ -307,24 +310,26 @@ const styles = StyleSheet.create({
     marginTop: -5,
   },
   forgotText: {
-    color: '#667eea',
+    color: COLORS.primary,
     fontWeight: '600',
     fontSize: 14,
   },
   loginButton: {
     borderRadius: 12,
     overflow: 'hidden',
+    backgroundColor: COLORS.primary,
     elevation: 4,
-    shadowColor: '#667eea',
+    shadowColor: COLORS.primary,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 6,
   },
   loginButtonDisabled: {
+    backgroundColor: COLORS.border,
     elevation: 0,
     shadowOpacity: 0,
   },
-  loginButtonGradient: {
+  loginButtonContent: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
@@ -332,24 +337,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
   },
   loginButtonText: {
-    color: '#fff',
-    fontSize: 18,
+    color: COLORS.white,
+    fontSize: 16,
     fontWeight: 'bold',
     letterSpacing: 0.5,
   },
   infoBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f0f4ff',
+    backgroundColor: COLORS.background,
     padding: 12,
     borderRadius: 10,
     marginTop: 20,
     borderLeftWidth: 3,
-    borderLeftColor: '#667eea',
+    borderLeftColor: COLORS.primary,
   },
   infoText: {
     fontSize: 12,
-    color: '#667eea',
+    color: COLORS.textSecondary,
     marginLeft: 8,
     flex: 1,
     fontWeight: '500',
