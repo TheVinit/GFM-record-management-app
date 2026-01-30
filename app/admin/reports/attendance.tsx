@@ -6,6 +6,7 @@ import { ActivityIndicator, Alert, Platform, ScrollView, StyleSheet, Text, Touch
 import { COLORS } from '../../../constants/colors';
 import { BRANCH_MAPPINGS, getFullBranchName, getFullYearName, YEAR_MAPPINGS } from '../../../constants/Mappings';
 import { supabase } from '../../../services/supabase';
+import { generatePDF } from '../../../utils/pdf-generator';
 
 const AttendanceReport = () => {
     const router = useRouter();
@@ -25,12 +26,44 @@ const AttendanceReport = () => {
         loadReport();
     }, [reportType, dept, year, div]);
 
+    const handleExport = async () => {
+        try {
+            const html = `
+                <html>
+                    <body>
+                        <h1>Attendance Report (${reportType})</h1>
+                        <table border="1" style="border-collapse: collapse; width: 100%;">
+                            <tr>
+                                <th>Name</th>
+                                <th>Batch</th>
+                                <th>Attendance</th>
+                                ${reportType === 'GFM' ? '<th>Reports Count</th>' : ''}
+                            </tr>
+                            ${reportData.map(r => `
+                                <tr>
+                                    <td>${r.gfmName || r.className}</td>
+                                    <td>${r.batch || '-'}</td>
+                                    <td>${r.attendance}</td>
+                                    ${reportType === 'GFM' ? `<td>${r.reportsCount}</td>` : ''}
+                                </tr>
+                            `).join('')}
+                        </table>
+                    </body>
+                </html>
+            `;
+            await generatePDF({ fileName: `Admin_Report_${reportType}.pdf`, htmlTemplate: html, data: reportData });
+        } catch (e) {
+            Alert.alert('Error', 'Export failed');
+        }
+    };
+
     const loadReport = async () => {
         setLoading(true);
         try {
             if (reportType === 'GFM') {
                 // Fetch all teacher configs to know who is GFM for what
                 const { data: configs } = await supabase.from('teacher_batch_configs').select('*, profiles(full_name)');
+                const { data: reports } = await supabase.from('attendance_reports').select('*');
 
                 if (!configs) {
                     setReportData([]);
@@ -47,17 +80,29 @@ const AttendanceReport = () => {
                 // Actually 'attendance_records' table is what we usually check.
 
                 // For demo/MVP:
-                const stats = await Promise.all(configs.map(async (conf) => {
-                    // Fetch students in this batch
-                    // Then fetch their average attendance
-                    // This is too slow for many GFMs.
-                    // Let's just return the Config info for now as "Stats" placeholder
+                const stats = configs.map(conf => {
+                    const gfmReports = reports ? reports.filter(r => r.gfm_id === conf.teacher_id) : [];
+                    const totalReports = gfmReports.length;
+
+                    let avgAtt = 0;
+                    if (totalReports > 0) {
+                        const sumPct = gfmReports.reduce((acc, r) => {
+                            const total = r.total_students || 0;
+                            const absent = r.total_absent || 0;
+                            const present = total - absent;
+                            return acc + (total > 0 ? (present / total) * 100 : 0);
+                        }, 0);
+                        avgAtt = sumPct / totalReports;
+                    }
+
                     return {
-                        gfmName: conf.profiles?.full_name,
+                        gfmName: conf.profiles?.full_name || 'Unknown',
                         batch: `${getFullBranchName(conf.department)} ${getFullYearName(conf.class)} ${conf.division} (${conf.rbt_from}-${conf.rbt_to})`,
-                        attendance: (Math.random() * 20 + 75).toFixed(1) + '%' // Mocked for speed as real aggregation is complex without backend function
+                        attendance: totalReports > 0 ? avgAtt.toFixed(1) + '%' : 'No Reports',
+                        reportsCount: totalReports,
+                        lastReport: totalReports > 0 ? gfmReports.sort((a, b) => b.date.localeCompare(a.date))[0].date : '-'
                     };
-                }));
+                });
                 setReportData(stats);
             } else {
                 // Class Wise
@@ -85,6 +130,9 @@ const AttendanceReport = () => {
                     <Ionicons name="arrow-back" size={24} color={COLORS.text} />
                 </TouchableOpacity>
                 <Text style={styles.title}>Attendance Report</Text>
+                <TouchableOpacity onPress={handleExport} style={{ marginLeft: 'auto', padding: 5 }}>
+                    <Ionicons name="download-outline" size={24} color={COLORS.primary} />
+                </TouchableOpacity>
             </View>
 
             <View style={styles.filterBar}>
@@ -131,15 +179,22 @@ const AttendanceReport = () => {
                     {reportType === 'GFM' ? (
                         <View style={styles.table}>
                             <View style={[styles.row, styles.headerRow]}>
-                                <Text style={[styles.cell, { flex: 1.5 }]}>GFM Name</Text>
-                                <Text style={[styles.cell, { flex: 2 }]}>Batch</Text>
-                                <Text style={[styles.cell, { flex: 1 }]}>Avg Att.</Text>
+                                <Text style={[styles.cell, { flex: 1.2 }]}>GFM Name</Text>
+                                <Text style={[styles.cell, { flex: 1.5 }]}>Batch</Text>
+                                <Text style={[styles.cell, { flex: 0.6, fontSize: 11, textAlign: 'center' }]}>Reports</Text>
+                                <Text style={[styles.cell, { flex: 0.8, textAlign: 'right' }]}>Avg Att.</Text>
                             </View>
                             {reportData.map((item, idx) => (
                                 <View key={idx} style={styles.row}>
-                                    <Text style={[styles.cell, { flex: 1.5 }]}>{item.gfmName}</Text>
-                                    <Text style={[styles.cell, { flex: 2, fontSize: 12 }]}>{item.batch}</Text>
-                                    <Text style={[styles.cell, { flex: 1, fontWeight: 'bold', color: parseFloat(item.attendance) < 75 ? COLORS.error : COLORS.success }]}>{item.attendance}</Text>
+                                    <View style={{ flex: 1.2 }}>
+                                        <Text style={[styles.cell, { fontWeight: 'bold' }]}>{item.gfmName}</Text>
+                                        <Text style={{ fontSize: 10, color: COLORS.textLight }}>Last: {item.lastReport}</Text>
+                                    </View>
+                                    <Text style={[styles.cell, { flex: 1.5, fontSize: 11 }]}>{item.batch}</Text>
+                                    <Text style={[styles.cell, { flex: 0.6, textAlign: 'center' }]}>{item.reportsCount}</Text>
+                                    <Text style={[styles.cell, { flex: 0.8, textAlign: 'right', fontWeight: 'bold', color: item.attendance === 'No Reports' ? COLORS.textLight : parseFloat(item.attendance) < 75 ? COLORS.error : COLORS.success }]}>
+                                        {item.attendance}
+                                    </Text>
                                 </View>
                             ))}
                         </View>

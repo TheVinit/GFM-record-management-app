@@ -291,6 +291,16 @@ export const initDB = async () => {
       );
     `);
 
+      // 4. Students Cache
+      await db.runAsync(`
+      CREATE TABLE IF NOT EXISTS cached_students (
+        prn TEXT PRIMARY KEY,
+        full_name TEXT,
+        data TEXT,
+        updatedAt INTEGER
+      );
+    `);
+
       console.log('✅ SQLite (Cache Layer) initialized successfully');
       dbInitDone = true;
     } catch (error) {
@@ -330,10 +340,10 @@ export const getStudentInfo = async (prn: string): Promise<Student | null> => {
 
   // 1. Try Cache
   try {
-    const cached = await db.getFirstAsync<{ data: string, updatedAt: number }>(
+    const cached = await db.getFirstAsync(
       'SELECT data, updatedAt FROM cached_students WHERE prn = ?',
       [prn]
-    );
+    ) as { data: string, updatedAt: number } | null;
 
     // Return cache if fresh (e.g., less than 5 minutes old)
     if (cached && (Date.now() - cached.updatedAt < 5 * 60 * 1000)) {
@@ -1273,10 +1283,10 @@ export const getStudentsByDivision = async (dept: string, year: string, div: str
 
   if (db && !bypassCache) {
     try {
-      const cached = await db.getFirstAsync<{ data: string, updatedAt: number }>(
+      const cached = await db.getFirstAsync(
         'SELECT data, updatedAt FROM attendance_cache WHERE key = ?',
         [cacheKey]
-      );
+      ) as { data: string, updatedAt: number } | null;
       if (cached && (Date.now() - cached.updatedAt < 24 * 60 * 60 * 1000)) {
         return JSON.parse(cached.data);
       }
