@@ -5,19 +5,44 @@ export const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: COLORS.background },
     header: {
         backgroundColor: COLORS.primary,
-        paddingTop: Platform.OS === 'ios' ? 50 : 20,
+        paddingTop: Platform.OS === 'ios' ? 50 : Platform.OS === 'android' ? 40 : 20,
         paddingBottom: 16,
-        paddingHorizontal: 20,
+        paddingHorizontal: Dimensions.get('window').width > 800 ? 20 : 16,
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
         zIndex: 10,
+        elevation: 4, // Shadow on Android
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
     },
     headerLeft: { flex: 1 },
-    collegeName: { color: '#fff', fontSize: 20, fontWeight: 'bold' },
-    tagline: { color: 'rgba(255,255,255,0.7)', fontSize: 12, marginTop: 2 },
-    logoutBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.15)', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 },
-    logoutText: { color: '#fff', marginLeft: 6, fontWeight: '600', fontSize: 13 },
+    collegeName: {
+        color: '#fff',
+        fontSize: Dimensions.get('window').width > 800 ? 20 : 18,
+        fontWeight: 'bold'
+    },
+    tagline: {
+        color: 'rgba(255,255,255,0.7)',
+        fontSize: Dimensions.get('window').width > 800 ? 12 : 11,
+        marginTop: 2
+    },
+    logoutBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(255,255,255,0.15)',
+        paddingHorizontal: Dimensions.get('window').width > 800 ? 14 : 12,
+        paddingVertical: 8,
+        borderRadius: 10
+    },
+    logoutText: {
+        color: '#fff',
+        marginLeft: 6,
+        fontWeight: '600',
+        fontSize: Dimensions.get('window').width > 800 ? 13 : 12
+    },
     mainContent: { flex: 1, flexDirection: 'row' },
     sidebar: {
         width: Dimensions.get('window').width > 800 ? 220 : '85%',
@@ -35,10 +60,17 @@ export const styles = StyleSheet.create({
         marginHorizontal: 8,
         borderRadius: 12,
     },
+    sidebarItemMobile: {
+        paddingVertical: 16,
+        paddingHorizontal: 20,
+        marginBottom: 6,
+        minHeight: 56, // Better touch target
+    },
     sidebarItemActive: {
         backgroundColor: COLORS.primary,
     },
     sidebarText: { marginLeft: 14, fontSize: 14, color: COLORS.textSecondary, fontWeight: '500' },
+    sidebarTextMobile: { fontSize: 16, fontWeight: '600' }, // Larger, bolder on mobile
     sidebarTextActive: { color: COLORS.white, fontWeight: '600' },
     contentArea: { flex: 1, backgroundColor: COLORS.background },
     filterContainer: {

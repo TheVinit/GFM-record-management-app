@@ -40,7 +40,7 @@ export const initiateCall = async (
 };
 
 /**
- * Saves a pre-informed absence for a student
+ * Saves a leave note for a student
  * @param studentPrn - Student's PRN
  * @param gfmId - GFM's user ID
  * @param startDate - Start date of absence
@@ -79,8 +79,8 @@ export const savePreInformedAbsence = async (
         Alert.alert('Success', 'Pre-informed absence saved successfully');
         return true;
     } catch (error) {
-        console.error('Error saving pre-informed absence:', error);
-        Alert.alert('Error', 'Failed to save pre-informed absence');
+        console.error('Error saving leave note:', error);
+        Alert.alert('Error', 'Failed to save leave note');
         return false;
     }
 };

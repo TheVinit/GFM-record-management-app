@@ -54,11 +54,11 @@ export const BatchConfigManagement = ({ loadData, yearsOfStudy }: { loadData: ()
     const fetchConfig = async () => {
         const session = await getSession();
         if (!session) return;
-        const data = await getTeacherBatchConfig(session.userId);
+        const data = await getTeacherBatchConfig(session.id);
         if (data) setConfig(data);
         else {
             setConfig({
-                teacherId: session.userId,
+                teacherId: session.id,
                 academicYear: '2025-26',
                 department: session.department || 'CSE',
                 class: 'SE',

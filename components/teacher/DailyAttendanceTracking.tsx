@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { COLORS } from '../../constants/colors';
 import { YEAR_MAPPINGS } from '../../constants/Mappings';
@@ -11,18 +11,25 @@ const YEARS = ['First Year', 'Second Year', 'Third Year', 'Final Year'];
 const DIVISIONS = ['A', 'B', 'C'];
 const isWeb = Platform.OS === 'web';
 
+interface TrackingData {
+    sessions: any[];
+    batchConfigs: any[];
+    absentRecords: any[];
+}
+
 export const DailyAttendanceTracking = () => {
     const router = useRouter();
     const { width } = useWindowDimensions();
     const isLargeScreen = width >= 1024;
 
     const [loading, setLoading] = useState(true);
-    const [data, setData] = useState<any>(null);
+    const [data, setData] = useState<TrackingData | null>(null);
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
     const [selectedYear, setSelectedYear] = useState<string | null>(null);
     const [selectedDiv, setSelectedDiv] = useState<string | null>(null);
     const [historyType, setHistoryType] = useState<'daily' | 'weekly' | 'monthly'>('daily');
     const [showFilters, setShowFilters] = useState(false);
+    const [selectedSessionForDetails, setSelectedSessionForDetails] = useState<any>(null);
 
     useEffect(() => {
         loadData();
@@ -61,19 +68,30 @@ export const DailyAttendanceTracking = () => {
             const sessionIds = sessions.map(s => s.id);
             let absentRecords: any[] = [];
             if (sessionIds.length > 0) {
-                const { data: absents } = await supabase
+                const { data: absents, error: absentError } = await supabase
                     .from('attendance_records')
-                    .select('id, student_prn, session_id, status')
+                    .select('id, student_prn, session_id, status, students:student_prn(full_name)')
                     .eq('status', 'Absent')
                     .in('session_id', sessionIds);
-                absentRecords = absents || [];
+
+                if (absentError) {
+                    console.error('❌ [Tracking] Error fetching absent records:', absentError);
+                    // Don't throw, just use empty records to keep sessions visible
+                    absentRecords = [];
+                } else {
+                    absentRecords = absents || [];
+                }
             }
 
             setData({
-                sessions: sessions.map(s => ({ ...toCamelCase(s), teacherName: (s as any).profiles?.full_name })),
-                batchConfigs: batchConfigs.map(b => ({ ...toCamelCase(b), teacherName: (b as any).profiles?.full_name })),
-                absentRecords: absentRecords.map(toCamelCase)
+                sessions: sessions.map((s: any) => ({ ...toCamelCase(s), teacherName: (s as any).profiles?.full_name })),
+                batchConfigs: batchConfigs.map((b: any) => ({ ...toCamelCase(b), teacherName: (b as any).profiles?.full_name })),
+                absentRecords: absentRecords.map((r: any) => ({
+                    ...toCamelCase(r),
+                    studentName: (r as any).students?.full_name || 'Unknown'
+                }))
             });
+
         } catch (error) {
             console.error(error);
             Alert.alert('Error', 'Failed to load tracking data');
@@ -95,7 +113,7 @@ export const DailyAttendanceTracking = () => {
             .sort((a, b) => b[1] - a[1]);
     };
 
-    if (loading) return (
+    if (loading || !data) return (
         <View style={styles.loaderContainer}>
             <ActivityIndicator size="large" color={COLORS.primary} />
             <Text style={styles.loaderText}>Syncing Real-time Data...</Text>
@@ -104,6 +122,7 @@ export const DailyAttendanceTracking = () => {
 
     const defaulters = getDefaulters();
     const { sessions, batchConfigs, absentRecords } = data;
+
 
     let filteredBatches = batchConfigs;
     let filteredSessions = sessions;
@@ -236,7 +255,7 @@ export const DailyAttendanceTracking = () => {
                                 <Text style={[styles.webTableCell, { flex: 1.5, fontWeight: 'bold' }]}>GFM/Teacher</Text>
                                 <Text style={[styles.webTableCell, { flex: 1, fontWeight: 'bold' }]}>Absentees</Text>
                             </View>
-                            {pendingBatches.map(b => (
+                            {pendingBatches.map((b: any) => (
                                 <View key={b.id} style={styles.webTableRow}>
                                     <View style={[styles.webTableCell, { flex: 1.5 }]}>
                                         <Text style={{ fontWeight: 'bold' }}>{b.class} {b.division}</Text>
@@ -251,7 +270,7 @@ export const DailyAttendanceTracking = () => {
                                     <Text style={[styles.webTableCell, { flex: 1, color: COLORS.textLight }]}>-</Text>
                                 </View>
                             ))}
-                            {filteredSessions.map(s => (
+                            {filteredSessions.map((s: any) => (
                                 <View key={s.id} style={styles.webTableRow}>
                                     <View style={[styles.webTableCell, { flex: 1.5 }]}>
                                         <Text style={{ fontWeight: 'bold' }}>{s.academicYear} {s.division}</Text>
@@ -263,9 +282,14 @@ export const DailyAttendanceTracking = () => {
                                         </View>
                                     </View>
                                     <Text style={[styles.webTableCell, { flex: 1.5, fontSize: 12 }]}>{s.teacherName}</Text>
-                                    <Text style={[styles.webTableCell, { flex: 1, fontWeight: 'bold', color: COLORS.error }]}>
-                                        {absentRecords.filter((r: any) => r.sessionId === s.id).length}
-                                    </Text>
+                                    <TouchableOpacity
+                                        style={[styles.webTableCell, { flex: 1 }]}
+                                        onPress={() => setSelectedSessionForDetails(s)}
+                                    >
+                                        <Text style={{ fontWeight: 'bold', color: COLORS.error, textDecorationLine: 'underline' }}>
+                                            {absentRecords.filter((r: any) => r.sessionId === s.id).length}
+                                        </Text>
+                                    </TouchableOpacity>
                                 </View>
                             ))}
                         </View>
@@ -350,9 +374,15 @@ export const DailyAttendanceTracking = () => {
                                 </View>
                                 <Text style={styles.cardGfm}>Taken by: {s.teacherName}</Text>
                                 <View style={styles.cardFooter}>
-                                    <Text style={styles.absentIndicator}>
-                                        {absentRecords.filter((r: any) => r.sessionId === s.id).length} Absentees
-                                    </Text>
+                                    <TouchableOpacity
+                                        style={styles.absentIndicatorContainer}
+                                        onPress={() => setSelectedSessionForDetails(s)}
+                                    >
+                                        <Text style={styles.absentIndicator}>
+                                            {absentRecords.filter((r: any) => r.sessionId === s.id).length} Absentees
+                                        </Text>
+                                        <Ionicons name="chevron-forward" size={14} color={COLORS.error} />
+                                    </TouchableOpacity>
                                     <View style={styles.timeInfo}>
                                         <Ionicons name="time-outline" size={14} color={COLORS.textLight} />
                                         <Text style={styles.cardRange}>
@@ -431,6 +461,50 @@ export const DailyAttendanceTracking = () => {
                     </View>
                 </View>
             </Modal>
+
+            <Modal visible={!!selectedSessionForDetails} transparent animationType="slide">
+                <View style={styles.modalOverlay}>
+                    <View style={[styles.modalContent, { maxHeight: '80%' }]}>
+                        <View style={styles.modalHeader}>
+                            <View>
+                                <Text style={styles.modalTitle}>Absentees List</Text>
+                                <Text style={styles.modalSub}>
+                                    {selectedSessionForDetails?.academicYear} {selectedSessionForDetails?.division} - {selectedSessionForDetails?.batch || 'ALL'}
+                                </Text>
+                            </View>
+                            <TouchableOpacity onPress={() => setSelectedSessionForDetails(null)}>
+                                <Ionicons name="close" size={24} color={COLORS.text} />
+                            </TouchableOpacity>
+                        </View>
+
+                        <ScrollView style={{ marginTop: 10 }}>
+                            {absentRecords
+                                .filter((r: any) => r.sessionId === selectedSessionForDetails?.id)
+                                .map((r: any, idx: number) => (
+                                    <View key={idx} style={styles.absenteeRow}>
+                                        <View style={styles.absenteeIdx}>
+                                            <Text style={styles.absenteeIdxText}>{idx + 1}</Text>
+                                        </View>
+                                        <View style={styles.absenteeInfo}>
+                                            <Text style={styles.absenteeName}>{r.studentName}</Text>
+                                            <Text style={styles.absenteePrn}>PRN: {r.studentPrn}</Text>
+                                        </View>
+                                    </View>
+                                ))}
+                            {absentRecords.filter((r: any) => r.sessionId === selectedSessionForDetails?.id).length === 0 && (
+                                <Text style={styles.noAbsentsText}>No absentees for this session.</Text>
+                            )}
+                        </ScrollView>
+
+                        <TouchableOpacity
+                            style={[styles.applyBtn, { marginTop: 20 }]}
+                            onPress={() => setSelectedSessionForDetails(null)}
+                        >
+                            <Text style={styles.applyBtnText}>Close</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
         </View>
     );
 };
@@ -502,7 +576,7 @@ const styles = StyleSheet.create({
     webSectionLabel: { fontSize: 11, fontWeight: '900', color: COLORS.textLight, letterSpacing: 1.5, marginBottom: 15, marginTop: 10 },
     webRadarBox: { backgroundColor: COLORS.primary + '05', padding: 20, borderRadius: 20, marginBottom: 25, borderStyle: 'dashed', borderWidth: 1, borderColor: COLORS.primary + '20' },
     webRadarTitle: { fontSize: 14, fontWeight: 'bold', color: COLORS.primary, marginBottom: 15 },
-    webTableCard: { backgroundColor: '#fff', borderRadius: 16, borderWeight: 1, borderColor: '#EDF0F5', overflow: 'hidden', elevation: 2 },
+    webTableCard: { backgroundColor: '#fff', borderRadius: 16, borderWidth: 1, borderColor: '#EDF0F5', overflow: 'hidden', elevation: 2 },
     webTableHeader: { flexDirection: 'row', backgroundColor: '#F9FAFB', padding: 15, borderBottomWidth: 1, borderBottomColor: '#EDF0F5' },
     webTableRow: { flexDirection: 'row', padding: 15, borderBottomWidth: 1, borderBottomColor: '#F0F2F5', alignItems: 'center' },
     webTableCell: { paddingHorizontal: 10 },
@@ -591,6 +665,7 @@ const styles = StyleSheet.create({
     rollInfo: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     timeInfo: { flexDirection: 'row', alignItems: 'center', gap: 4 },
     absentIndicator: { fontSize: 12, fontWeight: 'bold', color: COLORS.error },
+    absentIndicatorContainer: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: COLORS.error + '10', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
     cardRange: { fontSize: 12, color: COLORS.textLight },
 
     modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
@@ -613,4 +688,12 @@ const styles = StyleSheet.create({
     applyBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
     clearBtn: { paddingVertical: 10, alignItems: 'center' },
     clearBtnText: { color: COLORS.error, fontSize: 14, fontWeight: '600' },
+    modalSub: { fontSize: 12, color: COLORS.textLight, marginTop: 2 },
+    absenteeRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F0F2F5' },
+    absenteeIdx: { width: 28, height: 28, borderRadius: 14, backgroundColor: COLORS.error + '15', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+    absenteeIdxText: { fontSize: 12, fontWeight: 'bold', color: COLORS.error },
+    absenteeInfo: { flex: 1 },
+    absenteeName: { fontSize: 15, fontWeight: '600', color: COLORS.text },
+    absenteePrn: { fontSize: 12, color: COLORS.textLight },
+    noAbsentsText: { textAlign: 'center', color: COLORS.textLight, marginTop: 20, fontStyle: 'italic' }
 });

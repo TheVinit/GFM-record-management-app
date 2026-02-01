@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Picker } from '@react-native-picker/picker';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -68,8 +68,25 @@ export const EnhancedAttendanceSummary: React.FC<EnhancedAttendanceSummaryProps>
         const calledPrns = new Set(todayCalls?.map((c: any) => c.student_prn) || []);
 
         const today = new Date();
+        const uniquePrns = new Set();
+        // Normalize students to ensure they have a consistent 'prn' property
+        const normalizedStudents = students.map((s: any) => ({
+            ...s,
+            prn: s.prn || s.studentPrn
+        }));
+
+        const uniqueStudents = normalizedStudents.filter((s: any) => {
+            if (!s.prn) return true; // Keep for warning if both missing
+            if (uniquePrns.has(s.prn)) return false;
+            uniquePrns.add(s.prn);
+            return true;
+        });
+
         const enhanced = await Promise.all(
-            students.map(async (student) => {
+            uniqueStudents.map(async (student: any) => {
+                if (!student.prn) {
+                    return { ...student, isPreInformed: false, calledToday: false };
+                }
                 const preInformed = await checkIfPreInformed(student.prn, today);
                 return {
                     ...student,
@@ -98,6 +115,11 @@ export const EnhancedAttendanceSummary: React.FC<EnhancedAttendanceSummaryProps>
 
         if (!phoneNumber) {
             Alert.alert('Error', 'Phone number not available');
+            return;
+        }
+
+        if (!student.prn) {
+            Alert.alert('Error', 'Student record is missing PRN');
             return;
         }
 
@@ -171,32 +193,43 @@ export const EnhancedAttendanceSummary: React.FC<EnhancedAttendanceSummaryProps>
                 onRefresh();
             }
         } catch (error) {
-            console.error('Error saving pre-informed absence:', error);
-            Alert.alert('Error', 'Failed to save pre-informed absence');
+            console.error('Error saving leave note:', error);
+            Alert.alert('Error', 'Failed to save leave note');
         } finally {
             setLoading(false);
         }
     };
 
-    const filteredStudents = enhancedStudents.filter((student) => {
-        // Apply filter mode
-        if (filterMode === 'absent' && student.status !== 'Absent') return false;
-        if (filterMode === 'needs_contact' && (student.status !== 'Absent' || student.isPreInformed)) return false;
+    // Optimized filtering with useMemo to prevent unnecessary re-calculations
+    const filteredStudents = useMemo(() => {
+        return enhancedStudents.filter((student) => {
+            // Apply filter mode
+            if (filterMode === 'absent' && student.status !== 'Absent') return false;
+            if (filterMode === 'needs_contact' && (student.status !== 'Absent' || student.isPreInformed)) return false;
 
-        // Apply search
-        if (searchQuery) {
-            const query = searchQuery.toLowerCase();
-            return (
-                student.fullName?.toLowerCase().includes(query) ||
-                student.prn?.toLowerCase().includes(query)
-            );
-        }
+            // Apply search
+            if (searchQuery) {
+                const query = searchQuery.toLowerCase();
+                return (
+                    student.fullName?.toLowerCase().includes(query) ||
+                    student.prn?.toLowerCase().includes(query)
+                );
+            }
 
-        return true;
-    });
+            return true;
+        });
+    }, [enhancedStudents, filterMode, searchQuery]);
 
-    const absentCount = enhancedStudents.filter(s => s.status === 'Absent').length;
-    const needsContactCount = enhancedStudents.filter(s => s.status === 'Absent' && !s.isPreInformed).length;
+    // Optimized counts with useMemo
+    const absentCount = useMemo(() =>
+        enhancedStudents.filter(s => s.status === 'Absent').length,
+        [enhancedStudents]
+    );
+
+    const needsContactCount = useMemo(() =>
+        enhancedStudents.filter(s => s.status === 'Absent' && !s.isPreInformed).length,
+        [enhancedStudents]
+    );
 
     return (
         <View style={styles.container}>
@@ -226,7 +259,7 @@ export const EnhancedAttendanceSummary: React.FC<EnhancedAttendanceSummaryProps>
                     onPress={() => setFilterMode('all')}
                 >
                     <Text style={[styles.filterButtonText, filterMode === 'all' && styles.filterButtonTextActive]}>
-                        All ({enhancedStudents.length})
+                        All Students ({enhancedStudents.length})
                     </Text>
                 </TouchableOpacity>
 
@@ -235,7 +268,7 @@ export const EnhancedAttendanceSummary: React.FC<EnhancedAttendanceSummaryProps>
                     onPress={() => setFilterMode('absent')}
                 >
                     <Text style={[styles.filterButtonText, filterMode === 'absent' && styles.filterButtonTextActive]}>
-                        Only Absent ({absentCount})
+                        Absent ({absentCount})
                     </Text>
                 </TouchableOpacity>
 
@@ -244,7 +277,7 @@ export const EnhancedAttendanceSummary: React.FC<EnhancedAttendanceSummaryProps>
                     onPress={() => setFilterMode('needs_contact')}
                 >
                     <Text style={[styles.filterButtonText, filterMode === 'needs_contact' && styles.filterButtonTextActive]}>
-                        Needs Contact ({needsContactCount})
+                        In GFM ({needsContactCount})
                     </Text>
                 </TouchableOpacity>
             </View>
@@ -267,9 +300,13 @@ export const EnhancedAttendanceSummary: React.FC<EnhancedAttendanceSummaryProps>
 
             {/* Student List */}
             <ScrollView style={styles.studentList}>
-                {filteredStudents.map((student) => {
+                {filteredStudents.map((student, index) => {
+                    const studentPrn = student.prn || student.studentPrn;
+                    const studentKey = studentPrn || `student-${index}`;
+                    if (!studentPrn) console.warn('Student missing PRN:', student);
+
                     return (
-                        <View key={student.prn} style={styles.studentCard}>
+                        <View key={studentKey} style={styles.studentCard}>
                             <View style={styles.studentInfo}>
                                 <Text style={styles.studentName}>{student.fullName}</Text>
                                 <Text style={styles.studentPrn}>{student.prn}</Text>
@@ -293,7 +330,7 @@ export const EnhancedAttendanceSummary: React.FC<EnhancedAttendanceSummaryProps>
                                     <View style={styles.preInformedBadge}>
                                         <Ionicons name="checkmark-circle" size={16} color={COLORS.success} />
                                         <Text style={styles.preInformedText}>
-                                            Pre-Informed: {student.preInformedReason}
+                                            On Leave: {student.preInformedReason}
                                         </Text>
                                         <Text style={styles.preInformedDate}>
                                             Until: {new Date(student.preInformedEndDate).toLocaleDateString()}
@@ -359,7 +396,7 @@ export const EnhancedAttendanceSummary: React.FC<EnhancedAttendanceSummaryProps>
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContainer}>
                         <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>Mark as Pre-Informed Absence</Text>
+                            <Text style={styles.modalTitle}>Save Leave Note</Text>
                             <TouchableOpacity onPress={() => setPreInformedModal(false)}>
                                 <Ionicons name="close" size={24} color={COLORS.text} />
                             </TouchableOpacity>
@@ -467,7 +504,7 @@ export const EnhancedAttendanceSummary: React.FC<EnhancedAttendanceSummaryProps>
                                 {loading ? (
                                     <ActivityIndicator color={COLORS.white} />
                                 ) : (
-                                    <Text style={styles.saveButtonText}>Save Pre-Informed Absence</Text>
+                                    <Text style={styles.saveButtonText}>Save Leave Note</Text>
                                 )}
                             </TouchableOpacity>
                         </ScrollView>

@@ -18,11 +18,31 @@ const LOGO_RIGHT_IMG = require('../../assets/images/right.jpeg');
 
 export const getBase64Image = (source: any, timeout = 5000): Promise<string> => {
     return new Promise((resolve) => {
-        if (typeof window === 'undefined' || !source) return resolve('');
+        if (!source) return resolve('');
+
+        // On Native, we can't easily use canvas to get base64.
+        // For now, return the URI directly if it's already a string or resolve source.
+        if (!isWeb) {
+            if (typeof source === 'string') return resolve(source);
+            const resolved = Image.resolveAssetSource(source);
+            return resolve(resolved?.uri || '');
+        }
 
         if (typeof source === 'string' && source.startsWith('data:')) return resolve(source);
+        if (typeof source === 'string' && source.startsWith('http')) {
+            return resolve(source);
+        }
 
-        let url = typeof source === 'string' ? source : Image.resolveAssetSource(source)?.uri;
+        let url = '';
+        try {
+            if (typeof source === 'string') {
+                url = source;
+            } else if (Image.resolveAssetSource) {
+                url = Image.resolveAssetSource(source)?.uri || '';
+            }
+        } catch (e) {
+            console.warn('[getBase64Image] Error resolving source:', e);
+        }
 
         if (!url) return resolve('');
 

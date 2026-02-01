@@ -13,6 +13,7 @@ import {
   useWindowDimensions,
   View
 } from 'react-native';
+import { supabase } from '../../services/supabase';
 import {
   CourseDef,
   getAllCoursesDef,
@@ -20,7 +21,8 @@ import {
   getDistinctYearsOfStudy,
   getTeacherBatchConfig,
   saveStudentInfo,
-  Student
+  Student,
+  updateLocalVerificationStatus
 } from '../../storage/sqlite';
 
 import { COLORS } from '../../constants/colors';
@@ -244,28 +246,65 @@ export default function TeacherDashboard() {
     }
   };
 
-  const SidebarItem = ({ id, icon, label, group }: { id: Module, icon: any, label: string, group: 'Attendance' | 'GFM' | 'ADMIN' }) => (
-    <TouchableOpacity
-      style={[
-        styles.sidebarItem,
-        currentModule === id && styles.sidebarItemActive,
-        isSidebarCollapsed && { paddingHorizontal: 0, justifyContent: 'center' }
-      ]}
-      onPress={() => {
-        setCurrentModule(id);
-        setActiveModuleGroup(group);
-        // Auto-close sidebar on mobile after selection
-        if (Platform.OS !== 'web' || width <= 800) {
-          setIsSidebarCollapsed(true);
-        }
-      }}
-    >
-      <Ionicons name={icon} size={22} color={currentModule === id ? '#fff' : COLORS.textSecondary} />
-      {!isSidebarCollapsed && width > 800 && (
-        <Text style={[styles.sidebarText, currentModule === id && styles.sidebarTextActive]}>{label}</Text>
-      )}
-    </TouchableOpacity>
-  );
+  const handleVerify = async (table: string, idOrPrn: string, status: string) => {
+    try {
+      const idField = table === 'students' ? 'prn' : 'id';
+      const { error } = await supabase
+        .from(table)
+        .update({
+          verification_status: status,
+          verified_by: teacherName,
+          last_updated: new Date().toISOString()
+        })
+        .eq(idField, idOrPrn);
+
+      if (error) throw error;
+
+      // Update local storage for immediate UI reflect
+      await updateLocalVerificationStatus(table, idOrPrn, status, teacherName);
+
+      Alert.alert('Success', `Verification status updated for ${table}`);
+      loadData();
+    } catch (e: any) {
+      console.error('[Verification] Error:', e);
+      Alert.alert('Error', 'Failed to update verification status');
+    }
+  };
+
+  const SidebarItem = ({ id, icon, label, group }: { id: Module, icon: any, label: string, group: 'Attendance' | 'GFM' | 'ADMIN' }) => {
+    const isActive = currentModule === id;
+    const isMobile = Platform.OS !== 'web' || width <= 800;
+
+    return (
+      <TouchableOpacity
+        style={[
+          styles.sidebarItem,
+          isActive && styles.sidebarItemActive,
+          isMobile && styles.sidebarItemMobile
+        ]}
+        onPress={() => {
+          setCurrentModule(id);
+          setActiveModuleGroup(group);
+          // Auto-close sidebar on mobile after selection
+          if (isMobile) {
+            setIsSidebarCollapsed(true);
+          }
+        }}
+      >
+        <Ionicons name={icon} size={isMobile ? 24 : 22} color={isActive ? '#fff' : COLORS.textSecondary} />
+        {/* Show label on mobile when sidebar is open, or always on desktop */}
+        {(isMobile || !isSidebarCollapsed) && (
+          <Text style={[
+            styles.sidebarText,
+            isActive && styles.sidebarTextActive,
+            isMobile && styles.sidebarTextMobile
+          ]}>
+            {label}
+          </Text>
+        )}
+      </TouchableOpacity>
+    );
+  };
 
   const renderFilters = () => {
     const isAttendance = activeModuleGroup === 'Attendance';
@@ -437,6 +476,7 @@ export default function TeacherDashboard() {
               onQuickEdit={openQuickEdit}
               onRefresh={loadData}
               onViewDocument={handleViewDocument}
+              handleVerify={handleVerify}
               yearsOfStudy={yearsOfStudy}
               batchConfig={batchConfig}
               router={router}

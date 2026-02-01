@@ -68,6 +68,11 @@ export const logCommunication = async (
         return;
     }
 
+    if (!studentPrn) {
+        console.error('❌ [StudentService] No Student PRN provided for logging communication');
+        return;
+    }
+
     const { error } = await supabase
         .from('communication_logs')
         .insert({

@@ -1,4 +1,3 @@
-import React from 'react';
 import { ActivityIndicator, Text } from 'react-native';
 import { COLORS } from '../../constants/colors';
 import { AcademicManagement } from './AcademicManagement';
@@ -34,6 +33,7 @@ export const ModuleRenderer = ({
     onQuickEdit,
     onRefresh,
     onViewDocument,
+    handleVerify,
     yearsOfStudy,
     batchConfig,
     router
@@ -54,6 +54,7 @@ export const ModuleRenderer = ({
                     onViewDetails={onViewStudentDetails}
                     onPrint={onPrintStudent}
                     onQuickEdit={onQuickEdit}
+                    handleVerify={handleVerify}
                 />
             );
         case 'courses':
@@ -69,13 +70,13 @@ export const ModuleRenderer = ({
                 />
             );
         case 'fees':
-            return <FeeManagement students={students} filters={filters} loadData={onRefresh} />;
+            return <FeeManagement students={students} filters={filters} loadData={onRefresh} handleVerify={handleVerify} />;
         case 'activities':
-            return <ActivitiesManagement students={students} filters={filters} handleViewDocument={onViewDocument} />;
+            return <ActivitiesManagement students={students} filters={filters} handleViewDocument={onViewDocument} handleVerify={handleVerify} />;
         case 'achievements':
-            return <AchievementsManagement students={students} filters={filters} handleViewDocument={onViewDocument} />;
+            return <AchievementsManagement students={students} filters={filters} handleViewDocument={onViewDocument} handleVerify={handleVerify} />;
         case 'internships':
-            return <InternshipsManagement students={students} filters={filters} handleViewDocument={onViewDocument} />;
+            return <InternshipsManagement students={students} filters={filters} handleViewDocument={onViewDocument} handleVerify={handleVerify} />;
         case 'attendance-summary':
             return <AttendanceSummaryManagement students={students} filters={filters} />;
         case 'attendance':

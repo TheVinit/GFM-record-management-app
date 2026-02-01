@@ -1027,4 +1027,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontWeight: '500',
   },
+  sessionList: {
+    paddingBottom: 20,
+  },
 });

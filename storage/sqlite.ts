@@ -269,43 +269,45 @@ export const initDB = async () => {
         prn TEXT,
         email TEXT,
         isProfileComplete INTEGER,
+        access_token TEXT,
+        refresh_token TEXT,
         updatedAt INTEGER
       );
     `);
 
       // 2. Users Cache (Cached User Profiles)
       await db.runAsync(`
-      CREATE TABLE IF NOT EXISTS users (
+      CREATE TABLE IF NOT EXISTS users(
         id TEXT PRIMARY KEY,
         username TEXT,
         role TEXT,
         data TEXT,
         updatedAt INTEGER
       );
-    `);
+      `);
 
       // 3. Attendance Cache
       await db.runAsync(`
-      CREATE TABLE IF NOT EXISTS attendance_cache (
+      CREATE TABLE IF NOT EXISTS attendance_cache(
         key TEXT PRIMARY KEY,
         data TEXT,
         updatedAt INTEGER
       );
-    `);
+      `);
 
       // 4. Students Cache
       await db.runAsync(`
-      CREATE TABLE IF NOT EXISTS cached_students (
+      CREATE TABLE IF NOT EXISTS cached_students(
         prn TEXT PRIMARY KEY,
         full_name TEXT,
         data TEXT,
         updatedAt INTEGER
       );
-    `);
+      `);
 
       // 5. Courses Definition Cache
       await db.runAsync(`
-      CREATE TABLE IF NOT EXISTS courses_def (
+      CREATE TABLE IF NOT EXISTS courses_def(
         id INTEGER PRIMARY KEY,
         course_code TEXT,
         course_name TEXT,
@@ -317,7 +319,7 @@ export const initDB = async () => {
         ese_max INTEGER,
         year_of_study TEXT
       );
-    `);
+      `);
 
       console.log('✅ SQLite (Cache Layer) initialized successfully');
       dbInitDone = true;
@@ -382,7 +384,7 @@ export const getStudentInfo = async (prn: string): Promise<Student | null> => {
   // 3. Update Cache
   try {
     await db.runAsync(
-      `INSERT OR REPLACE INTO cached_students (prn, full_name, data, updatedAt) VALUES (?, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO cached_students(prn, full_name, data, updatedAt) VALUES(?, ?, ?, ?)`,
       [prn, student.fullName, JSON.stringify(student), Date.now()]
     );
   } catch (e) { console.warn('Cache write failed:', e); }
@@ -411,7 +413,7 @@ export const saveStudentInfo = async (s: Student) => {
     const db = await dbPromise;
     if (db) {
       await db.runAsync(
-        `INSERT OR REPLACE INTO cached_students (prn, full_name, data, updatedAt) VALUES (?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO cached_students(prn, full_name, data, updatedAt) VALUES(?, ?, ?, ?)`,
         [s.prn, s.fullName, JSON.stringify(s), Date.now()]
       );
       console.log('📦 Local student cache updated');
@@ -452,14 +454,14 @@ export const getAchievementsByFilter = async (dept: string, year: string, div: s
   let query = supabase
     .from('achievements')
     .select(`
-      *,
-      students!inner (
-        full_name,
-        division,
-        year_of_study,
-        branch
-      )
-    `);
+        *,
+        students!inner(
+          full_name,
+          division,
+          year_of_study,
+          branch
+        )
+          `);
 
   if (dept !== 'All') query = query.eq('students.branch', dept);
   if (year !== 'All') query = query.eq('students.year_of_study', year);
@@ -505,14 +507,14 @@ export const getAllActivitiesByFilter = async (dept: string, year: string, div: 
   let query = supabase
     .from('student_activities')
     .select(`
-      *,
-      students!inner (
-        full_name,
-        division,
-        year_of_study,
-        branch
-      )
-    `);
+          *,
+          students!inner(
+            full_name,
+            division,
+            year_of_study,
+            branch
+          )
+            `);
 
   if (dept !== 'All') query = query.eq('students.branch', dept);
   if (year !== 'All') query = query.eq('students.year_of_study', year);
@@ -637,14 +639,14 @@ export const getAllInternshipsByFilter = async (dept: string, year: string, div:
   let query = supabase
     .from('internships')
     .select(`
-      *,
-      students!inner (
-        full_name,
-        division,
-        year_of_study,
-        branch
-      )
-    `);
+            *,
+            students!inner(
+              full_name,
+              division,
+              year_of_study,
+              branch
+            )
+              `);
 
   if (dept !== 'All') query = query.eq('students.branch', dept);
   if (year !== 'All') query = query.eq('students.year_of_study', year);
@@ -668,16 +670,16 @@ export const getAcademicRecordsByStudent = async (prn: string): Promise<any[]> =
   const { data, error } = await supabase
     .from('academic_records')
     .select(`
-      *,
-      courses_def!inner (
-        course_name,
-        course_code,
-        credits,
-        ise_max,
-        mse_max,
-        ese_max
-      )
-    `)
+              *,
+              courses_def!inner(
+                course_name,
+                course_code,
+                credits,
+                ise_max,
+                mse_max,
+                ese_max
+              )
+                `)
     .eq('prn', prn)
     .order('semester', { ascending: true });
 
@@ -698,18 +700,18 @@ export const getAcademicRecordsByFilter = async (dept: string, year: string, div
   let query = supabase
     .from('academic_records')
     .select(`
-      *,
-      students!inner (
-        full_name,
-        branch,
-        year_of_study,
-        division
-      ),
-      courses_def!inner (
-        course_name,
-        course_code
-      )
-    `);
+                *,
+                students!inner(
+                  full_name,
+                  branch,
+                  year_of_study,
+                  division
+                ),
+                  courses_def!inner(
+                    course_name,
+                    course_code
+                  )
+                    `);
 
   if (dept !== 'All') query = query.eq('students.branch', dept);
   if (year !== 'All') query = query.eq('students.year_of_study', year);
@@ -744,14 +746,14 @@ export const getFeePaymentsByFilter = async (dept: string, year: string, div: st
     let query = supabase
       .from('students')
       .select(`
-        prn,
+      prn,
         full_name,
         year_of_study,
         branch,
         division,
         permanent_address,
         temporary_address,
-        fee_payments (
+        fee_payments(
           id,
           total_fee,
           amount_paid,
@@ -762,7 +764,7 @@ export const getFeePaymentsByFilter = async (dept: string, year: string, div: st
           installment_number,
           academic_year
         )
-      `);
+          `);
 
     // Apply filters
     if (dept !== 'All') query = query.eq('branch', dept);
@@ -807,16 +809,16 @@ export const getFeeAnalytics = async (dept: string, year: string, div: string) =
     .from('students')
     .select(`
       prn,
-      branch,
-      year_of_study,
-      division,
-      fee_payments (
-        id,
-        amount_paid,
-        remaining_balance,
-        total_fee
-      )
-    `);
+        branch,
+        year_of_study,
+        division,
+        fee_payments(
+          id,
+          amount_paid,
+          remaining_balance,
+          total_fee
+        )
+          `);
 
   if (dept !== 'All') query = query.eq('branch', dept);
   if (year !== 'All') query = query.eq('year_of_study', year);
@@ -1234,7 +1236,7 @@ export const getAttendanceRecords = async (sessionId: string) => {
     .from('attendance_records')
     .select(`
         *,
-        students!student_prn (
+        students!student_prn(
           full_name,
           phone
         )
@@ -1269,15 +1271,15 @@ export const getTodayAttendanceSession = async (teacherId: string, batchName: st
 
 export const getStudentsByRbtRange = async (dept: string, year: string, div: string, from: string, to: string): Promise<Student[]> => {
   // Use cache-first strategy
-  const cacheKey = `students_${dept}_${year}_${div}_${from}_${to}`;
+  const cacheKey = `students_${dept}_${year}_${div}_${from}_${to} `;
   const db = await dbPromise;
 
   if (db) {
     try {
-      const cached = await db.getFirstAsync<{ data: string, updatedAt: number }>(
+      const cached = await db.getFirstAsync(
         'SELECT data, updatedAt FROM attendance_cache WHERE key = ?',
         [cacheKey]
-      );
+      ) as { data: string, updatedAt: number } | null;
       if (cached && (Date.now() - cached.updatedAt < 24 * 60 * 60 * 1000)) {
         return JSON.parse(cached.data);
       }
@@ -1329,7 +1331,7 @@ export const getStudentsByRbtRange = async (dept: string, year: string, div: str
 
 export const getStudentsByDivision = async (dept: string, year: string, div: string, bypassCache = false): Promise<Student[]> => {
   // Use cache-first strategy unless bypassCache is true
-  const cacheKey = `students_div_${dept}_${year}_${div}`;
+  const cacheKey = `students_div_${dept}_${year}_${div} `;
   const db = await dbPromise;
 
   if (db && !bypassCache) {
@@ -1383,18 +1385,18 @@ export const getGfmAttendanceSummary = async (dept: string, year: string, div: s
   const { data, error } = await supabase
     .from('attendance_sessions')
     .select(`
-      *,
-      attendance_records (
-        status,
-        student_prn,
-        remark,
-        approved_by_gfm,
-        students (
-          full_name,
-          phone
+        *,
+        attendance_records(
+          status,
+          student_prn,
+          remark,
+          approved_by_gfm,
+          students(
+            full_name,
+            phone
+          )
         )
-      )
-    `)
+          `)
     .eq('department', dept)
     .eq('academic_year', year)
     .eq('division', div)
@@ -1408,9 +1410,9 @@ export const getTodayAttendanceSummary = async (date: string) => {
   const { data: sessions, error: sessionError } = await supabase
     .from('attendance_sessions')
     .select(`
-      *,
-      profiles:teacher_id (full_name)
-    `)
+        *,
+        profiles: teacher_id(full_name)
+          `)
     .eq('date', date);
 
   if (sessionError) throw sessionError;
@@ -1419,9 +1421,9 @@ export const getTodayAttendanceSummary = async (date: string) => {
   const { data: batchConfigs, error: batchError } = await supabase
     .from('teacher_batch_configs')
     .select(`
-      *,
-      profiles:teacher_id (full_name)
-    `);
+          *,
+          profiles: teacher_id(full_name)
+            `);
 
   if (batchError) throw batchError;
 
@@ -1458,9 +1460,9 @@ export const getAdminAnalytics = async () => {
   const { data: sessions, error: sessionError } = await supabase
     .from('attendance_sessions')
     .select(`
-      *,
-      profiles:teacher_id (full_name)
-    `)
+            *,
+            profiles: teacher_id(full_name)
+              `)
     .order('created_at', { ascending: false });
 
   if (sessionError) throw sessionError;
@@ -1469,16 +1471,16 @@ export const getAdminAnalytics = async () => {
   const { data: batchConfigs, error: batchError } = await supabase
     .from('teacher_batch_configs')
     .select(`
-      *,
-      profiles:teacher_id (full_name)
-    `);
+              *,
+              profiles: teacher_id(full_name)
+                `);
 
   if (batchError) throw batchError;
 
   // 3. Fetch absent records
   const { data: absents, error: absentError } = await supabase
     .from('attendance_records')
-    .select('id, student_prn, session_id')
+    .select('id, student_prn, session_id, created_at')
     .eq('status', 'Absent');
 
   if (absentError) throw absentError;
@@ -1487,12 +1489,26 @@ export const getAdminAnalytics = async () => {
   const { data: calls, error: callError } = await supabase
     .from('communication_logs')
     .select(`
-      *,
-      profiles:gfm_id (full_name)
-    `)
+                *,
+                profiles: gfm_id(full_name)
+                  `)
     .order('created_at', { ascending: false });
 
   if (callError) throw callError;
+
+  // 5. Fetch all students (for names)
+  const { data: studentsRecords, error: studentError } = await supabase
+    .from('students')
+    .select('prn, full_name');
+
+  if (studentError) console.warn('Student names fetch error:', studentError);
+
+  // 6. Fetch pre-informed absences (leave notes)
+  const { data: leaveNotes, error: leaveError } = await supabase
+    .from('pre_informed_absences')
+    .select('*');
+
+  if (leaveError) console.warn('Leave notes fetch error:', leaveError);
 
   return {
     sessions: sessions.map(s => ({
@@ -1507,6 +1523,21 @@ export const getAdminAnalytics = async () => {
     calls: calls.map(c => ({
       ...toCamelCase(c),
       teacherName: (c as any).profiles?.full_name
-    }))
+    })),
+    students: studentsRecords || [],
+    leaveNotes: (leaveNotes || []).map(toCamelCase)
   };
+};
+
+export const updateLocalVerificationStatus = async (table: string, idOrPrn: string, status: string, verifiedBy: string) => {
+  const db = await dbPromise;
+  if (!db) return;
+
+  const idField = table === 'students' ? 'prn' : 'id';
+  if (table === 'students') {
+    await db.runAsync(
+      'UPDATE students SET verificationStatus = ?, verifiedBy = ?, lastUpdated = ? WHERE prn = ?',
+      [status, verifiedBy, new Date().toISOString(), idOrPrn]
+    );
+  }
 };
