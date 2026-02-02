@@ -1,5 +1,4 @@
 import { Ionicons } from '@expo/vector-icons';
-import React from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { COLORS } from '../../constants/colors';
 
@@ -15,10 +14,8 @@ export const BatchInfoManagement = ({ batchConfig }: any) => {
 
     const infoItems = [
         { label: 'Department', value: batchConfig.department, icon: 'business-outline' },
-        { label: 'Class / Year', value: batchConfig.class, icon: 'school-outline' },
         { label: 'Division', value: batchConfig.division, icon: 'grid-outline' },
-        { label: 'RBT Numbers', value: `${batchConfig.rbtFrom} to ${batchConfig.rbtTo}`, icon: 'list-outline' },
-        { label: 'Academic Year', value: batchConfig.academic_year || batchConfig.academicYear || '2024-25', icon: 'calendar-outline' },
+        { label: 'Roll No Range', value: `${batchConfig.rbtFrom} to ${batchConfig.rbtTo}`, icon: 'list-outline' },
         { label: 'Configuration Status', value: batchConfig.status || 'Active', icon: 'shield-checkmark-outline' },
     ];
 
@@ -78,11 +75,11 @@ const styles = StyleSheet.create({
         marginHorizontal: -8,
     },
     card: {
-        width: '48%',
+        width: '100%',
         backgroundColor: '#fff',
         borderRadius: 12,
-        padding: 20,
-        margin: '1%',
+        padding: 16,
+        marginBottom: 12,
         flexDirection: 'row',
         alignItems: 'center',
         shadowColor: '#000',
@@ -90,7 +87,8 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.05,
         shadowRadius: 10,
         elevation: 2,
-        minHeight: 100,
+        borderWidth: 1,
+        borderColor: '#f0f0f0',
     },
     iconWrapper: {
         width: 48,

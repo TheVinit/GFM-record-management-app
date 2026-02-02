@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Platform, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { COLORS } from '../../constants/colors';
 import { YEAR_MAPPINGS } from '../../constants/Mappings';
 import { getSession } from '../../services/session.service';
@@ -24,6 +25,7 @@ export const AttendanceSummaryManagement = ({ filters }: any) => {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+    const [showNativeDatePicker, setShowNativeDatePicker] = useState(false);
 
     // Follow-up Modal State
     const [callModalVisible, setCallModalVisible] = useState(false);
@@ -58,14 +60,22 @@ export const AttendanceSummaryManagement = ({ filters }: any) => {
         const academicMatch = batchConfig.class || batchConfig.academicYear;
         const fullYearName = YEAR_MAPPINGS[academicMatch] || academicMatch;
 
-        const { data: sessions } = await supabase
+        console.log(`[AttendanceSummary] Loading for Date: ${selectedDate}, Dept: ${batchConfig.department}, Academic: ${academicMatch}/${fullYearName}, MainDiv: ${mainDivision}`);
+
+        const { data: sessions, error: sessionError } = await supabase
             .from('attendance_sessions')
             .select('*')
             .eq('date', selectedDate)
             .eq('department', batchConfig.department || s.department)
-            .or(`academic_year.eq."${academicMatch}",academic_year.eq."${fullYearName}"`)
-            .eq('division', mainDivision)
+            .or(`academic_year.eq."${academicMatch}",academic_year.eq."${fullYearName}",academic_year.eq."${batchConfig.academicYear}"`)
+            .ilike('division', `${mainDivision}%`)
             .order('created_at', { ascending: false });
+
+        if (sessionError) {
+            console.error('[AttendanceSummary] Session Error:', sessionError);
+        }
+
+        console.log(`[AttendanceSummary] Found ${sessions?.length || 0} sessions`);
 
         const divSession = sessions && sessions.length > 0 ? sessions[0] : null;
 
@@ -190,35 +200,97 @@ export const AttendanceSummaryManagement = ({ filters }: any) => {
 
     return (
         <View style={{ flex: 1 }}>
-            <View style={[styles.moduleCard, { marginBottom: 15, paddingVertical: 15 }]}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                        <Ionicons name="calendar-outline" size={20} color={COLORS.primary} style={{ marginRight: 10 }} />
-                        <Text style={{ fontWeight: 'bold', color: COLORS.text }}>Review Date:</Text>
-                        <TextInput
-                            style={[styles.input, { flex: 1, height: 40, marginLeft: 10, marginBottom: 0 }]}
-                            value={selectedDate}
-                            onChangeText={setSelectedDate}
-                            placeholder="YYYY-MM-DD"
-                        />
+            <View style={[styles.moduleCard, { marginBottom: 15, padding: 0, overflow: 'hidden' }]}>
+                {/* Header/Date Picker Row */}
+                <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    padding: 15,
+                    borderBottomWidth: 1,
+                    borderBottomColor: '#F1F5F9'
+                }}>
+                    <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 11, fontWeight: '800', color: COLORS.textLight, letterSpacing: 1, marginBottom: 4 }}>ATTENDANCE DATE</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                            <Ionicons name="calendar" size={20} color={COLORS.primary} />
+                            {Platform.OS === 'web' ? (
+                                <input
+                                    type="date"
+                                    value={selectedDate}
+                                    onChange={(e) => setSelectedDate(e.target.value)}
+                                    style={{
+                                        fontSize: '18px',
+                                        fontWeight: '700',
+                                        color: COLORS.text,
+                                        border: 'none',
+                                        backgroundColor: 'transparent',
+                                        outline: 'none',
+                                        fontFamily: 'inherit'
+                                    }}
+                                />
+                            ) : (
+                                <TouchableOpacity onPress={() => setShowNativeDatePicker(true)}>
+                                    <Text style={{ fontSize: 18, fontWeight: '700', color: COLORS.text }}>
+                                        {selectedDate || "Select Date"}
+                                    </Text>
+                                </TouchableOpacity>
+                            )}
+                            {showNativeDatePicker && (
+                                <DateTimePicker
+                                    value={selectedDate ? new Date(selectedDate) : new Date()}
+                                    mode="date"
+                                    display="default"
+                                    onChange={(event: any, date?: Date) => {
+                                        setShowNativeDatePicker(false);
+                                        if (date) {
+                                            setSelectedDate(date.toISOString().split('T')[0]);
+                                        }
+                                    }}
+                                />
+                            )}
+                        </View>
                     </View>
+
                     <TouchableOpacity
-                        style={[styles.actionBtn, { marginLeft: 10, paddingVertical: 8 }]}
+                        style={{
+                            backgroundColor: COLORS.primary,
+                            paddingHorizontal: 20,
+                            paddingVertical: 10,
+                            borderRadius: 12,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 8,
+                            shadowColor: COLORS.primary,
+                            shadowOffset: { width: 0, height: 4 },
+                            shadowOpacity: 0.3,
+                            shadowRadius: 8,
+                            elevation: 4
+                        }}
                         onPress={loadGfmDashboard}
                     >
-                        <Ionicons name="search" size={18} color="#fff" />
-                        <Text style={[styles.actionBtnText, { marginLeft: 5 }]}>Load</Text>
+                        <Ionicons name="sync" size={18} color="#fff" />
+                        <Text style={{ color: '#fff', fontWeight: 'bold' }}>Load Records</Text>
                     </TouchableOpacity>
                 </View>
-                <View style={{ flexDirection: 'row', marginTop: 10, gap: 10 }}>
+
+                {/* Quick Selection Chips */}
+                <View style={{ flexDirection: 'row', padding: 12, backgroundColor: '#F8FAFC', gap: 10 }}>
                     <TouchableOpacity
                         onPress={() => {
                             const today = new Date().toISOString().split('T')[0];
                             setSelectedDate(today);
                         }}
-                        style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 15, backgroundColor: selectedDate === new Date().toISOString().split('T')[0] ? COLORS.primary + '20' : '#f0f0f0' }}
+                        style={{
+                            paddingHorizontal: 16,
+                            paddingVertical: 8,
+                            borderRadius: 20,
+                            backgroundColor: selectedDate === new Date().toISOString().split('T')[0] ? COLORS.primary : '#E2E8F0',
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 6
+                        }}
                     >
-                        <Text style={{ fontSize: 12, color: selectedDate === new Date().toISOString().split('T')[0] ? COLORS.primary : COLORS.textLight }}>Today</Text>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: selectedDate === new Date().toISOString().split('T')[0] ? '#fff' : COLORS.textSecondary }}>Today</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                         onPress={() => {
@@ -226,9 +298,17 @@ export const AttendanceSummaryManagement = ({ filters }: any) => {
                             d.setDate(d.getDate() - 1);
                             setSelectedDate(d.toISOString().split('T')[0]);
                         }}
-                        style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 15, backgroundColor: '#f0f0f0' }}
+                        style={{
+                            paddingHorizontal: 16,
+                            paddingVertical: 8,
+                            borderRadius: 20,
+                            backgroundColor: '#E2E8F0',
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 6
+                        }}
                     >
-                        <Text style={{ fontSize: 12, color: COLORS.textLight }}>Yesterday</Text>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: COLORS.textSecondary }}>Yesterday</Text>
                     </TouchableOpacity>
                 </View>
             </View>

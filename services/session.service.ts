@@ -42,9 +42,9 @@ export const saveSession = async (user: SessionUser) => {
 
   try {
     await db.runAsync(
-      `INSERT OR REPLACE INTO session (id, user_id, email, role, prn, isProfileComplete, access_token, refresh_token, updatedAt) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [SESSION_ID, user.id, user.email, user.role, user.prn || null, user.isProfileComplete ? 1 : 0, user.access_token || null, user.refresh_token || null, now]
+      `INSERT OR REPLACE INTO session (id, user_id, email, role, prn, isProfileComplete, password, first_login, access_token, refresh_token, updatedAt) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [SESSION_ID, user.id, user.email, user.role, user.prn || null, user.isProfileComplete ? 1 : 0, user.password || null, user.firstLogin ? 1 : 0, user.access_token || null, user.refresh_token || null, now]
     );
     console.log("✅ [SessionService] Session saved to SQLite");
   } catch (error) {
@@ -75,6 +75,8 @@ export const getSession = async (): Promise<SessionUser | null> => {
       role: string;
       prn: string | null;
       isProfileComplete: number;
+      password: string | null;
+      first_login: number | null;
       access_token: string | null;
       refresh_token: string | null;
     } | null;
@@ -113,8 +115,8 @@ export const getSession = async (): Promise<SessionUser | null> => {
       isProfileComplete: row.isProfileComplete === 1,
       fullName: extData.fullName,
       department: extData.department,
-      password: extData.password,
-      firstLogin: extData.firstLogin,
+      password: row.password || extData.password,
+      firstLogin: (row.first_login !== null ? row.first_login === 1 : extData.firstLogin),
       access_token: row.access_token || undefined,
       refresh_token: row.refresh_token || undefined
     };

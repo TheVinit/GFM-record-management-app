@@ -18,7 +18,7 @@ import { DetailItem } from './DetailItem';
 
 // Correct local assets
 const LOGO_LEFT_IMG = require('../../assets/images/left.png');
-const LOGO_RIGHT_IMG = require('../../assets/images/right.jpeg');
+const LOGO_RIGHT_IMG = require('../../assets/images/right.png');
 
 interface StudentDetailsModalProps {
     student: Student | null;
@@ -33,6 +33,10 @@ export const StudentDetailsModal = ({ student, visible, onClose, onExportPDF, on
     const [viewMode, setViewMode] = useState<'details' | 'template'>('template');
     const [htmlContent, setHtmlContent] = useState('');
     const [templateLoading, setTemplateLoading] = useState(false);
+    const [activities, setActivities] = useState<any[]>([]);
+    const [achievements, setAchievements] = useState<any[]>([]);
+    const [internships, setInternships] = useState<any[]>([]);
+    const [fees, setFees] = useState<any[]>([]);
     const isWeb = Platform.OS === 'web';
 
     useEffect(() => {
@@ -47,14 +51,19 @@ export const StudentDetailsModal = ({ student, visible, onClose, onExportPDF, on
         try {
             const currentStudent = student; // Local variable for type narrowing
             const academicRecords = await getAcademicRecordsByStudent(currentStudent.prn);
-            const fees = await getFeePayments(currentStudent.prn);
-            const activities = await getStudentActivities(currentStudent.prn);
-            const achievements = await getAchievements(currentStudent.prn);
-            const internships = await getInternships(currentStudent.prn);
+            const feeList = await getFeePayments(currentStudent.prn);
+            const activityList = await getStudentActivities(currentStudent.prn);
+            const achievementList = await getAchievements(currentStudent.prn);
+            const internshipList = await getInternships(currentStudent.prn);
+
+            setActivities(activityList);
+            setAchievements(achievementList);
+            setInternships(internshipList);
+            setFees(feeList);
 
             let totalPaid = 0;
             let lastBalance = 0;
-            fees.forEach(f => {
+            feeList.forEach(f => {
                 totalPaid += (f.amountPaid || 0);
                 lastBalance = f.remainingBalance || 0;
             });
@@ -331,6 +340,86 @@ export const StudentDetailsModal = ({ student, visible, onClose, onExportPDF, on
                                             </>
                                         )}
                                     </View>
+                                </View>
+
+                                {/* New Comprehensive Sections */}
+                                <View style={styles.detailSection}>
+                                    <Text style={styles.sectionTitle}>Activities & Achievements</Text>
+                                    {activities.length === 0 && achievements.length === 0 ? (
+                                        <Text style={styles.emptyText}>No activities or achievements recorded.</Text>
+                                    ) : (
+                                        <View style={{ gap: 10 }}>
+                                            {activities.map((a, i) => (
+                                                <View key={`act-${i}`} style={{ backgroundColor: '#fff', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#eee' }}>
+                                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                                                        <Text style={{ fontWeight: 'bold', color: COLORS.text }}>{a.activityName}</Text>
+                                                        <Text style={{ fontSize: 11, color: a.verificationStatus === 'Verified' ? COLORS.success : COLORS.warning }}>{a.verificationStatus}</Text>
+                                                    </View>
+                                                    <Text style={{ fontSize: 12, color: COLORS.textLight, marginTop: 4 }}>{a.type} • {a.activityDate}</Text>
+                                                </View>
+                                            ))}
+                                            {achievements.map((a, i) => (
+                                                <View key={`ach-${i}`} style={{ backgroundColor: '#fff', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#eee' }}>
+                                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                                                        <Text style={{ fontWeight: 'bold', color: COLORS.secondary }}>{a.achievementName}</Text>
+                                                        <Text style={{ fontSize: 11, color: a.verificationStatus === 'Verified' ? COLORS.success : COLORS.warning }}>{a.verificationStatus}</Text>
+                                                    </View>
+                                                    <Text style={{ fontSize: 12, color: COLORS.textLight, marginTop: 4 }}>{a.type} • {a.achievementDate}</Text>
+                                                </View>
+                                            ))}
+                                        </View>
+                                    )}
+                                </View>
+
+                                <View style={styles.detailSection}>
+                                    <Text style={styles.sectionTitle}>Internships</Text>
+                                    {internships.length === 0 ? (
+                                        <Text style={styles.emptyText}>No internships recorded.</Text>
+                                    ) : (
+                                        <View style={{ gap: 10 }}>
+                                            {internships.map((a, i) => (
+                                                <View key={`int-${i}`} style={{ backgroundColor: '#fff', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#eee' }}>
+                                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                                                        <Text style={{ fontWeight: 'bold', color: COLORS.text }}>{a.companyName}</Text>
+                                                        <Text style={{ fontSize: 11, color: a.verificationStatus === 'Verified' ? COLORS.success : COLORS.warning }}>{a.verificationStatus}</Text>
+                                                    </View>
+                                                    <Text style={{ fontSize: 12, color: COLORS.textLight, marginTop: 4 }}>{a.role} • {a.duration}</Text>
+                                                </View>
+                                            ))}
+                                        </View>
+                                    )}
+                                </View>
+
+                                <View style={styles.detailSection}>
+                                    <Text style={styles.sectionTitle}>Fee Payment Status</Text>
+                                    {fees.length === 0 ? (
+                                        <Text style={styles.emptyText}>No fee records found.</Text>
+                                    ) : (
+                                        <View style={{ gap: 10 }}>
+                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', backgroundColor: COLORS.primary + '10', padding: 12, borderRadius: 12, marginBottom: 5 }}>
+                                                <View>
+                                                    <Text style={{ fontSize: 11, color: COLORS.textLight }}>TOTAL FEE</Text>
+                                                    <Text style={{ fontSize: 16, fontWeight: 'bold', color: COLORS.primary }}>₹{fees[0].totalFee || 0}</Text>
+                                                </View>
+                                                <View style={{ alignItems: 'flex-end' }}>
+                                                    <Text style={{ fontSize: 11, color: COLORS.textLight }}>BALANCE</Text>
+                                                    <Text style={{ fontSize: 16, fontWeight: 'bold', color: COLORS.error }}>₹{fees[fees.length - 1].remainingBalance || 0}</Text>
+                                                </View>
+                                            </View>
+                                            {fees.map((a, i) => (
+                                                <View key={`fee-${i}`} style={{ backgroundColor: '#fff', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#eee', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                    <View>
+                                                        <Text style={{ fontWeight: 'bold', color: COLORS.text }}>Installment {a.installmentNumber}</Text>
+                                                        <Text style={{ fontSize: 12, color: COLORS.textLight }}>{a.paymentDate || 'No date'}</Text>
+                                                    </View>
+                                                    <View style={{ alignItems: 'flex-end' }}>
+                                                        <Text style={{ fontWeight: 'bold', color: COLORS.success }}>₹{a.amountPaid}</Text>
+                                                        <Text style={{ fontSize: 10, color: COLORS.textLight }}>{a.verificationStatus}</Text>
+                                                    </View>
+                                                </View>
+                                            ))}
+                                        </View>
+                                    )}
                                 </View>
                             </View>
                         )}

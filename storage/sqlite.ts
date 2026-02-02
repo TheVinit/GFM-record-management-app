@@ -269,31 +269,13 @@ export const initDB = async () => {
         prn TEXT,
         email TEXT,
         isProfileComplete INTEGER,
+        password TEXT,
+        first_login INTEGER,
         access_token TEXT,
         refresh_token TEXT,
         updatedAt INTEGER
       );
     `);
-
-      // 2. Users Cache (Cached User Profiles)
-      await db.runAsync(`
-      CREATE TABLE IF NOT EXISTS users(
-        id TEXT PRIMARY KEY,
-        username TEXT,
-        role TEXT,
-        data TEXT,
-        updatedAt INTEGER
-      );
-      `);
-
-      // 3. Attendance Cache
-      await db.runAsync(`
-      CREATE TABLE IF NOT EXISTS attendance_cache(
-        key TEXT PRIMARY KEY,
-        data TEXT,
-        updatedAt INTEGER
-      );
-      `);
 
       // 4. Students Cache
       await db.runAsync(`
@@ -322,12 +304,20 @@ export const initDB = async () => {
       );
       `);
 
+      // Ensure cached_students has roll_no column (migration)
+      try {
+        await db.runAsync(`ALTER TABLE cached_students ADD COLUMN roll_no TEXT;`);
+        console.log('✅ Migrated cached_students: Added roll_no column');
+      } catch (e: any) {
+        if (!e.message?.includes('duplicate column name')) {
+          console.warn('⚠️ Migration (roll_no) notice:', e.message);
+        }
+      }
+
       console.log('✅ SQLite (Cache Layer) initialized successfully');
       dbInitDone = true;
     } catch (error) {
       console.error('❌ SQLite Init Error:', error);
-      // On web, we don't want to block the app if SQLite fails,
-      // as it is only a cache layer.
       if (Platform.OS !== 'web') throw error;
     } finally {
       dbInitInProgress = false;
@@ -797,21 +787,105 @@ export const getFeePaymentsByFilter = async (dept: string, year: string, div: st
         fullName: student.full_name,
         rollNo: student.roll_no,
         yearOfStudy: student.year_of_study,
-        permanentAddress: student.permanent_address,
-        temporaryAddress: student.temporary_address,
-        totalFee: latestPayment.total_fee || 50000,
-        paidAmount: latestPayment.amount_paid || 0,
-        lastBalance: latestPayment.remaining_balance || 50000,
+        branch: student.branch,
+        division: student.division,
+        address: student.permanent_address || student.temporary_address,
+        totalFee: latestPayment.total_fee || 0,
+        amountPaid: payments.reduce((sum: number, p: any) => sum + p.amount_paid, 0),
+        status: latestPayment.verification_status || 'Pending',
+        lastPaymentDate: latestPayment.payment_date,
+        installmentNumber: latestPayment.installment_number || 0,
+        academicYear: latestPayment.academic_year || 'N/A',
+        id: latestPayment.id,
         receiptUri: latestPayment.receipt_uri,
-        verificationStatus: latestPayment.verification_status,
-        paymentDate: latestPayment.payment_date,
-        installmentNumber: latestPayment.installment_number
+        verificationStatus: latestPayment.verification_status
       };
     });
-  } catch (error) {
-    console.error('Error in getFeePaymentsByFilter:', error);
+  } catch (err) {
+    console.error('Error in getFeePaymentsByFilter:', err);
     return [];
   }
+};
+
+export const getAllDocuments = async (prn: string): Promise<any[]> => {
+  const documents: any[] = [];
+
+  try {
+    // 1. Achievements
+    const achievements = await getAchievements(prn);
+    achievements.forEach(a => {
+      if (a.certificateUri) {
+        documents.push({
+          category: 'Achievement',
+          title: a.achievementName,
+          details: a.type,
+          uri: a.certificateUri,
+          date: a.achievementDate
+        });
+      }
+    });
+
+    // 2. Academic Records (Courses with certificates)
+    const academicRecords = await getAcademicRecordsByStudent(prn);
+    academicRecords.forEach(c => {
+      if (c.certificateUri) {
+        documents.push({
+          category: 'Course',
+          title: c.courseName || 'Academic Course',
+          details: c.platform || 'Institutional',
+          uri: c.certificateUri,
+          date: c.completionDate || new Date().toISOString()
+        });
+      }
+    });
+
+    // 3. Activities
+    const activities = await getStudentActivities(prn);
+    activities.forEach(act => {
+      if (act.certificateUri) {
+        documents.push({
+          category: act.type === 'Courses' ? 'Course' : act.type,
+          title: act.activityName,
+          details: act.description || '',
+          uri: act.certificateUri,
+          date: act.activityDate
+        });
+      }
+    });
+
+    // 4. Internships
+    const internships = await getInternships(prn);
+    internships.forEach(i => {
+      if (i.certificateUri) {
+        documents.push({
+          category: 'Internship',
+          title: i.companyName,
+          details: i.role,
+          uri: i.certificateUri,
+          date: i.startDate
+        });
+      }
+    });
+
+    // 5. Fee Receipts
+    const fees = await getFeePayments(prn);
+    fees.forEach(f => {
+      if (f.receiptUri) {
+        documents.push({
+          category: 'Fees',
+          title: `Fee Receipt - Inst ${f.installmentNumber} `,
+          details: `${f.academicYear} - Paid: ₹${f.amountPaid} `,
+          uri: f.receiptUri,
+          date: f.paymentDate
+        });
+      }
+    });
+
+  } catch (e) {
+    console.error('Error crawling documents:', e);
+  }
+
+  return documents.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 };
 
 export const getFeeAnalytics = async (dept: string, year: string, div: string) => {
@@ -917,7 +991,7 @@ export const getAllStudents = async (): Promise<Student[]> => {
   const { data, error } = await supabase
     .from('students')
     .select('*')
-    .order('full_name', { ascending: true });
+    .order('roll_no', { ascending: true });
 
   if (error) return [];
   return data.map(toCamelCase) as Student[];
@@ -1001,8 +1075,8 @@ export const saveFacultyMember = async (prn: string, password: string, fullName?
       id,
       prn,
       role: 'teacher',
-      email: email || `${prn.toLowerCase()}@gfm.com`,
-      full_name: fullName || `Faculty ${prn}`,
+      email: email || `${prn.toLowerCase()} @gfm.com`,
+      full_name: fullName || `Faculty ${prn} `,
       department: department || null,
       password: password
     });
@@ -1018,8 +1092,8 @@ export const saveAttendanceTaker = async (prn: string, password: string, fullNam
       id,
       prn,
       role: 'attendance_taker',
-      email: email || `${prn.toLowerCase()}@at.com`,
-      full_name: fullName || `Taker ${prn}`,
+      email: email || `${prn.toLowerCase()} @at.com`,
+      full_name: fullName || `Taker ${prn} `,
       department: department || null,
       password: password
     });
@@ -1097,7 +1171,7 @@ export const deleteBatchDefinition = async (id: string) => {
 
     if (configError) {
       console.error('❌ Error deleting teacher batch configs:', configError);
-      throw new Error(`Failed to delete teacher assignments: ${configError.message}`);
+      throw new Error(`Failed to delete teacher assignments: ${configError.message} `);
     }
     console.log('✅ Deleted teacher batch configs');
 
@@ -1109,7 +1183,7 @@ export const deleteBatchDefinition = async (id: string) => {
 
     if (batchError) {
       console.error('❌ Error deleting batch definition:', batchError);
-      throw new Error(`Failed to delete batch: ${batchError.message}`);
+      throw new Error(`Failed to delete batch: ${batchError.message} `);
     }
 
     console.log('✅ Batch definition deleted successfully (attendance data is independent and preserved)');
@@ -1333,7 +1407,7 @@ export const getAttendanceRecords = async (sessionId: string) => {
     .select(`
         *,
         students!student_prn(
-    full_name,
+          full_name,
           phone,
           roll_no
         )
@@ -1386,12 +1460,15 @@ export const getStudentsByRbtRange = async (dept: string, year: string, div: str
 
   // Fetch from Supabase
   // We'll fetch all students for the div and filter locally by PRN range for accuracy
+  // We use ilike to handle sub-divisions like A1, A2 matching A
+  const divSearch = div === 'All' ? '%' : (div.length > 1 ? div : `${div}%`);
+
   const { data, error } = await supabase
     .from('students')
     .select('*')
     .eq('branch', dept)
     .eq('year_of_study', year)
-    .eq('division', div)
+    .ilike('division', divSearch)
     .order('prn', { ascending: true });
 
   if (error) throw error;

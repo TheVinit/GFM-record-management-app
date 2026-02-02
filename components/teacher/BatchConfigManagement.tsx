@@ -162,7 +162,7 @@ export const BatchConfigManagement = ({ loadData, yearsOfStudy }: { loadData: ()
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <View>
                     <Text style={styles.moduleTitle}>My Batch Details</Text>
-                    <Text style={[styles.helperText, { marginTop: 5 }]}>Configure your assigned Roll No range for attendance.</Text>
+                    <Text style={[styles.helperText, { marginTop: 5 }]}>Configure your assigned student roll number range for attendance.</Text>
                 </View>
                 <View style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, backgroundColor: getStatusColor(config?.status) + '20', borderWidth: 1, borderColor: getStatusColor(config?.status) }}>
                     <Text style={{ color: getStatusColor(config?.status), fontWeight: 'bold', fontSize: 12 }}>
@@ -234,7 +234,7 @@ export const BatchConfigManagement = ({ loadData, yearsOfStudy }: { loadData: ()
 
                 <View style={[styles.row, { marginTop: 15 }]}>
                     <View style={{ flex: 1 }}>
-                        <Text style={styles.filterLabel}>Roll No Range From</Text>
+                        <Text style={styles.filterLabel}>Roll No From</Text>
                         <TextInput
                             style={styles.input}
                             placeholder="e.g. CS2401"
@@ -243,7 +243,7 @@ export const BatchConfigManagement = ({ loadData, yearsOfStudy }: { loadData: ()
                         />
                     </View>
                     <View style={{ flex: 1 }}>
-                        <Text style={styles.filterLabel}>Roll No Range To</Text>
+                        <Text style={styles.filterLabel}>Roll No To</Text>
                         <TextInput
                             style={styles.input}
                             placeholder="e.g. CS2420"

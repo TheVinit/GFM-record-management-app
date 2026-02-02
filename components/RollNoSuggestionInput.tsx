@@ -3,12 +3,12 @@ import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native
 import { COLORS } from '../constants/colors';
 import { BRANCH_MAPPINGS, YEAR_MAPPINGS } from '../constants/Mappings';
 
-interface RBTSuggestion {
+interface RollNoSuggestion {
     value: string;
     label: string;
 }
 
-interface RBTSuggestionInputProps {
+interface RollNoSuggestionInputProps {
     department?: string;
     year?: string;
     division?: string;
@@ -18,23 +18,22 @@ interface RBTSuggestionInputProps {
 }
 
 /**
- * Smart RBT Suggestion Component
- * Generates RBT suggestions based on department, year, and division filters
+ * Smart Roll No Suggestion Component
+ * Generates Roll No suggestions based on department, year, and division filters
  * 
  * Format Examples:
- * - RBT24CS (Computer Science, Second Year)
- * - RBT34ME (Mechanical Engineering, Third Year)
- * - RBTL2CS (Diploma Second Year Computer Science)
+ * - CS2401 (Computer Science, Year 2024, Roll 01)
+ * - ME2401 (Mechanical Engineering, Year 2024, Roll 01)
  */
-export const RBTSuggestionInput: React.FC<RBTSuggestionInputProps> = ({
+export const RollNoSuggestionInput: React.FC<RollNoSuggestionInputProps> = ({
     department,
     year,
     division,
     value,
     onSelect,
-    placeholder = 'Enter RBT number...'
+    placeholder = 'Enter Roll number...'
 }) => {
-    const [suggestions, setSuggestions] = useState<RBTSuggestion[]>([]);
+    const [suggestions, setSuggestions] = useState<RollNoSuggestion[]>([]);
     const [showSuggestions, setShowSuggestions] = useState(false);
 
     useEffect(() => {
@@ -47,55 +46,18 @@ export const RBTSuggestionInput: React.FC<RBTSuggestionInputProps> = ({
             return;
         }
 
-        const suggestions: RBTSuggestion[] = [];
+        const suggestions: RollNoSuggestion[] = [];
         const deptCode = department;
+        const yearNum = year.match(/\d+/)?.[0] || '24';
+        const baseRoll = `${deptCode}${yearNum}`;
 
-        // Determine if it's diploma or degree based on year
-        const isDiploma = year === 'L1' || year === 'L2' || year === 'L3';
-
-        if (isDiploma) {
-            // Diploma format: RBTL{year}{dept}
-            const yearNum = year.replace('L', '');
-            const baseRBT = `RBTL${yearNum}${deptCode}`;
-
-            if (division) {
-                // With division: RBTL2CS-A
-                suggestions.push({
-                    value: `${baseRBT}-${division}`,
-                    label: `${baseRBT}-${division} (${BRANCH_MAPPINGS[deptCode]} Diploma Year ${yearNum}, Div ${division})`
-                });
-            } else {
-                // Without division, suggest all common divisions
-                ['A', 'B', 'C'].forEach(div => {
-                    suggestions.push({
-                        value: `${baseRBT}-${div}`,
-                        label: `${baseRBT}-${div} (${BRANCH_MAPPINGS[deptCode]} Diploma Year ${yearNum}, Div ${div})`
-                    });
-                });
-            }
-        } else {
-            // Degree format: RBT{year}{dept}
-            const yearNum = year.replace('Y', '');
-            const baseRBT = `RBT${yearNum}${deptCode}`;
-
-            if (division) {
-                // With division: RBT24CS-A
-                suggestions.push({
-                    value: `${baseRBT}-${division}`,
-                    label: `${baseRBT}-${division} (${BRANCH_MAPPINGS[deptCode]} ${YEAR_MAPPINGS[year]}, Div ${division})`
-                });
-            } else {
-                // Without division, suggest all common divisions
-                ['A', 'B', 'C'].forEach(div => {
-                    suggestions.push({
-                        value: `${baseRBT}-${div}`,
-                        label: `${baseRBT}-${div} (${BRANCH_MAPPINGS[deptCode]} ${YEAR_MAPPINGS[year]}, Div ${div})`
-                    });
-                });
-            }
+        if (division) {
+            suggestions.push({
+                value: `${baseRoll}${division}`,
+                label: `${baseRoll}${division} (${BRANCH_MAPPINGS[deptCode]} ${YEAR_MAPPINGS[year]}, Div ${division})`
+            });
         }
 
-        // Filter suggestions based on current input
         const filtered = value
             ? suggestions.filter(s => s.value.toLowerCase().includes(value.toLowerCase()))
             : suggestions;
@@ -104,7 +66,7 @@ export const RBTSuggestionInput: React.FC<RBTSuggestionInputProps> = ({
         setShowSuggestions(filtered.length > 0 && value.length > 0);
     };
 
-    const handleSelectSuggestion = (suggestion: RBTSuggestion) => {
+    const handleSelectSuggestion = (suggestion: RollNoSuggestion) => {
         onSelect(suggestion.value);
         setShowSuggestions(false);
     };
@@ -113,7 +75,7 @@ export const RBTSuggestionInput: React.FC<RBTSuggestionInputProps> = ({
         <View style={styles.container}>
             {showSuggestions && suggestions.length > 0 && (
                 <View style={styles.suggestionsContainer}>
-                    <Text style={styles.suggestionsHeader}>Suggested RBT Numbers:</Text>
+                    <Text style={styles.suggestionsHeader}>Suggested Roll Numbers:</Text>
                     <FlatList
                         data={suggestions}
                         keyExtractor={(item) => item.value}

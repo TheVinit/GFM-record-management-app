@@ -1,5 +1,4 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Picker } from '@react-native-picker/picker'; // Original used Picker
 import { useEffect, useState } from 'react';
 import { Alert, Platform, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { COLORS } from '../../constants/colors';
@@ -10,8 +9,7 @@ import { styles } from './dashboard.styles';
 export const FeeManagement = ({ students, filters, handleVerify }: any) => {
     const [stats, setStats] = useState<any>(null);
     const [feeData, setFeeData] = useState<any[]>([]);
-    const [feeStatusFilter, setFeeStatusFilter] = useState<'All' | 'Paid' | 'Not Paid / Remaining'>('All');
-    const [yearFilter, setYearFilter] = useState('All');
+    const [activeTab, setActiveTab] = useState<'All' | 'Paid' | 'Pending'>('All');
 
     const isWeb = Platform.OS === 'web';
 
@@ -53,10 +51,11 @@ export const FeeManagement = ({ students, filters, handleVerify }: any) => {
     };
 
     const filteredFeeData = feeData.filter(f => {
-        if (yearFilter !== 'All' && f.yearOfStudy !== yearFilter) return false;
-        if (feeStatusFilter === 'All') return true;
-        if (feeStatusFilter === 'Paid') return (f.lastBalance || 0) <= 0;
-        if (feeStatusFilter === 'Not Paid / Remaining') return (f.lastBalance || 0) > 0;
+        // Year filter is handled by API/loadFeeData via filters.year
+        // Just handle Status tab
+        if (activeTab === 'All') return true;
+        if (activeTab === 'Paid') return (f.lastBalance || 0) <= 0;
+        if (activeTab === 'Pending') return (f.lastBalance || 0) > 0;
         return true;
     });
 
@@ -100,42 +99,41 @@ export const FeeManagement = ({ students, filters, handleVerify }: any) => {
             </View>
 
             <View style={styles.moduleCard}>
-                <View style={styles.moduleHeader}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 15 }}>
+                <View style={[styles.moduleHeader, { flexWrap: 'wrap', gap: 15, alignItems: 'flex-start' }]}>
+                    <View style={{ flex: 1, minWidth: 200 }}>
                         <Text style={styles.moduleTitle}>Fee Management</Text>
-                        <View style={[styles.pickerWrapper, { width: 130 }]}>
-                            <Picker
-                                selectedValue={yearFilter}
-                                onValueChange={setYearFilter}
-                                style={styles.picker}
-                            >
-                                <Picker.Item label="All Years" value="All" />
-                                <Picker.Item label="First Year" value="First Year" />
-                                <Picker.Item label="Second Year" value="Second Year" />
-                                <Picker.Item label="Third Year" value="Third Year" />
-                                <Picker.Item label="Final Year" value="Final Year" />
-                            </Picker>
-                        </View>
-                        <View style={[styles.pickerWrapper, { width: 150 }]}>
-                            <Picker
-                                selectedValue={feeStatusFilter}
-                                onValueChange={setFeeStatusFilter}
-                                style={styles.picker}
-                            >
-                                <Picker.Item label="All Status" value="All" />
-                                <Picker.Item label="Paid" value="Paid" />
-                                <Picker.Item label="Not Paid" value="Not Paid / Remaining" />
-                            </Picker>
+                        <View style={{ flexDirection: 'row', marginTop: 10, gap: 10, flexWrap: 'wrap' }}>
+                            {['All', 'Paid', 'Pending'].map((tab) => (
+                                <TouchableOpacity
+                                    key={tab}
+                                    style={{
+                                        paddingHorizontal: 16,
+                                        paddingVertical: 6,
+                                        borderRadius: 20,
+                                        backgroundColor: activeTab === tab ? COLORS.primary : COLORS.background,
+                                        borderWidth: 1,
+                                        borderColor: activeTab === tab ? COLORS.primary : COLORS.border
+                                    }}
+                                    onPress={() => setActiveTab(tab as any)}
+                                >
+                                    <Text style={{
+                                        color: activeTab === tab ? '#fff' : COLORS.text,
+                                        fontWeight: '600',
+                                        fontSize: 12
+                                    }}>{tab}</Text>
+                                </TouchableOpacity>
+                            ))}
                         </View>
                     </View>
-                    <View style={{ flexDirection: 'row', gap: 10 }}>
-                        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: COLORS.success }]} onPress={() => exportFeeCSV(false)}>
-                            <Ionicons name="download-outline" size={20} color="#fff" />
-                            <Text style={styles.actionBtnText}>Export All CSV</Text>
+
+                    <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap', marginTop: isWeb ? 0 : 5 }}>
+                        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: COLORS.success, paddingHorizontal: 12 }]} onPress={() => exportFeeCSV(false)}>
+                            <Ionicons name="download-outline" size={18} color="#fff" />
+                            <Text style={[styles.actionBtnText, { fontSize: 12 }]}>Report</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: COLORS.error }]} onPress={() => exportFeeCSV(true)}>
-                            <Ionicons name="warning-outline" size={20} color="#fff" />
-                            <Text style={styles.actionBtnText}>Defaulters CSV</Text>
+                        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: COLORS.error, paddingHorizontal: 12 }]} onPress={() => exportFeeCSV(true)}>
+                            <Ionicons name="warning-outline" size={18} color="#fff" />
+                            <Text style={[styles.actionBtnText, { fontSize: 12 }]}>Defaulters</Text>
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -152,34 +150,38 @@ export const FeeManagement = ({ students, filters, handleVerify }: any) => {
                             <Text style={[styles.tableCell, { width: 80 }]}>Status</Text>
                             <Text style={[styles.tableCell, { width: 120 }]}>Actions</Text>
                         </View>
-                        {filteredFeeData.map((f: any) => (
-                            <View key={f.prn} style={styles.tableRow}>
-                                <Text style={[styles.tableCell, { width: 80 }]}>{f.rollNo || '-'}</Text>
-                                <Text style={[styles.tableCell, { width: 100 }]}>{f.prn}</Text>
-                                <Text style={[styles.tableCell, { width: 150 }]}>{f.fullName}</Text>
-                                <Text style={[styles.tableCell, { width: 80 }]}>{getFullYearName(f.yearOfStudy)}</Text>
-                                <Text style={[styles.tableCell, { width: 80 }]}>₹{f.totalFee || 0}</Text>
-                                <Text style={[styles.tableCell, { width: 80, color: COLORS.success }]}>₹{f.paidAmount || 0}</Text>
-                                <Text style={[styles.tableCell, { width: 80, color: (f.lastBalance || 0) > 0 ? COLORS.error : COLORS.success }]}>₹{f.lastBalance || 0}</Text>
-                                <Text style={[styles.tableCell, { width: 80, color: (f.lastBalance || 0) > 0 ? COLORS.warning : COLORS.success }]}>
-                                    {(f.lastBalance || 0) > 0 ? (f.paidAmount > 0 ? 'Remaining' : 'Not Paid') : (f.totalFee > 0 ? 'Paid' : 'Not Paid')}
-                                </Text>
-                                <View style={{ width: 120, flexDirection: 'row', gap: 5, alignItems: 'center' }}>
-                                    {f.receiptUri && (
-                                        <TouchableOpacity onPress={() => Alert.alert('Receipt', 'Viewing receipt: ' + f.receiptUri)}>
-                                            <Ionicons name="receipt-outline" size={20} color={COLORS.secondary} />
-                                        </TouchableOpacity>
-                                    )}
-                                    {f.verificationStatus !== 'Verified' ? (
-                                        <TouchableOpacity onPress={() => handleVerify('fee_payments', f.id, 'Verified')}>
-                                            <Ionicons name="checkmark-circle-outline" size={20} color={COLORS.success} />
-                                        </TouchableOpacity>
-                                    ) : (
-                                        <Ionicons name="checkmark-done-circle" size={20} color={COLORS.success} />
-                                    )}
+                        {filteredFeeData.length === 0 ? (
+                            <Text style={{ padding: 20, color: COLORS.textSecondary, textAlign: 'center' }}>No fee records found for current filter.</Text>
+                        ) : (
+                            filteredFeeData.map((f: any) => (
+                                <View key={f.prn} style={styles.tableRow}>
+                                    <Text style={[styles.tableCell, { width: 80 }]}>{f.rollNo || '-'}</Text>
+                                    <Text style={[styles.tableCell, { width: 100 }]}>{f.prn}</Text>
+                                    <Text style={[styles.tableCell, { width: 150 }]}>{f.fullName}</Text>
+                                    <Text style={[styles.tableCell, { width: 80 }]}>{getFullYearName(f.yearOfStudy)}</Text>
+                                    <Text style={[styles.tableCell, { width: 80 }]}>₹{f.totalFee || 0}</Text>
+                                    <Text style={[styles.tableCell, { width: 80, color: COLORS.success }]}>₹{f.paidAmount || 0}</Text>
+                                    <Text style={[styles.tableCell, { width: 80, color: (f.lastBalance || 0) > 0 ? COLORS.error : COLORS.success }]}>₹{f.lastBalance || 0}</Text>
+                                    <Text style={[styles.tableCell, { width: 80, color: (f.lastBalance || 0) > 0 ? COLORS.warning : COLORS.success }]}>
+                                        {(f.lastBalance || 0) > 0 ? (f.paidAmount > 0 ? 'Remaining' : 'Not Paid') : (f.totalFee > 0 ? 'Paid' : 'Not Paid')}
+                                    </Text>
+                                    <View style={{ width: 120, flexDirection: 'row', gap: 5, alignItems: 'center' }}>
+                                        {f.receiptUri && (
+                                            <TouchableOpacity onPress={() => Alert.alert('Receipt', 'Viewing receipt: ' + f.receiptUri)}>
+                                                <Ionicons name="receipt-outline" size={20} color={COLORS.secondary} />
+                                            </TouchableOpacity>
+                                        )}
+                                        {f.verificationStatus !== 'Verified' ? (
+                                            <TouchableOpacity onPress={() => handleVerify('fee_payments', f.id, 'Verified')}>
+                                                <Ionicons name="checkmark-circle-outline" size={20} color={COLORS.success} />
+                                            </TouchableOpacity>
+                                        ) : (
+                                            <Ionicons name="checkmark-done-circle" size={20} color={COLORS.success} />
+                                        )}
+                                    </View>
                                 </View>
-                            </View>
-                        ))}
+                            ))
+                        )}
                     </View>
                 </ScrollView>
             </View>
