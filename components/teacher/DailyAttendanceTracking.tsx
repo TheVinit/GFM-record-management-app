@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
@@ -29,6 +30,7 @@ export const DailyAttendanceTracking = () => {
     const [selectedDiv, setSelectedDiv] = useState<string | null>(null);
     const [historyType, setHistoryType] = useState<'daily' | 'weekly' | 'monthly'>('daily');
     const [showFilters, setShowFilters] = useState(false);
+    const [showDatePicker, setShowDatePicker] = useState(false); // Added state for date picker
     const [selectedSessionForDetails, setSelectedSessionForDetails] = useState<any>(null);
 
     useEffect(() => {
@@ -76,7 +78,6 @@ export const DailyAttendanceTracking = () => {
 
                 if (absentError) {
                     console.error('❌ [Tracking] Error fetching absent records:', absentError);
-                    // Don't throw, just use empty records to keep sessions visible
                     absentRecords = [];
                 } else {
                     absentRecords = absents || [];
@@ -122,7 +123,6 @@ export const DailyAttendanceTracking = () => {
 
     const defaulters = getDefaulters();
     const { sessions, batchConfigs, absentRecords } = data;
-
 
     let filteredBatches = batchConfigs;
     let filteredSessions = sessions;
@@ -250,6 +250,7 @@ export const DailyAttendanceTracking = () => {
                         <Text style={styles.webSectionLabel}>DETAILED LOGS</Text>
                         <View style={styles.webTableCard}>
                             <View style={styles.webTableHeader}>
+                                <Text style={[styles.webTableCell, { flex: 1, fontWeight: 'bold' }]}>Date</Text>
                                 <Text style={[styles.webTableCell, { flex: 1.5, fontWeight: 'bold' }]}>Batch/Class</Text>
                                 <Text style={[styles.webTableCell, { flex: 1, fontWeight: 'bold' }]}>Status</Text>
                                 <Text style={[styles.webTableCell, { flex: 1.5, fontWeight: 'bold' }]}>GFM/Teacher</Text>
@@ -257,41 +258,57 @@ export const DailyAttendanceTracking = () => {
                             </View>
                             {pendingBatches.map((b: any) => (
                                 <View key={b.id} style={styles.webTableRow}>
+                                    <Text style={[styles.webTableCell, { flex: 1, fontSize: 12 }]}>{selectedDate}</Text>
                                     <View style={[styles.webTableCell, { flex: 1.5 }]}>
                                         <Text style={{ fontWeight: 'bold' }}>{b.class} {b.division}</Text>
                                         <Text style={{ fontSize: 11, color: COLORS.textLight }}>Batch {b.batchName || 'ALL'}</Text>
                                     </View>
                                     <View style={[styles.webTableCell, { flex: 1 }]}>
-                                        <View style={{ backgroundColor: COLORS.warning + '20', padding: 4, borderRadius: 4, alignSelf: 'flex-start' }}>
-                                            <Text style={{ fontSize: 10, color: COLORS.warning, fontWeight: 'bold' }}>PENDING</Text>
+                                        <View style={{ backgroundColor: COLORS.error + '15', padding: 4, borderRadius: 4, alignSelf: 'flex-start' }}>
+                                            <Text style={{ fontSize: 10, color: COLORS.error, fontWeight: 'bold' }}>PENDING</Text>
                                         </View>
                                     </View>
                                     <Text style={[styles.webTableCell, { flex: 1.5, fontSize: 12 }]}>{b.teacherName}</Text>
-                                    <Text style={[styles.webTableCell, { flex: 1, color: COLORS.textLight }]}>-</Text>
+                                    <Text style={[styles.webTableCell, { flex: 1, color: COLORS.textLight, fontSize: 11 }]}>Not Taken</Text>
                                 </View>
                             ))}
-                            {filteredSessions.map((s: any) => (
-                                <View key={s.id} style={styles.webTableRow}>
-                                    <View style={[styles.webTableCell, { flex: 1.5 }]}>
-                                        <Text style={{ fontWeight: 'bold' }}>{s.academicYear} {s.division}</Text>
-                                        <Text style={{ fontSize: 11, color: COLORS.textLight }}>Batch {s.batch || 'ALL'}</Text>
-                                    </View>
-                                    <View style={[styles.webTableCell, { flex: 1 }]}>
-                                        <View style={{ backgroundColor: COLORS.success + '20', padding: 4, borderRadius: 4, alignSelf: 'flex-start' }}>
-                                            <Text style={{ fontSize: 10, color: COLORS.success, fontWeight: 'bold' }}>FILED</Text>
+                            {filteredSessions.map((s: any) => {
+                                const absents = absentRecords.filter((r: any) => r.sessionId === s.id);
+                                return (
+                                    <View key={s.id} style={{ borderBottomWidth: 1, borderBottomColor: '#F0F2F5' }}>
+                                        <View style={styles.webTableRow}>
+                                            <Text style={[styles.webTableCell, { flex: 1, fontSize: 12 }]}>{s.date}</Text>
+                                            <View style={[styles.webTableCell, { flex: 1.5 }]}>
+                                                <Text style={{ fontWeight: 'bold' }}>{s.academicYear} {s.division}</Text>
+                                                <Text style={{ fontSize: 11, color: COLORS.textLight }}>Batch {s.batch || 'ALL'}</Text>
+                                            </View>
+                                            <View style={[styles.webTableCell, { flex: 1 }]}>
+                                                <View style={{ backgroundColor: COLORS.success + '20', padding: 4, borderRadius: 4, alignSelf: 'flex-start' }}>
+                                                    <Text style={{ fontSize: 10, color: COLORS.success, fontWeight: 'bold' }}>FILED</Text>
+                                                </View>
+                                            </View>
+                                            <Text style={[styles.webTableCell, { flex: 1.5, fontSize: 12 }]}>{s.teacherName}</Text>
+                                            <View style={[styles.webTableCell, { flex: 1 }]}>
+                                                <Text style={{ fontWeight: 'bold', color: COLORS.error }}>
+                                                    {absents.length}
+                                                </Text>
+                                            </View>
                                         </View>
+                                        {absents.length > 0 && (
+                                            <View style={{ padding: 15, paddingTop: 0, paddingLeft: 60 }}>
+                                                <Text style={{ fontSize: 11, color: COLORS.textLight, marginBottom: 5 }}>Absentees:</Text>
+                                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                                                    {absents.map((r: any, idx: number) => (
+                                                        <View key={idx} style={{ backgroundColor: COLORS.error + '10', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 }}>
+                                                            <Text style={{ fontSize: 10, color: COLORS.error, fontWeight: '600' }}>{r.studentName}</Text>
+                                                        </View>
+                                                    ))}
+                                                </View>
+                                            </View>
+                                        )}
                                     </View>
-                                    <Text style={[styles.webTableCell, { flex: 1.5, fontSize: 12 }]}>{s.teacherName}</Text>
-                                    <TouchableOpacity
-                                        style={[styles.webTableCell, { flex: 1 }]}
-                                        onPress={() => setSelectedSessionForDetails(s)}
-                                    >
-                                        <Text style={{ fontWeight: 'bold', color: COLORS.error, textDecorationLine: 'underline' }}>
-                                            {absentRecords.filter((r: any) => r.sessionId === s.id).length}
-                                        </Text>
-                                    </TouchableOpacity>
-                                </View>
-                            ))}
+                                );
+                            })}
                         </View>
                     </View>
                 </View>
@@ -340,15 +357,24 @@ export const DailyAttendanceTracking = () => {
                     <Text style={styles.listSectionTitle}>Operational Status</Text>
                     {pendingBatches.map((b: any) => (
                         <View key={b.id} style={styles.premiumCard}>
-                            <View style={[styles.cardTag, { backgroundColor: COLORS.warning }]} />
+                            <View style={[styles.cardTag, { backgroundColor: COLORS.error }]} />
                             <View style={styles.cardContent}>
                                 <View style={styles.cardHeader}>
-                                    <Text style={styles.cardTitle}>{b.class} - {b.division}</Text>
-                                    <View style={[styles.statusBadge, { backgroundColor: COLORS.warning + '15' }]}>
-                                        <Text style={[styles.statusText, { color: COLORS.warning }]}>PENDING</Text>
+                                    <View>
+                                        <Text style={styles.cardTitle}>{b.class} - {b.division}</Text>
+                                        <Text style={{ fontSize: 10, color: COLORS.textLight }}>{selectedDate}</Text>
+                                    </View>
+                                    <View style={[styles.statusBadge, { backgroundColor: COLORS.error + '15' }]}>
+                                        <Text style={[styles.statusText, { color: COLORS.error }]}>PENDING</Text>
                                     </View>
                                 </View>
                                 <Text style={styles.cardGfm}>GFM: {b.teacherName}</Text>
+
+                                <View style={{ marginVertical: 8, padding: 8, backgroundColor: COLORS.error + '05', borderRadius: 8 }}>
+                                    <Text style={{ fontSize: 11, fontWeight: 'bold', color: COLORS.error }}>Absentees: Not Taken</Text>
+                                    <Text style={{ fontSize: 10, color: COLORS.textLight }}>Attendance not yet filed by GFM</Text>
+                                </View>
+
                                 <View style={styles.cardFooter}>
                                     <View style={styles.batchLabel}>
                                         <Text style={styles.batchLabelText}>Batch {b.batchName || 'ALL'}</Text>
@@ -362,37 +388,47 @@ export const DailyAttendanceTracking = () => {
                         </View>
                     ))}
 
-                    {filteredSessions.map((s: any) => (
-                        <View key={s.id} style={styles.premiumCard}>
-                            <View style={[styles.cardTag, { backgroundColor: COLORS.success }]} />
-                            <View style={styles.cardContent}>
-                                <View style={styles.cardHeader}>
-                                    <Text style={styles.cardTitle}>{s.academicYear} - {s.division}</Text>
-                                    <View style={[styles.statusBadge, { backgroundColor: COLORS.success + '15' }]}>
-                                        <Text style={[styles.statusText, { color: COLORS.success }]}>FILED</Text>
+                    {filteredSessions.map((s: any) => {
+                        const absents = absentRecords.filter((r: any) => r.sessionId === s.id);
+                        return (
+                            <View key={s.id} style={styles.premiumCard}>
+                                <View style={[styles.cardTag, { backgroundColor: COLORS.success }]} />
+                                <View style={[styles.cardContent, { paddingBottom: 10 }]}>
+                                    <View style={styles.cardHeader}>
+                                        <View>
+                                            <Text style={styles.cardTitle}>{s.academicYear} - {s.division}</Text>
+                                            <Text style={{ fontSize: 10, color: COLORS.textLight }}>{s.date}</Text>
+                                        </View>
+                                        <View style={[styles.statusBadge, { backgroundColor: COLORS.success + '15' }]}>
+                                            <Text style={[styles.statusText, { color: COLORS.success }]}>FILED</Text>
+                                        </View>
                                     </View>
-                                </View>
-                                <Text style={styles.cardGfm}>Taken by: {s.teacherName}</Text>
-                                <View style={styles.cardFooter}>
-                                    <TouchableOpacity
-                                        style={styles.absentIndicatorContainer}
-                                        onPress={() => setSelectedSessionForDetails(s)}
-                                    >
-                                        <Text style={styles.absentIndicator}>
-                                            {absentRecords.filter((r: any) => r.sessionId === s.id).length} Absentees
-                                        </Text>
-                                        <Ionicons name="chevron-forward" size={14} color={COLORS.error} />
-                                    </TouchableOpacity>
-                                    <View style={styles.timeInfo}>
-                                        <Ionicons name="time-outline" size={14} color={COLORS.textLight} />
-                                        <Text style={styles.cardRange}>
-                                            {new Date(s.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                        </Text>
+                                    <Text style={styles.cardGfm}>Taken by: {s.teacherName}</Text>
+
+                                    {absents.length > 0 && (
+                                        <View style={{ marginVertical: 8, padding: 8, backgroundColor: COLORS.error + '05', borderRadius: 8 }}>
+                                            <Text style={{ fontSize: 11, fontWeight: 'bold', color: COLORS.error, marginBottom: 4 }}>Absentees ({absents.length})</Text>
+                                            <Text style={{ fontSize: 12, color: COLORS.textSecondary }}>
+                                                {absents.map(r => r.studentName).join(', ')}
+                                            </Text>
+                                        </View>
+                                    )}
+
+                                    <View style={styles.cardFooter}>
+                                        <View style={styles.batchLabel}>
+                                            <Text style={styles.batchLabelText}>Batch {s.batch || 'ALL'}</Text>
+                                        </View>
+                                        <View style={styles.timeInfo}>
+                                            <Ionicons name="time-outline" size={14} color={COLORS.textLight} />
+                                            <Text style={styles.cardRange}>
+                                                {new Date(s.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </Text>
+                                        </View>
                                     </View>
                                 </View>
                             </View>
-                        </View>
-                    ))}
+                        );
+                    })}
                 </View>
             </>
         )
@@ -415,6 +451,72 @@ export const DailyAttendanceTracking = () => {
                             <TouchableOpacity onPress={() => setShowFilters(false)}>
                                 <Ionicons name="close" size={24} color={COLORS.text} />
                             </TouchableOpacity>
+                        </View>
+
+                        <Text style={styles.modalLabel}>Monitoring Date</Text>
+                        <View style={{ marginBottom: 20 }}>
+                            {isWeb ? (
+                                <View>
+                                    <Text style={{ fontSize: 11, fontWeight: '700', color: COLORS.textLight, marginBottom: 8, textTransform: 'uppercase' }}>Jump to Date</Text>
+                                    <input
+                                        type="date"
+                                        value={selectedDate}
+                                        onChange={(e) => setSelectedDate(e.target.value)}
+                                        style={{
+                                            backgroundColor: '#f8fafc',
+                                            borderRadius: 12,
+                                            padding: '0 15px',
+                                            height: '54px',
+                                            border: '1px solid #E2E8F0',
+                                            width: '100%',
+                                            fontFamily: 'inherit',
+                                            fontSize: '14px',
+                                            outline: 'none',
+                                            color: '#1E293B',
+                                            boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                                        }}
+                                    />
+                                </View>
+                            ) : (
+                                <>
+                                    <Text style={{ fontSize: 11, fontWeight: '700', color: COLORS.textLight, marginBottom: 8, textTransform: 'uppercase' }}>Select Target Date</Text>
+                                    <TouchableOpacity
+                                        style={{
+                                            backgroundColor: '#f8fafc',
+                                            borderRadius: 12,
+                                            height: 54,
+                                            paddingHorizontal: 15,
+                                            borderWidth: 1,
+                                            borderColor: '#E2E8F0',
+                                            flexDirection: 'row',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                            shadowColor: "#000",
+                                            shadowOffset: { width: 0, height: 2 },
+                                            shadowOpacity: 0.02,
+                                            shadowRadius: 4,
+                                            elevation: 2
+                                        }}
+                                        onPress={() => setShowDatePicker(true)}
+                                    >
+                                        <Text style={{ color: COLORS.text, fontWeight: '600' }}>{selectedDate}</Text>
+                                        <Ionicons name="calendar-outline" size={18} color={COLORS.primary} />
+                                    </TouchableOpacity>
+                                    {showDatePicker && (
+                                        <DateTimePicker
+                                            value={new Date(selectedDate)}
+                                            mode="date"
+                                            display="default"
+                                            onChange={(event: any, date?: Date) => {
+                                                setShowDatePicker(false);
+                                                if (date) {
+                                                    setSelectedDate(date.toISOString().split('T')[0]);
+                                                }
+                                            }}
+                                        />
+                                    )}
+                                </>
+                            )}
                         </View>
 
                         <Text style={styles.modalLabel}>Academic Year</Text>
@@ -564,7 +666,7 @@ const styles = StyleSheet.create({
     },
     webTitle: { fontSize: 24, fontWeight: '800', color: COLORS.text, letterSpacing: -0.5 },
     webSubtitle: { fontSize: 14, color: COLORS.textLight, marginTop: 4 },
-    webControls: { flexDirection: 'row', gap: 15, alignItems: 'center' },
+    webControls: { flexDirection: 'row', gap: 25, alignItems: 'center' },
     webTabGroup: { flexDirection: 'row', backgroundColor: '#F0F2F5', padding: 4, borderRadius: 12 },
     webTab: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 10 },
     webTabActive: { backgroundColor: '#fff', elevation: 2, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 4 },
@@ -679,7 +781,7 @@ const styles = StyleSheet.create({
     modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 25 },
     modalTitle: { fontSize: 20, fontWeight: 'bold', color: COLORS.text },
     modalLabel: { fontSize: 13, fontWeight: 'bold', color: COLORS.textLight, marginBottom: 15 },
-    chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 25 },
+    chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 25 },
     chip: { paddingHorizontal: 15, paddingVertical: 10, borderRadius: 12, backgroundColor: '#F5F6FA', borderWidth: 1, borderColor: '#EDF0F5' },
     chipActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
     chipText: { fontSize: 13, color: COLORS.text, fontWeight: '600' },

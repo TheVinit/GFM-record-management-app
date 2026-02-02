@@ -184,7 +184,7 @@ export const AttendanceManagement = ({
                 <View>
                     <Text style={styles.moduleTitle}>Attendance Taker</Text>
                     <Text style={styles.helperText}>
-                        {(batchConfig?.class || filters.year)} {(batchConfig?.division || filters.div)} | {students.length} Students
+                        Division {(batchConfig?.division || filters.div)} • {students.length} Students
                     </Text>
                 </View>
                 {session?.locked ? (

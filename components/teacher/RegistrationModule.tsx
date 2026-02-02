@@ -33,6 +33,7 @@ export const RegistrationModule = () => {
         fullName: '',
         rollNo: '',
         email: '',
+        phone: '', // Added phone
         branch: 'CSE',
         yearOfStudy: 'FE',
         division: 'A'
@@ -64,8 +65,12 @@ export const RegistrationModule = () => {
     };
 
     const handleAddStudent = async () => {
-        if (!newStudent.prn || !newStudent.fullName || !newStudent.email || !newStudent.rollNo) {
-            Alert.alert('Error', 'Please enter Roll No, PRN, Full Name and Email');
+        if (!newStudent.prn || !newStudent.fullName || !newStudent.email || !newStudent.rollNo || !newStudent.phone) {
+            Alert.alert('Error', 'Please enter all required fields (Roll No, PRN, Name, Email, Phone)');
+            return;
+        }
+        if (newStudent.phone.length !== 10) {
+            Alert.alert('Error', 'Phone number must be exactly 10 digits');
             return;
         }
         try {
@@ -80,7 +85,8 @@ export const RegistrationModule = () => {
                 fullName: '',
                 rollNo: '',
                 email: '',
-                branch: 'Computer Engineering',
+                phone: '', // Added phone
+                branch: 'CSE',
                 yearOfStudy: 'FE',
                 division: 'A'
             });
@@ -187,6 +193,10 @@ export const RegistrationModule = () => {
                         <Ionicons name="mail-outline" size={14} color={COLORS.accent} />
                         <Text style={styles.detailText} numberOfLines={1}>{item.email}</Text>
                     </View>
+                    <View style={styles.detailItem}>
+                        <Ionicons name="call-outline" size={14} color="#10B981" />
+                        <Text style={styles.detailText}>{item.phone || 'No Phone'}</Text>
+                    </View>
                 </View>
             </View>
         </View>
@@ -260,6 +270,7 @@ export const RegistrationModule = () => {
                         <TextInput
                             style={styles.input}
                             placeholder="Student's Full Name"
+                            placeholderTextColor="#94A3B8"
                             value={newStudent.fullName}
                             onChangeText={t => setNewStudent({ ...newStudent, fullName: t })}
                         />
@@ -268,10 +279,22 @@ export const RegistrationModule = () => {
                         <TextInput
                             style={styles.input}
                             placeholder="student@email.com"
+                            placeholderTextColor="#94A3B8"
                             value={newStudent.email}
                             onChangeText={t => setNewStudent({ ...newStudent, email: t })}
                             keyboardType="email-address"
                             autoCapitalize="none"
+                        />
+
+                        <Text style={styles.label}>Phone Number *</Text>
+                        <TextInput
+                            style={styles.input}
+                            placeholder="10-digit mobile number"
+                            placeholderTextColor="#94A3B8"
+                            value={newStudent.phone}
+                            onChangeText={t => setNewStudent({ ...newStudent, phone: t.replace(/[^0-9]/g, '') })}
+                            keyboardType="phone-pad"
+                            maxLength={10}
                         />
 
                         <View style={styles.row}>
@@ -280,6 +303,7 @@ export const RegistrationModule = () => {
                                 <TextInput
                                     style={styles.input}
                                     placeholder="e.g. 101"
+                                    placeholderTextColor="#94A3B8"
                                     value={newStudent.rollNo}
                                     onChangeText={t => setNewStudent({ ...newStudent, rollNo: t })}
                                     keyboardType="numeric"
@@ -290,6 +314,7 @@ export const RegistrationModule = () => {
                                 <TextInput
                                     style={styles.input}
                                     placeholder="Unique PRN"
+                                    placeholderTextColor="#94A3B8"
                                     value={newStudent.prn}
                                     onChangeText={t => setNewStudent({ ...newStudent, prn: t })}
                                     autoCapitalize="characters"
@@ -297,26 +322,27 @@ export const RegistrationModule = () => {
                             </View>
                         </View>
 
-                        <View style={styles.row}>
+                        <Text style={styles.label}>Branch</Text>
+                        <View style={styles.pickerContainer}>
+                            <Picker
+                                selectedValue={newStudent.branch}
+                                onValueChange={v => setNewStudent({ ...newStudent, branch: v })}
+                                style={isWeb ? { border: 'none', background: 'transparent' } : {}}
+                            >
+                                {Object.keys(BRANCH_MAPPINGS).map(key => (
+                                    <Picker.Item key={key} label={BRANCH_MAPPINGS[key]} value={key} />
+                                ))}
+                            </Picker>
+                        </View>
+
+                        <View style={[styles.row, { marginTop: 16 }]}>
                             <View style={{ flex: 1 }}>
-                                <Text style={styles.label}>Branch</Text>
-                                <View style={styles.pickerContainer}>
-                                    <Picker
-                                        selectedValue={newStudent.branch}
-                                        onValueChange={v => setNewStudent({ ...newStudent, branch: v })}
-                                    >
-                                        {Object.keys(BRANCH_MAPPINGS).map(key => (
-                                            <Picker.Item key={key} label={BRANCH_MAPPINGS[key]} value={key} />
-                                        ))}
-                                    </Picker>
-                                </View>
-                            </View>
-                            <View style={{ flex: 1, marginLeft: 10 }}>
                                 <Text style={styles.label}>Year</Text>
                                 <View style={styles.pickerContainer}>
                                     <Picker
                                         selectedValue={newStudent.yearOfStudy}
                                         onValueChange={v => setNewStudent({ ...newStudent, yearOfStudy: v })}
+                                        style={isWeb ? { border: 'none', background: 'transparent' } : {}}
                                     >
                                         {Object.keys(YEAR_MAPPINGS).filter(k => k.length === 2).map(year => (
                                             <Picker.Item key={year} label={YEAR_MAPPINGS[year]} value={year} />
@@ -324,18 +350,29 @@ export const RegistrationModule = () => {
                                     </Picker>
                                 </View>
                             </View>
-                        </View>
-
-                        <Text style={styles.label}>Division</Text>
-                        <View style={styles.pickerContainer}>
-                            <Picker
-                                selectedValue={newStudent.division}
-                                onValueChange={v => setNewStudent({ ...newStudent, division: v })}
-                            >
-                                <Picker.Item label="A" value="A" />
-                                <Picker.Item label="B" value="B" />
-                                <Picker.Item label="C" value="C" />
-                            </Picker>
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.label}>Division</Text>
+                                <View style={styles.pickerContainer}>
+                                    <Picker
+                                        selectedValue={newStudent.division}
+                                        onValueChange={v => setNewStudent({ ...newStudent, division: v })}
+                                        style={isWeb ? { border: 'none', background: 'transparent' } : {}}
+                                    >
+                                        <Picker.Item label="A" value="A" />
+                                        <Picker.Item label="A1" value="A1" />
+                                        <Picker.Item label="A2" value="A2" />
+                                        <Picker.Item label="A3" value="A3" />
+                                        <Picker.Item label="B" value="B" />
+                                        <Picker.Item label="B1" value="B1" />
+                                        <Picker.Item label="B2" value="B2" />
+                                        <Picker.Item label="B3" value="B3" />
+                                        <Picker.Item label="C" value="C" />
+                                        <Picker.Item label="C1" value="C1" />
+                                        <Picker.Item label="C2" value="C2" />
+                                        <Picker.Item label="C3" value="C3" />
+                                    </Picker>
+                                </View>
+                            </View>
                         </View>
 
                         <View style={styles.modalButtons}>
@@ -455,10 +492,43 @@ const styles = StyleSheet.create({
     modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, paddingBottom: 40 },
     modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
     modalTitle: { fontSize: 22, fontWeight: 'bold', color: COLORS.text },
-    label: { fontSize: 12, fontWeight: '700', color: COLORS.textLight, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
-    input: { backgroundColor: '#F5F6FA', borderRadius: 16, padding: 14, fontSize: 15, marginBottom: 16, borderWidth: 1, borderColor: '#EDF0F5' },
-    row: { flexDirection: 'row', gap: 12, marginBottom: 16 },
-    pickerContainer: { backgroundColor: '#F5F6FA', borderRadius: 16, borderWidth: 1, borderColor: '#EDF0F5', overflow: 'hidden' },
+    label: { fontSize: 13, fontWeight: '700', color: '#64748B', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5, marginLeft: 4 },
+    input: {
+        backgroundColor: '#fff',
+        borderRadius: 16,
+        paddingHorizontal: 16,
+        height: 54, // Fixed height
+        fontSize: 15,
+        marginBottom: 16,
+        borderWidth: 1,
+        borderColor: '#E2E8F0',
+        color: '#1E293B',
+        // Shadow for web/native
+        shadowColor: "#64748B",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 3,
+        elevation: 2,
+    },
+    row: {
+        flexDirection: 'row',
+        gap: 25,
+        marginBottom: 16
+    },
+    pickerContainer: {
+        backgroundColor: '#fff',
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: '#E2E8F0',
+        height: 54, // Matching fixed height
+        justifyContent: 'center',
+        overflow: 'hidden',
+        shadowColor: "#64748B",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 3,
+        elevation: 2,
+    },
     modalButtons: { flexDirection: 'row', gap: 12, marginTop: 10 },
     modalBtn: { flex: 1, paddingVertical: 16, borderRadius: 16, alignItems: 'center' },
     cancelBtn: { backgroundColor: '#F5F6FA' },

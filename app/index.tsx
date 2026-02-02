@@ -49,7 +49,14 @@ export default function Index() {
         else if (user.role === 'attendance_taker') router.replace('/attendance-taker/dashboard');
       }
     } catch (error: any) {
-      Alert.alert('Login Failed', error.message || 'Invalid credentials');
+      const msg = error.message || 'Invalid credentials';
+      if (msg.includes('User not found')) {
+        Alert.alert('Login Failed', 'Incorrect username. Please check your PRN/Email.');
+      } else if (msg.includes('Invalid password')) {
+        Alert.alert('Login Failed', 'Incorrect password. Please try again.');
+      } else {
+        Alert.alert('Login Failed', msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -155,7 +162,7 @@ export default function Index() {
             {/* Forgot Password */}
             <TouchableOpacity
               style={styles.forgotPass}
-              onPress={() => Alert.alert("Forgot Password", "Please contact Admin")}
+              onPress={() => router.push('/forgot-password')}
             >
               <Text style={styles.forgotText}>Forgot Password?</Text>
             </TouchableOpacity>

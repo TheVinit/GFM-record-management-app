@@ -1,11 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Dimensions, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { PieChart } from 'react-native-chart-kit';
 import { COLORS } from '../../constants/colors';
 import { generateDetailedGFMReportCSV, generateTodayAttendanceCSV, saveAndShareCSV } from '../../services/csv.service';
-import { seedMockData } from '../../services/seeder.service';
 import { getAdminAnalytics } from '../../storage/sqlite';
 import { handleViewDocument } from './dashboard.utils';
 
@@ -46,8 +46,14 @@ export const AdminReportsManagement = ({ filters }: any) => {
         dept: filters.dept || 'All',
         year: filters.year || 'All',
         div: filters.div || 'All',
-        date: new Date().toISOString().split('T')[0]
+        date: new Date().toISOString().split('T')[0],
+        startDate: new Date().toISOString().split('T')[0],
+        endDate: '',
+        gfmSearch: ''
     });
+
+    const [showStartPicker, setShowStartPicker] = useState(false);
+    const [showEndPicker, setShowEndPicker] = useState(false);
 
     useEffect(() => {
         setLocalFilters(prev => ({
@@ -179,10 +185,17 @@ export const AdminReportsManagement = ({ filters }: any) => {
 
         let filteredAbsents = stats.absentRecords;
 
-        if (localFilters.date !== 'All') {
-            filteredAbsents = filteredAbsents.filter((r: any) =>
-                new Date(r.createdAt || new Date()).toISOString().split('T')[0] === localFilters.date
-            );
+        if (localFilters.startDate && localFilters.endDate && localFilters.endDate !== localFilters.startDate) {
+            filteredAbsents = filteredAbsents.filter((r: any) => {
+                const rDate = new Date(r.createdAt || new Date()).toISOString().split('T')[0];
+                return rDate >= localFilters.startDate && rDate <= localFilters.endDate;
+            });
+        } else {
+            const targetDate = localFilters.startDate || localFilters.date;
+            filteredAbsents = filteredAbsents.filter((r: any) => {
+                const rDate = new Date(r.createdAt || new Date()).toISOString().split('T')[0];
+                return rDate === targetDate;
+            });
         }
 
         return filteredAbsents.map((absent: any) => {
@@ -235,7 +248,7 @@ export const AdminReportsManagement = ({ filters }: any) => {
                 l.startDate <= localFilters.date && l.endDate >= localFilters.date
             );
 
-            return {
+            const auditItem = {
                 dept: session?.department || '-',
                 year: session?.academicYear || '-',
                 div: session?.division || '-',
@@ -253,6 +266,13 @@ export const AdminReportsManagement = ({ filters }: any) => {
                 isCompliant: !!callLog || !!leave,
                 fullDate: absent.createdAt || new Date().toISOString()
             } as AuditItem;
+
+            // Apply GFM Search filter
+            if (localFilters.gfmSearch && !auditItem.gfmName.toLowerCase().includes(localFilters.gfmSearch.toLowerCase())) {
+                return null;
+            }
+
+            return auditItem;
         }).filter(Boolean).sort((a: any, b: any) => new Date(b.fullDate).getTime() - new Date(a.fullDate).getTime());
     };
 
@@ -284,14 +304,6 @@ export const AdminReportsManagement = ({ filters }: any) => {
             </View>
 
             <View style={styles.actionRow}>
-                <TouchableOpacity style={styles.actionButton} onPress={async () => {
-                    const success = await seedMockData();
-                    if (success) { Alert.alert('Success', 'Mock data seeded! Please refresh.'); loadData(); }
-                    else Alert.alert('Error', 'Seeding failed');
-                }}>
-                    <Ionicons name="construct" size={16} color="white" />
-                    <Text style={styles.actionText}>Seed Data</Text>
-                </TouchableOpacity>
 
                 <TouchableOpacity style={[styles.actionButton, { backgroundColor: COLORS.accent }]} onPress={() => setShowFilterModal(true)}>
                     <Ionicons name="filter" size={16} color="white" />
@@ -367,7 +379,9 @@ export const AdminReportsManagement = ({ filters }: any) => {
                                         </View>
                                     </View>
                                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
-                                        <Text style={styles.auditDate}>{item.prn}</Text>
+                                        <Text style={styles.auditDate}>{item.date}</Text>
+                                        <View style={styles.vDivider} />
+                                        <Text style={styles.auditPrn}>{item.prn}</Text>
                                         <View style={styles.vDivider} />
                                         <Text style={styles.auditGfm}>GFM: {item.gfmName}</Text>
                                     </View>
@@ -403,12 +417,131 @@ export const AdminReportsManagement = ({ filters }: any) => {
                             </TouchableOpacity>
                         </View>
 
-                        <Text style={styles.modalLabel}>Select Date</Text>
+                        <Text style={styles.modalLabel}>View History</Text>
+                        {/* Date Picker Logic */}
+                        {isWeb ? (
+                            <View style={{ flexDirection: 'row', gap: 30, marginBottom: 20 }}>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={{ fontSize: 11, fontWeight: '700', color: COLORS.textLight, marginBottom: 8, textTransform: 'uppercase' }}>Start Date</Text>
+                                    <input
+                                        type="date"
+                                        style={{
+                                            backgroundColor: '#f8fafc',
+                                            borderRadius: 12,
+                                            padding: '0 15px',
+                                            height: '54px',
+                                            border: '1px solid #E2E8F0',
+                                            width: '100%',
+                                            fontFamily: 'inherit',
+                                            fontSize: '14px',
+                                            outline: 'none',
+                                            color: '#1E293B',
+                                            boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                                        }}
+                                        value={localFilters.startDate}
+                                        onChange={(e) => {
+                                            const v = e.target.value;
+                                            setLocalFilters({ ...localFilters, startDate: v, date: v });
+                                        }}
+                                    />
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={{ fontSize: 11, fontWeight: '700', color: COLORS.textLight, marginBottom: 8, textTransform: 'uppercase' }}>End Date</Text>
+                                    <input
+                                        type="date"
+                                        style={{
+                                            backgroundColor: '#f8fafc',
+                                            borderRadius: 12,
+                                            padding: '0 15px',
+                                            height: '54px',
+                                            border: '1px solid #E2E8F0',
+                                            width: '100%',
+                                            fontFamily: 'inherit',
+                                            fontSize: '14px',
+                                            outline: 'none',
+                                            color: '#1E293B',
+                                            boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                                        }}
+                                        value={localFilters.endDate}
+                                        onChange={(e) => setLocalFilters({ ...localFilters, endDate: e.target.value })}
+                                    />
+                                </View>
+                            </View>
+                        ) : (
+                            <>
+                                <View style={{ flexDirection: 'row', gap: 30, marginBottom: 20 }}>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={{ fontSize: 11, fontWeight: '700', color: COLORS.textLight, marginBottom: 8, textTransform: 'uppercase' }}>Start Date</Text>
+                                        <TouchableOpacity
+                                            style={[styles.filterInput, { justifyContent: 'center', height: 54 }]}
+                                            onPress={() => setShowStartPicker(true)}
+                                        >
+                                            <Text style={{ color: localFilters.startDate ? COLORS.text : COLORS.textLight, fontWeight: '600' }}>
+                                                {localFilters.startDate || "Select Date"}
+                                            </Text>
+                                            <Ionicons name="calendar-outline" size={18} color={COLORS.primary} style={{ position: 'absolute', right: 15 }} />
+                                        </TouchableOpacity>
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={{ fontSize: 11, fontWeight: '700', color: COLORS.textLight, marginBottom: 8, textTransform: 'uppercase' }}>End Date</Text>
+                                        <TouchableOpacity
+                                            style={[styles.filterInput, { justifyContent: 'center', height: 54 }]}
+                                            onPress={() => setShowEndPicker(true)}
+                                        >
+                                            <Text style={{ color: localFilters.endDate ? COLORS.text : COLORS.textLight, fontWeight: '600' }}>
+                                                {localFilters.endDate || "Optional"}
+                                            </Text>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', position: 'absolute', right: 15 }}>
+                                                {!!localFilters.endDate && (
+                                                    <TouchableOpacity onPress={(e) => { e.stopPropagation(); setLocalFilters({ ...localFilters, endDate: '' }); }}>
+                                                        <Ionicons name="close-circle" size={16} color={COLORS.error} style={{ marginRight: 5 }} />
+                                                    </TouchableOpacity>
+                                                )}
+                                                <Ionicons name="calendar-outline" size={18} color={COLORS.primary} />
+                                            </View>
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+
+                                {showStartPicker && (
+                                    <DateTimePicker
+                                        value={localFilters.startDate ? new Date(localFilters.startDate) : new Date()}
+                                        mode="date"
+                                        display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                                        onChange={(event: any, selectedDate?: Date) => {
+                                            setShowStartPicker(false);
+                                            if (selectedDate) {
+                                                const d = selectedDate.toISOString().split('T')[0];
+                                                setLocalFilters({ ...localFilters, startDate: d, date: d });
+                                            }
+                                        }}
+                                    />
+                                )}
+
+                                {showEndPicker && (
+                                    <DateTimePicker
+                                        value={localFilters.endDate ? new Date(localFilters.endDate) : new Date()}
+                                        mode="date"
+                                        display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                                        onChange={(event: any, selectedDate?: Date) => {
+                                            setShowEndPicker(false);
+                                            if (selectedDate) {
+                                                const d = selectedDate.toISOString().split('T')[0];
+                                                setLocalFilters({ ...localFilters, endDate: d });
+                                            }
+                                        }}
+                                    />
+                                )}
+                            </>
+                        )}
+
+                        <Text style={[styles.modalLabel, { textTransform: 'uppercase', color: COLORS.primary, letterSpacing: 0.5 }]}>Search GFM</Text>
                         <TextInput
-                            style={styles.filterInput}
-                            value={localFilters.date}
-                            onChangeText={(v) => setLocalFilters({ ...localFilters, date: v })}
-                            placeholder="YYYY-MM-DD"
+                            style={[styles.filterInput, { marginBottom: 25, height: 54 }]}
+                            value={localFilters.gfmSearch}
+                            onChangeText={(v) => setLocalFilters({ ...localFilters, gfmSearch: v })}
+                            placeholder="Type GFM name..."
+                            placeholderTextColor="#94A3B8"
                         />
 
                         <Text style={[styles.modalLabel, { marginTop: 20 }]}>Academic Year</Text>
@@ -492,13 +625,13 @@ const styles = StyleSheet.create({
     modalContent: { backgroundColor: 'white', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 },
     modalHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 },
     modalTitle: { fontSize: 20, fontWeight: 'bold' },
-    modalLabel: { fontSize: 13, fontWeight: 'bold', color: COLORS.textLight, marginBottom: 10 },
-    filterInput: { backgroundColor: '#f5f6fa', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#eee' },
-    chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 },
-    chip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: '#f5f6fa', borderWidth: 1, borderColor: '#eee' },
-    chipActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-    chipText: { fontSize: 12, fontWeight: '600' },
-    chipTextActive: { color: 'white' },
+    modalLabel: { fontSize: 11, fontWeight: '700', color: COLORS.textLight, marginBottom: 8 },
+    filterInput: { backgroundColor: '#f8fafc', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#E2E8F0', height: 54 },
+    chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 25 },
+    chip: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#E2E8F0' },
+    chipActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary, elevation: 3, shadowColor: COLORS.primary, shadowOpacity: 0.3, shadowRadius: 5 },
+    chipText: { fontSize: 13, fontWeight: '600', color: COLORS.textSecondary },
+    chipTextActive: { color: 'white', fontWeight: 'bold' },
     applyBtn: { backgroundColor: COLORS.primary, paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
     applyBtnText: { color: 'white', fontWeight: 'bold' }
 });

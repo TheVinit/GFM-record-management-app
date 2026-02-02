@@ -1,6 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { Picker } from '@react-native-picker/picker';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
@@ -15,7 +14,10 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { COLORS } from '../../constants/colors';
+import { AppHeader } from '../../components/common/AppHeader';
+import { FilterModal } from '../../components/common/FilterModal';
+import { ProfileMenu } from '../../components/common/ProfileMenu';
+import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '../../constants/colors';
 import { DISPLAY_BRANCHES, DISPLAY_YEARS, getFullBranchName, getFullYearName } from '../../constants/Mappings';
 import { clearSession, getSession } from '../../services/session.service';
 import { supabase } from '../../services/supabase';
@@ -67,11 +69,16 @@ export default function AttendanceTakerDashboard() {
   const [selectedSession, setSelectedSession] = useState<AttendanceSession | null>(null);
   const [sessionRecords, setSessionRecords] = useState<any[]>([]);
   const [sessionAllocations, setSessionAllocations] = useState<any[]>([]);
+  const [sessionBatches, setSessionBatches] = useState<any[]>([]);
 
   // Suggestions state
   const [students, setStudents] = useState<any[]>([]);
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [isFocused, setIsFocused] = useState(false);
+
+  // Modal state
+  const [showFilterModal, setShowFilterModal] = useState(false);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
 
   useEffect(() => {
     checkAuth();
@@ -92,7 +99,8 @@ export default function AttendanceTakerDashboard() {
       // First, get all students for the division
       const { data, error } = await supabase
         .from('students')
-        .select('*')
+        // Optimize: Select only necessary fields
+        .select('prn, roll_no, full_name, branch, year_of_study, division')
         .eq('branch', deptFilter)
         .eq('year_of_study', yearFilter)
         .eq('division', divFilter)
@@ -366,6 +374,19 @@ export default function AttendanceTakerDashboard() {
         .eq('division', session.division)
         .eq('academic_year', session.academicYear);
 
+      // 3. Fetch Batch Definitions for Ranges
+      const { data: batches } = await supabase
+        .from('batch_definitions')
+        .select('*')
+        .eq('department', session.department)
+        .eq('class', session.class)
+        .eq('division', session.division);
+
+      if (!error) {
+        setSessionAllocations(allocs || []);
+        setSessionBatches(batches || []);
+      }
+
       if (!error) {
         setSessionAllocations(allocs || []);
       }
@@ -418,30 +439,79 @@ export default function AttendanceTakerDashboard() {
     return diffHours < 24;
   };
 
+  const handleResetFilters = () => {
+    setDeptFilter('Computer Engineering');
+    setYearFilter('Second Year');
+    setDivFilter('A');
+    setSubBatchFilter('');
+  };
+
   const renderHome = () => (
     <View style={styles.homeContainer}>
-      <TouchableOpacity
-        style={styles.mainActionBtn}
-        onPress={() => setViewMode('add')}
-      >
-        <View style={[styles.iconCircle, { backgroundColor: COLORS.primary }]}>
-          <Ionicons name="add" size={40} color="#fff" />
+      <View style={styles.welcomeCard}>
+        <View style={styles.welcomeHeader}>
+          <View>
+            <Text style={styles.welcomeTitle}>Welcome Back</Text>
+            <Text style={styles.welcomeSubtitle}>{userName}</Text>
+          </View>
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>{userName.charAt(0)}</Text>
+          </View>
         </View>
-        <Text style={styles.mainActionText}>Add Attendance Record</Text>
-      </TouchableOpacity>
 
-      <TouchableOpacity
-        style={styles.mainActionBtn}
-        onPress={() => {
-          setViewMode('history');
-          loadHistory(selectedDate);
-        }}
-      >
-        <View style={[styles.iconCircle, { backgroundColor: COLORS.secondary }]}>
-          <Ionicons name="calendar" size={35} color="#fff" />
-        </View>
-        <Text style={styles.mainActionText}>View Records History</Text>
-      </TouchableOpacity>
+        {lastSubmitted && (
+          <View style={styles.statsRow}>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{lastSubmitted.totalCount - lastSubmitted.absentCount}</Text>
+              <Text style={styles.statLabel}>Present</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{lastSubmitted.absentCount}</Text>
+              <Text style={styles.statLabel}>Absent</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>
+                {Math.round(((lastSubmitted.totalCount - lastSubmitted.absentCount) / lastSubmitted.totalCount) * 100)}%
+              </Text>
+              <Text style={styles.statLabel}>Rate</Text>
+            </View>
+          </View>
+        )}
+      </View>
+
+      <Text style={styles.sectionTitle}>Quick Actions</Text>
+
+      <View style={styles.actionGrid}>
+        <TouchableOpacity
+          style={[styles.actionCard, { backgroundColor: COLORS.primary }]}
+          onPress={() => {
+            setViewMode('add');
+            setShowFilterModal(true);
+          }}
+        >
+          <View style={styles.actionIcon}>
+            <Ionicons name="add-circle" size={32} color={COLORS.white} />
+          </View>
+          <Text style={styles.actionTitle}>Take Attendance</Text>
+          <Text style={styles.actionDesc}>Record new attendance for your class</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.actionCard, { backgroundColor: COLORS.secondary }]}
+          onPress={() => {
+            setViewMode('history');
+            loadHistory(selectedDate);
+          }}
+        >
+          <View style={styles.actionIcon}>
+            <Ionicons name="calendar" size={32} color={COLORS.white} />
+          </View>
+          <Text style={styles.actionTitle}>View History</Text>
+          <Text style={styles.actionDesc}>Check past attendance records</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 
@@ -450,6 +520,46 @@ export default function AttendanceTakerDashboard() {
       contentContainerStyle={styles.formContent}
       keyboardShouldPersistTaps="handled"
     >
+      {/* Current Batch Summary */}
+      <View style={styles.batchSummaryCard}>
+        <View style={styles.batchHeader}>
+          <Text style={styles.batchTitle}>Current Batch</Text>
+          <TouchableOpacity
+            style={styles.changeBatchBtn}
+            onPress={() => setShowFilterModal(true)}
+          >
+            <Text style={styles.changeBatchText}>Change</Text>
+            <Ionicons name="chevron-forward" size={16} color={COLORS.primary} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.tagsContainer}>
+          <View style={styles.tag}>
+            <Ionicons name="business" size={14} color={COLORS.textSecondary} />
+            <Text style={styles.tagText}>{deptFilter}</Text>
+          </View>
+          <View style={styles.tag}>
+            <Ionicons name="school" size={14} color={COLORS.textSecondary} />
+            <Text style={styles.tagText}>{yearFilter}</Text>
+          </View>
+          <View style={styles.tag}>
+            <Ionicons name="people" size={14} color={COLORS.textSecondary} />
+            <Text style={styles.tagText}>Div {divFilter}</Text>
+          </View>
+          {subBatchFilter ? (
+            <View style={[styles.tag, styles.activeTag]}>
+              <Ionicons name="layers" size={14} color={COLORS.primary} />
+              <Text style={[styles.tagText, { color: COLORS.primary }]}>Batch {divFilter}{subBatchFilter}</Text>
+            </View>
+          ) : (
+            <View style={styles.tag}>
+              <Ionicons name="layers" size={14} color={COLORS.textSecondary} />
+              <Text style={styles.tagText}>Whole Class</Text>
+            </View>
+          )}
+        </View>
+      </View>
+
       {lastSubmitted && (
         <View style={styles.lastSubmittedCard}>
           <View style={styles.lastSubmittedHeader}>
@@ -469,91 +579,34 @@ export default function AttendanceTakerDashboard() {
       )}
 
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>New Attendance Record</Text>
+        <Text style={styles.cardTitle}>Mark Attendance</Text>
 
-        <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Department</Text>
-          <View style={styles.pickerContainer}>
-            <Picker selectedValue={deptFilter} onValueChange={setDeptFilter} style={styles.picker}>
-              {DISPLAY_BRANCHES.map(b => (
-                <Picker.Item key={b.value} label={b.label} value={b.value} />
-              ))}
-            </Picker>
+        {completedDivisions.length >= 3 ? (
+          <View style={styles.completedBanner}>
+            <Ionicons name="checkmark-done-circle" size={24} color={COLORS.success} />
+            <Text style={styles.completedText}>All divisions (A, B, C) recorded for today.</Text>
           </View>
-        </View>
-
-        <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Year</Text>
-          <View style={styles.pickerContainer}>
-            <Picker selectedValue={yearFilter} onValueChange={setYearFilter} style={styles.picker}>
-              {DISPLAY_YEARS.map(y => (
-                <Picker.Item key={y.value} label={y.label} value={y.value} />
-              ))}
-            </Picker>
-          </View>
-        </View>
-
-        <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Division</Text>
-          {completedDivisions.length >= 3 ? (
-            <View style={styles.completedBanner}>
-              <Ionicons name="checkmark-done-circle" size={20} color={COLORS.success} />
-              <Text style={styles.completedText}>All divisions (A, B, C) recorded for today.</Text>
-            </View>
-          ) : (
-            <View style={styles.pickerContainer}>
-              <Picker
-                selectedValue={divFilter}
-                onValueChange={setDivFilter}
-                style={styles.picker}
-              >
-                {['A', 'B', 'C'].map(div => (
-                  <Picker.Item
-                    key={div}
-                    label={completedDivisions.includes(div) ? `${div} (Already Recorded)` : div}
-                    value={div}
-                    enabled={!completedDivisions.includes(div)}
-                  />
-                ))}
-              </Picker>
-            </View>
-          )}
-        </View>
-
-        <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Sub-Batch</Text>
-          <View style={styles.pickerContainer}>
-            <Picker
-              selectedValue={subBatchFilter}
-              onValueChange={(v) => {
-                setSubBatchFilter(v);
-                setAbsentRollNos(''); // Clear absent list when changing sub-batch
-              }}
-              style={styles.picker}
-            >
-              <Picker.Item label="Whole Division" value="" />
-              <Picker.Item label={`${divFilter}1`} value="1" />
-              <Picker.Item label={`${divFilter}2`} value="2" />
-              <Picker.Item label={`${divFilter}3`} value="3" />
-            </Picker>
-          </View>
-        </View>
-
-        {completedDivisions.length < 3 && (
+        ) : (
           <>
+            {completedDivisions.includes(divFilter) && !subBatchFilter && (
+              <View style={styles.warningBanner}>
+                <Ionicons name="alert-circle" size={20} color={COLORS.warning} />
+                <Text style={styles.warningText}>Division {divFilter} already recorded today.</Text>
+              </View>
+            )}
+
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Absent Roll Numbers</Text>
               <Text style={styles.helperText}>Enter Full Roll No (e.g. CS2401, CS2405)</Text>
               <TextInput
                 style={styles.textInput}
-                placeholder="e.g. CS2401, CS2405"
+                placeholder="Type to search..."
                 value={absentRollNos}
                 onChangeText={handleAbsentTextChange}
                 onFocus={() => {
                   setIsFocused(true);
                 }}
                 onBlur={() => {
-                  // Small delay to allow clicking suggestions
                   setTimeout(() => {
                     setIsFocused(false);
                   }, 500);
@@ -569,8 +622,11 @@ export default function AttendanceTakerDashboard() {
                       style={styles.suggestionItem}
                       onPress={() => applySuggestion(s)}
                     >
-                      <Text style={styles.suggestionText}>{s.roll}</Text>
-                      <Text style={styles.suggestionName}>{s.name}</Text>
+                      <View style={styles.suggestionInfo}>
+                        <Text style={styles.suggestionText}>{s.roll}</Text>
+                        <Text style={styles.suggestionName}>{s.name}</Text>
+                      </View>
+                      <Ionicons name="add-circle-outline" size={20} color={COLORS.primary} />
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -578,553 +634,728 @@ export default function AttendanceTakerDashboard() {
             </View>
 
             <TouchableOpacity
-              style={[styles.submitBtn, submitting && { opacity: 0.7 }]}
+              style={[
+                styles.submitBtn,
+                (submitting || (completedDivisions.includes(divFilter) && !subBatchFilter)) && { opacity: 0.7 }
+              ]}
               onPress={handleSubmitAttendance}
-              disabled={submitting}
+              disabled={submitting || (completedDivisions.includes(divFilter) && !subBatchFilter)}
             >
               {submitting ? (
                 <ActivityIndicator color="#fff" size="small" />
               ) : (
                 <>
-                  <Ionicons name="cloud-upload-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
+                  <Ionicons name="cloud-upload" size={20} color="#fff" style={{ marginRight: 8 }} />
                   <Text style={styles.submitBtnText}>Submit Record</Text>
                 </>
               )}
             </TouchableOpacity>
           </>
         )}
-
-        <TouchableOpacity
-          style={styles.cancelBtn}
-          onPress={() => setViewMode('home')}
-        >
-          <Text style={styles.cancelBtnText}>Back</Text>
-        </TouchableOpacity>
       </View>
     </ScrollView>
   );
 
   const renderHistory = () => (
     <View style={styles.historyContainer}>
-      <View style={styles.dateHeader}>
-        <TouchableOpacity
-          style={styles.dateSelector}
-          onPress={() => setShowDatePicker(true)}
-        >
-          <Ionicons name="calendar-outline" size={20} color={COLORS.primary} />
-          <Text style={styles.dateText}>{selectedDate.toDateString()}</Text>
-          <Ionicons name="chevron-down" size={16} color={COLORS.textLight} />
-        </TouchableOpacity>
+      <TouchableOpacity
+        style={styles.datePickerBtn}
+        onPress={() => setShowDatePicker(true)}
+      >
+        <Ionicons name="calendar" size={20} color={COLORS.primary} />
+        <Text style={styles.dateText}>{selectedDate.toDateString()}</Text>
+        <Ionicons name="chevron-down" size={16} color={COLORS.textSecondary} />
+      </TouchableOpacity>
 
-        {showDatePicker && (
-          isWeb ? (
-            <input
-              type="date"
-              value={selectedDate.toISOString().split('T')[0]}
-              onChange={(e) => {
-                const date = new Date(e.target.value);
-                if (!isNaN(date.getTime())) {
-                  onDateChange({}, date);
-                }
-              }}
-              style={{
-                padding: '10px',
-                borderRadius: '8px',
-                border: '1px solid #ddd',
-                marginTop: '10px'
-              }}
-            />
-          ) : (
-            <DateTimePicker
-              value={selectedDate}
-              mode="date"
-              display="default"
-              onChange={onDateChange}
-            />
-          )
-        )}
-      </View>
+      {showDatePicker && (
+        isWeb ? (
+          <input
+            type="date"
+            value={selectedDate.toISOString().split('T')[0]}
+            onChange={(e) => {
+              const date = new Date(e.target.value);
+              if (!isNaN(date.getTime())) {
+                onDateChange({}, date);
+              }
+            }}
+            style={{
+              padding: '10px',
+              borderRadius: '8px',
+              border: '1px solid #ddd',
+              marginTop: '10px',
+              marginBottom: '20px',
+              width: '100%',
+              fontFamily: 'inherit'
+            }}
+          />
+        ) : (
+          <DateTimePicker
+            value={selectedDate}
+            mode="date"
+            display="default"
+            onChange={onDateChange}
+          />
+        )
+      )}
 
       {loadingHistory ? (
-        <ActivityIndicator size="large" color={COLORS.primary} style={{ marginTop: 50 }} />
-      ) : (
-        <ScrollView style={styles.historyScroll}>
-          {selectedSession ? (
-            <View style={styles.sessionDetails}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={COLORS.primary} />
+        </View>
+      ) : selectedSession ? (
+        <ScrollView style={styles.content}>
+          <View style={styles.sessionCard}>
+            <View style={styles.sessionHeader}>
               <TouchableOpacity
-                style={styles.backLink}
+                style={styles.changeBatchBtn}
                 onPress={() => setSelectedSession(null)}
               >
-                <Ionicons name="arrow-back" size={16} color={COLORS.primary} />
-                <Text style={styles.backLinkText}>Back to List</Text>
+                <Ionicons name="arrow-back" size={20} color={COLORS.primary} />
+                <Text style={styles.changeBatchText}>Back</Text>
               </TouchableOpacity>
 
-              <View style={styles.sessionInfoCard}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.sessionInfoTitle}>
-                      {getFullBranchName(selectedSession.department)} - {getFullYearName(selectedSession.class)} ({selectedSession.division})
-                    </Text>
-                    <Text style={styles.sessionInfoTime}>
-                      Time: {new Date(selectedSession.createdAt).toLocaleTimeString()}
-                    </Text>
-                  </View>
-                  {isSessionDeletable(selectedSession.createdAt) && (
-                    <TouchableOpacity
-                      style={styles.deleteIconBtn}
-                      onPress={() => handleDeleteSession(selectedSession.id)}
-                    >
-                      <Ionicons name="trash-outline" size={24} color={COLORS.error} />
-                    </TouchableOpacity>
-                  )}
-                </View>
-              </View>
-
-              <View style={styles.tableRef}>
-                <View style={[styles.tableHeader, { backgroundColor: '#f0f4ff' }]}>
-                  <Text style={[styles.tableHeaderCell, { flex: 0.8 }]}>Roll No</Text>
-                  <Text style={[styles.tableHeaderCell, { flex: 1.2 }]}>PRN</Text>
-                  <Text style={[styles.tableHeaderCell, { flex: 2, textAlign: 'left' }]}>Name</Text>
-                  <Text style={[styles.tableHeaderCell, { flex: 0.8 }]}>Status</Text>
-                </View>
-                <ScrollView style={{ maxHeight: 300 }}>
-                  {sessionRecords.map((item, index) => (
-                    <View key={index} style={styles.tableRow}>
-                      <Text style={[styles.tableCell, { flex: 0.8 }]}>{(students.find(s => s.prn === item.student_prn)?.rollNo) || '-'}</Text>
-                      <Text style={[styles.tableCell, { flex: 1.2 }]}>{item.student_prn}</Text>
-                      <Text style={[styles.tableCell, { flex: 2, textAlign: 'left' }]}>
-                        {students.find(s => s.prn === item.student_prn)?.fullName || 'Unknown'}
-                      </Text>
-                      <View style={[styles.tableCell, { flex: 0.8 }]}>
-                        <View style={[
-                          styles.statusBadge,
-                          { backgroundColor: item.status === 'Present' ? '#e6f4ea' : '#fce8e6' }
-                        ]}>
-                          <Text style={{
-                            color: item.status === 'Present' ? COLORS.success : COLORS.error,
-                            fontSize: 11, fontWeight: 'bold'
-                          }}>{item.status}</Text>
-                        </View>
-                      </View>
-                    </View>
-                  ))}
-                </ScrollView>
-              </View>
-              {/* Batch-wise GFM Summary */}
-              <View style={[styles.card, { marginTop: 20 }]}>
-                <Text style={styles.sectionTitle}>Batch-wise GFM Allotment</Text>
-                {sessionAllocations.length === 0 ? (
-                  <Text style={styles.helperText}>No GFM allocations found for this division.</Text>
-                ) : (
-                  sessionAllocations.map((alloc) => {
-                    const absenteesInBatch = sessionRecords.filter(r => {
-                      if (r.status !== 'Absent') return false;
-                      const fromVal = alloc.rbt_from.toUpperCase();
-                      const toVal = alloc.rbt_to.toUpperCase();
-                      const prnVal = r.studentPrn.toUpperCase();
-
-                      if (!isNaN(Number(fromVal)) && !isNaN(Number(toVal))) {
-                        const studentRoll = r.rollNo ? parseInt(String(r.rollNo)) : parseInt(r.studentPrn.slice(-3));
-                        return studentRoll >= parseInt(fromVal) && studentRoll <= parseInt(toVal);
-                      }
-                      return prnVal >= fromVal && prnVal <= toVal;
-                    });
-
-                    return (
-                      <View key={alloc.id} style={styles.batchSummaryCard}>
-                        <View style={styles.batchSummaryHeader}>
-                          <View>
-                            <Text style={styles.batchName}>{alloc.batch_name}</Text>
-                            <Text style={styles.gfmName}>GFM: {alloc.profiles?.full_name || 'Not Assigned'}</Text>
-                          </View>
-                          <View style={[styles.countBadge, { backgroundColor: absenteesInBatch.length > 0 ? COLORS.error + '15' : COLORS.success + '15' }]}>
-                            <Text style={[styles.countText, { color: absenteesInBatch.length > 0 ? COLORS.error : COLORS.success }]}>
-                              {absenteesInBatch.length} Absent
-                            </Text>
-                          </View>
-                        </View>
-                        {absenteesInBatch.length > 0 && (
-                          <View style={styles.absentListInline}>
-                            <Text style={styles.absentListTitle}>Absent List:</Text>
-                            <Text style={styles.absentListText}>
-                              {absenteesInBatch.map(a => a.rollNo || a.studentPrn.slice(-3)).join(', ')}
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                    );
-                  })
-                )}
-              </View>
-            </View>
-          ) : (
-            <View style={styles.sessionList}>
-              <Text style={styles.sectionTitle}>Records for this day</Text>
-              {historySessions.length === 0 ? (
-                <View style={styles.emptyState}>
-                  <Ionicons name="document-text-outline" size={50} color="#ddd" />
-                  <Text style={styles.emptyStateText}>No records found for this date.</Text>
-                </View>
-              ) : (
-                historySessions.map((session) => (
-                  <TouchableOpacity
-                    key={session.id}
-                    style={styles.sessionItem}
-                    onPress={() => viewSessionDetails(session)}
-                  >
-                    <View style={styles.sessionItemContent}>
-                      <Text style={styles.sessionItemTitle}>
-                        {getFullBranchName(session.department)} - {getFullYearName(session.class)} ({session.division})
-                      </Text>
-                      <Text style={styles.sessionItemSub}>
-                        Recorded at {new Date(session.createdAt).toLocaleTimeString()}
-                      </Text>
-                    </View>
-                    {isSessionDeletable(session.createdAt) && (
-                      <TouchableOpacity
-                        style={styles.deleteSmallBtn}
-                        onPress={(e) => {
-                          e.stopPropagation();
-                          handleDeleteSession(session.id);
-                        }}
-                      >
-                        <Ionicons name="trash-outline" size={18} color={COLORS.error} />
-                      </TouchableOpacity>
-                    )}
-                    <Ionicons name="chevron-forward" size={20} color="#ccc" style={{ marginLeft: 5 }} />
-                  </TouchableOpacity>
-                ))
+              {isSessionDeletable(selectedSession.createdAt) && (
+                <TouchableOpacity
+                  style={styles.deleteBtn}
+                  onPress={() => handleDeleteSession(selectedSession.id)}
+                >
+                  <Ionicons name="trash-outline" size={20} color={COLORS.error} />
+                </TouchableOpacity>
               )}
             </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.sessionTitle}>
+                {getFullBranchName(selectedSession.department)}
+              </Text>
+              <Text style={styles.sessionSubtitle}>
+                {getFullYearName(selectedSession.class)} - Div {selectedSession.division}
+              </Text>
+              <Text style={styles.helperText}>
+                {new Date(selectedSession.createdAt).toLocaleTimeString()}
+              </Text>
+            </View>
+
+            {/* Stats */}
+            <View style={styles.statsRow}>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{sessionRecords.length - sessionRecords.filter(r => r.status === 'Absent').length}</Text>
+                <Text style={styles.statLabel}>Present</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Text style={[styles.statValue, { color: COLORS.error }]}>{sessionRecords.filter(r => r.status === 'Absent').length}</Text>
+                <Text style={styles.statLabel}>Absent</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Student List */}
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Student Records</Text>
+            {sessionRecords.map((item, index) => {
+              const student = students.find(s => s.prn === item.student_prn);
+              const isAbsent = item.status === 'Absent';
+              return (
+                <View key={index} style={styles.studentItem}>
+                  <View style={styles.studentInfo}>
+                    <Text style={styles.studentName}>{student?.fullName || 'Unknown'}</Text>
+                    <Text style={styles.studentRoll}>{student?.rollNo || item.student_prn}</Text>
+                  </View>
+                  <View style={[styles.statusBadge, isAbsent ? styles.absentBadge : styles.presentBadge]}>
+                    <Text style={[styles.statusText, { color: isAbsent ? COLORS.error : COLORS.success }]}>
+                      {item.status}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+
+          {/* Batch-wise Summary */}
+          <View style={[styles.card, { marginBottom: 100 }]}>
+            <Text style={styles.sectionTitle}>Batch-wise Absentee Summary</Text>
+            {sessionAllocations.length === 0 ? (
+              <Text style={styles.emptyText}>No GFM allocations found.</Text>
+            ) : (
+              sessionAllocations.map((alloc, idx) => {
+                const batchDef = sessionBatches.find(b => b.sub_batch === alloc.batch_name || b.batch_name === alloc.batch_name);
+
+                let absentees: any[] = [];
+                let rangeText = '';
+
+                if (batchDef) {
+                  const extractNum = (str: any) => parseInt(String(str).match(/\d+$/)?.[0] || '0');
+                  const fromNum = extractNum(batchDef.rbt_from);
+                  const toNum = extractNum(batchDef.rbt_to);
+                  rangeText = `(${batchDef.rbt_from} - ${batchDef.rbt_to})`;
+
+                  absentees = sessionRecords.filter(r => {
+                    if (r.status !== 'Absent') return false;
+                    const student = students.find(s => s.prn === r.student_prn);
+                    if (!student) return false;
+                    const roll = extractNum(student.rollNo || student.prn);
+                    const seq = roll % 1000;
+                    const fSeq = fromNum % 1000;
+                    const tSeq = toNum % 1000;
+                    return seq >= fSeq && seq <= tSeq;
+                  });
+                }
+
+                return (
+                  <View key={idx} style={styles.batchSummaryCard}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 }}>
+                      <Text style={[styles.sessionSubtitle, { fontWeight: 'bold', color: COLORS.primary }]}>
+                        {alloc.batch_name} {rangeText}
+                      </Text>
+                      <Text style={styles.sessionSubtitle}>{alloc.profiles?.full_name || 'No GFM'}</Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={{ color: COLORS.error, fontWeight: 'bold' }}>
+                        Absentees: {absentees.length}
+                      </Text>
+                    </View>
+                    {absentees.length > 0 && (
+                      <Text style={[styles.helperText, { marginTop: 4, color: COLORS.text }]}>
+                        {absentees.map(r => {
+                          const s = students.find(st => st.prn === r.student_prn);
+                          return s?.rollNo || r.student_prn;
+                        }).join(', ')}
+                      </Text>
+                    )}
+                  </View>
+                );
+              })
+            )}
+          </View>
+        </ScrollView>
+      ) : (
+        <ScrollView style={styles.content}>
+          {historySessions.length === 0 ? (
+            <Text style={styles.emptyText}>No records found for this date.</Text>
+          ) : (
+            historySessions.map((session) => (
+              <TouchableOpacity
+                key={session.id}
+                style={styles.sessionCard}
+                onPress={() => viewSessionDetails(session)}
+              >
+                <View style={styles.sessionHeader}>
+                  <View style={styles.sessionInfo}>
+                    <Text style={styles.sessionTitle}>
+                      {getFullBranchName(session.department)}
+                    </Text>
+                    <Text style={styles.sessionSubtitle}>
+                      {getFullYearName(session.class)} • Div {session.division}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color={COLORS.textSecondary} />
+                </View>
+                <Text style={styles.helperText}>
+                  {new Date(session.createdAt).toLocaleTimeString()}
+                </Text>
+              </TouchableOpacity>
+            ))
           )}
         </ScrollView>
       )}
-
-      <TouchableOpacity
-        style={styles.bottomBackBtn}
-        onPress={() => setViewMode('home')}
-      >
-        <Text style={styles.bottomBackBtnText}>Back to Dashboard</Text>
-      </TouchableOpacity>
     </View>
   );
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.headerTitle}>Attendance Portal</Text>
-          <Text style={styles.userName}>{userName}</Text>
-        </View>
-        <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn}>
-          <Ionicons name="log-out-outline" size={24} color="#fff" />
-        </TouchableOpacity>
-      </View>
+      <AppHeader
+        title={viewMode === 'home' ? 'Attendance Portal' : viewMode === 'add' ? 'Take Attendance' : 'History'}
+        showProfile={true}
+        onProfilePress={() => setShowProfileMenu(true)}
+        showFilter={viewMode === 'add'}
+        onFilterPress={() => setShowFilterModal(true)}
+        leftIcon={viewMode !== 'home' ? 'arrow-back' : undefined}
+        onLeftIconPress={() => setViewMode('home')}
+      />
 
       {loading ? (
-        <ActivityIndicator size="large" color={COLORS.primary} style={{ marginTop: 100 }} />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={COLORS.primary} />
+          <Text style={styles.loadingText}>Loading...</Text>
+        </View>
       ) : (
-        <>
+        <View style={styles.content}>
           {viewMode === 'home' && renderHome()}
           {viewMode === 'add' && renderAddForm()}
           {viewMode === 'history' && renderHistory()}
-        </>
+        </View>
       )}
+
+      {/* Modals */}
+      <FilterModal
+        visible={showFilterModal}
+        onClose={() => setShowFilterModal(false)}
+        onApply={() => setShowFilterModal(false)}
+        onReset={handleResetFilters}
+        department={deptFilter}
+        onDepartmentChange={setDeptFilter}
+        departments={DISPLAY_BRANCHES}
+        year={yearFilter}
+        onYearChange={setYearFilter}
+        years={DISPLAY_YEARS}
+        division={divFilter}
+        onDivisionChange={setDivFilter}
+        divisions={['A', 'B', 'C'].map(d => ({ label: d, value: d }))}
+        showSubBatch={true}
+        subBatch={subBatchFilter}
+        onSubBatchChange={(v) => {
+          setSubBatchFilter(v);
+          setAbsentRollNos('');
+        }}
+        disabledDivisions={completedDivisions}
+      />
+
+      <ProfileMenu
+        visible={showProfileMenu}
+        onClose={() => setShowProfileMenu(false)}
+        userName={userName}
+        menuItems={[
+          {
+            label: 'Home',
+            icon: 'home-outline',
+            onPress: () => setViewMode('home'),
+          },
+          {
+            label: 'Attendance History',
+            icon: 'calendar-outline',
+            onPress: () => {
+              setViewMode('history');
+              loadHistory(selectedDate);
+            },
+          },
+          {
+            label: 'Logout',
+            icon: 'log-out-outline',
+            onPress: handleLogout,
+            color: COLORS.error,
+          },
+        ]}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8f9fa' },
-  header: {
-    backgroundColor: COLORS.secondary,
-    padding: 20,
-    paddingTop: Platform.OS === 'ios' ? 60 : 20,
+  container: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+  },
+  content: {
+    flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: SPACING.md,
+    color: COLORS.textSecondary,
+    ...TYPOGRAPHY.body,
+  },
+  // Home Styles
+  homeContainer: {
+    padding: SPACING.lg,
+  },
+  welcomeCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: RADIUS.xl,
+    padding: SPACING.lg,
+    ...SHADOWS.md,
+    marginBottom: SPACING.xl,
+  },
+  welcomeHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
+    marginBottom: SPACING.lg,
   },
-  headerTitle: { color: '#fff', fontSize: 20, fontWeight: 'bold' },
-  userName: { color: 'rgba(255,255,255,0.8)', fontSize: 14 },
-  logoutBtn: { padding: 8 },
-
-  // Home styles
-  homeContainer: { flex: 1, padding: 25, justifyContent: 'center', gap: 20 },
-  mainActionBtn: {
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 30,
+  welcomeTitle: {
+    ...TYPOGRAPHY.bodySmall,
+    color: COLORS.textSecondary,
+    marginBottom: 4,
+  },
+  welcomeSubtitle: {
+    ...TYPOGRAPHY.h2,
+    color: COLORS.text,
+  },
+  avatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: COLORS.primaryLight,
     alignItems: 'center',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-  },
-  iconCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
     justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 15
   },
-  mainActionText: { fontSize: 18, fontWeight: 'bold', color: COLORS.text, textAlign: 'center' },
+  avatarText: {
+    ...TYPOGRAPHY.h3,
+    color: COLORS.white,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: SPACING.lg,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.borderLight,
+  },
+  statItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  statValue: {
+    ...TYPOGRAPHY.h3,
+    color: COLORS.text,
+    marginBottom: 4,
+  },
+  statLabel: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+  },
+  statDivider: {
+    width: 1,
+    height: 30,
+    backgroundColor: COLORS.borderLight,
+  },
+  sectionTitle: {
+    ...TYPOGRAPHY.h4,
+    color: COLORS.text,
+    marginBottom: SPACING.md,
+    marginLeft: SPACING.xs,
+  },
+  actionGrid: {
+    flexDirection: 'row',
+    gap: SPACING.md,
+  },
+  actionCard: {
+    flex: 1,
+    borderRadius: RADIUS.xl,
+    padding: SPACING.lg,
+    alignItems: 'flex-start',
+    ...SHADOWS.md,
+    height: 160,
+  },
+  actionIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: SPACING.md,
+  },
+  actionTitle: {
+    ...TYPOGRAPHY.h4,
+    color: COLORS.white,
+    marginBottom: SPACING.xs,
+  },
+  actionDesc: {
+    ...TYPOGRAPHY.caption,
+    color: 'rgba(255,255,255,0.8)',
+    lineHeight: 16,
+  },
 
-  // Form styles
-  formContent: { padding: 15 },
+  // Form Styles
+  formContent: {
+    padding: SPACING.lg,
+    gap: SPACING.lg,
+  },
+  batchSummaryCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.md,
+    ...SHADOWS.sm,
+  },
+  batchHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: SPACING.md,
+  },
+  batchTitle: {
+    ...TYPOGRAPHY.h4,
+    color: COLORS.text,
+  },
+  changeBatchBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    padding: 4,
+  },
+  changeBatchText: {
+    ...TYPOGRAPHY.bodySmall,
+    color: COLORS.primary,
+    fontWeight: '600',
+  },
+  tagsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.sm,
+  },
+  tag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 6,
+    backgroundColor: COLORS.background,
+    borderRadius: RADIUS.sm,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  activeTag: {
+    backgroundColor: COLORS.infoLight,
+    borderColor: COLORS.primary,
+  },
+  tagText: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+    fontWeight: '500',
+  },
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 15,
-    padding: 20,
-    elevation: 3,
-    marginBottom: 15,
+    backgroundColor: COLORS.white,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.lg,
+    ...SHADOWS.sm,
+  },
+  cardTitle: {
+    ...TYPOGRAPHY.h4,
+    color: COLORS.text,
+    marginBottom: SPACING.lg,
+  },
+  inputGroup: {
+    marginBottom: SPACING.lg,
+  },
+  inputLabel: {
+    ...TYPOGRAPHY.bodySmall,
+    color: COLORS.textSecondary,
+    fontWeight: '600',
+    marginBottom: SPACING.sm,
+  },
+  helperText: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+    marginBottom: SPACING.sm,
+  },
+  textInput: {
+    backgroundColor: COLORS.background,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: RADIUS.md,
+    padding: SPACING.md,
+    fontSize: 16,
+    minHeight: 100,
+    textAlignVertical: 'top',
+    color: COLORS.text,
+  },
+  suggestionBox: {
+    marginTop: SPACING.sm,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: RADIUS.md,
+    backgroundColor: COLORS.white,
+    ...SHADOWS.sm,
+    maxHeight: 200,
+  },
+  suggestionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: SPACING.md,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.borderLight,
+  },
+  suggestionInfo: {
+    flex: 1,
+  },
+  suggestionText: {
+    ...TYPOGRAPHY.body,
+    fontWeight: '600',
+    color: COLORS.text,
+  },
+  suggestionName: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+  },
+  submitBtn: {
+    flexDirection: 'row',
+    backgroundColor: COLORS.primary,
+    paddingVertical: SPACING.md,
+    borderRadius: RADIUS.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...SHADOWS.md,
+  },
+  submitBtnText: {
+    ...TYPOGRAPHY.button,
+    color: COLORS.white,
   },
   lastSubmittedCard: {
-    backgroundColor: '#fff',
-    borderRadius: 15,
-    padding: 15,
-    marginBottom: 15,
-    borderLeftWidth: 5,
-    borderLeftColor: COLORS.success,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
+    backgroundColor: COLORS.successLight,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.lg,
+    borderWidth: 1,
+    borderColor: COLORS.success,
   },
   lastSubmittedHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
-    gap: 8,
+    gap: SPACING.sm,
+    marginBottom: SPACING.sm,
   },
   lastSubmittedTitle: {
-    fontSize: 14,
-    fontWeight: 'bold',
+    ...TYPOGRAPHY.h4,
     color: COLORS.success,
   },
   lastSubmittedDetails: {
-    paddingLeft: 28,
+    gap: 4,
   },
   lastSubmittedText: {
-    fontSize: 13,
-    color: COLORS.text,
-    marginBottom: 2,
+    ...TYPOGRAPHY.bodySmall,
+    color: COLORS.textSecondary,
   },
-  cardTitle: { fontSize: 20, fontWeight: 'bold', color: COLORS.text, marginBottom: 20 },
-  inputGroup: { marginBottom: 15 },
-  inputLabel: { fontSize: 14, fontWeight: '600', color: COLORS.text, marginBottom: 8 },
-  pickerContainer: { borderWidth: 1, borderColor: '#eee', borderRadius: 10, overflow: 'hidden', backgroundColor: '#fafafa' },
-  picker: { height: 50 },
-  prefixBadge: {
-    backgroundColor: COLORS.primary + '15',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    alignSelf: 'flex-start',
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: COLORS.primary + '30',
-  },
-  prefixText: {
-    color: COLORS.primary,
-    fontWeight: 'bold',
-    fontSize: 14,
-  },
-  helperText: { fontSize: 12, color: COLORS.textLight, marginBottom: 5 },
-  textInput: {
-    borderWidth: 1,
-    borderColor: '#eee',
-    borderRadius: 10,
-    padding: 12,
-    backgroundColor: '#fafafa',
-    minHeight: 100,
-    textAlignVertical: 'top'
-  },
-  submitBtn: {
-    backgroundColor: COLORS.primary,
-    flexDirection: 'row',
-    padding: 15,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 10
-  },
-  submitBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
-  cancelBtn: { padding: 15, alignItems: 'center' },
-  cancelBtnText: { color: COLORS.textLight, fontWeight: '600' },
+
+  // Utility
   completedBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.success + '10',
-    padding: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: COLORS.success + '20',
-    gap: 10,
+    gap: SPACING.md,
+    backgroundColor: COLORS.successLight,
+    padding: SPACING.md,
+    borderRadius: RADIUS.md,
   },
   completedText: {
+    ...TYPOGRAPHY.bodySmall,
     color: COLORS.success,
-    fontSize: 14,
-    fontWeight: '600',
+    flex: 1,
   },
-
-  // History styles
-  historyContainer: { flex: 1 },
-  dateHeader: {
-    backgroundColor: '#fff',
-    padding: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-    alignItems: 'center'
-  },
-  dateSelector: {
+  warningBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f0f4f8',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 20,
-    gap: 10
+    gap: SPACING.md,
+    backgroundColor: COLORS.warningLight,
+    padding: SPACING.md,
+    borderRadius: RADIUS.md,
+    marginBottom: SPACING.md,
   },
-  dateText: { fontWeight: 'bold', color: COLORS.text },
-  historyScroll: { flex: 1, padding: 15 },
-  sectionTitle: { fontSize: 16, fontWeight: 'bold', color: COLORS.text, marginBottom: 15 },
-  sessionItem: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 15,
-    marginBottom: 10,
+  warningText: {
+    ...TYPOGRAPHY.bodySmall,
+    color: COLORS.warning,
+    flex: 1,
+  },
+
+  // History Styles (Keeping basic structure but reusing constants)
+  historyContainer: {
+    padding: SPACING.lg,
+  },
+  datePickerBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    elevation: 1
-  },
-  sessionItemContent: { flex: 1 },
-  sessionItemTitle: { fontSize: 16, fontWeight: 'bold', color: COLORS.text },
-  sessionItemSub: { fontSize: 13, color: COLORS.textLight, marginTop: 4 },
-  emptyState: { alignItems: 'center', marginTop: 50, opacity: 0.5 },
-  emptyStateText: { marginTop: 10, fontSize: 16, color: COLORS.textLight },
-
-  sessionDetails: { flex: 1 },
-  backLink: { flexDirection: 'row', alignItems: 'center', marginBottom: 15, gap: 5 },
-  backLinkText: { color: COLORS.primary, fontWeight: '600' },
-  sessionInfoCard: { backgroundColor: COLORS.primary + '10', padding: 15, borderRadius: 12, marginBottom: 20 },
-  sessionInfoTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.primary },
-  sessionInfoTime: { fontSize: 14, color: COLORS.textLight, marginTop: 5 },
-  deleteIconBtn: { padding: 5 },
-  deleteSmallBtn: { padding: 10, marginRight: 5 },
-
-  recordsTable: { backgroundColor: '#fff', borderRadius: 12, padding: 10, elevation: 2 },
-  tableHeader: { flexDirection: 'row', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#eee' },
-  tableHead: { fontWeight: 'bold', color: COLORS.textLight, fontSize: 12 },
-  tableRow: { flexDirection: 'row', paddingVertical: 12, alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#f9f9f9' },
-  tableCell: { fontSize: 14, color: COLORS.text },
-  statusBadge: { flex: 1.5, paddingVertical: 4, borderRadius: 6, alignItems: 'center' },
-  presentBadge: { backgroundColor: COLORS.success + '15' },
-  absentBadge: { backgroundColor: COLORS.error + '15' },
-  statusText: { fontSize: 11, fontWeight: 'bold' },
-  presentText: { color: COLORS.success },
-  absentText: { color: COLORS.error },
-
-  tableRef: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    justifyContent: 'center',
+    backgroundColor: COLORS.white,
+    padding: SPACING.md,
+    borderRadius: RADIUS.md,
+    marginBottom: SPACING.lg,
     borderWidth: 1,
-    borderColor: '#eee',
-    overflow: 'hidden',
-    marginTop: 15,
+    borderColor: COLORS.border,
+    gap: SPACING.sm,
   },
-  tableHeaderCell: {
-    padding: 10,
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: COLORS.textLight,
-    textAlign: 'center',
-  },
-
-  bottomBackBtn: { padding: 20, alignItems: 'center', backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#eee' },
-  bottomBackBtnText: { color: COLORS.primary, fontWeight: 'bold' },
-
-  // New Styles
-  suggestionBox: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#eee',
-    borderRadius: 10,
-    marginTop: 5,
-    maxHeight: 150,
-    elevation: 3,
-  },
-  suggestionItem: {
-    padding: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f9f9f9',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between'
-  },
-  suggestionText: {
-    fontSize: 14,
+  dateText: {
+    ...TYPOGRAPHY.body,
     color: COLORS.text,
-    fontWeight: 'bold',
   },
-  suggestionName: {
-    fontSize: 12,
-    color: COLORS.textLight,
+  sessionCard: {
+    backgroundColor: COLORS.white,
+    padding: SPACING.lg,
+    borderRadius: RADIUS.lg,
+    marginBottom: SPACING.md,
+    ...SHADOWS.sm,
   },
-  batchSummaryCard: {
-    padding: 15,
-    backgroundColor: '#f8f9fa',
-    borderRadius: 12,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: '#eee',
-  },
-  batchSummaryHeader: {
+  sessionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    marginBottom: SPACING.md,
   },
-  batchName: {
-    fontSize: 15,
-    fontWeight: 'bold',
+  sessionInfo: {
+    flex: 1,
+  },
+  sessionTitle: {
+    ...TYPOGRAPHY.h4,
     color: COLORS.text,
+    marginBottom: 4,
   },
-  gfmName: {
-    fontSize: 13,
-    color: COLORS.textLight,
-    marginTop: 2,
+  sessionSubtitle: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
   },
-  countBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
+  deleteBtn: {
+    padding: SPACING.xs,
   },
-  countText: {
-    fontSize: 12,
-    fontWeight: 'bold',
+  statsContainer: {
+    flexDirection: 'row',
+    gap: SPACING.lg,
   },
-  absentListInline: {
-    marginTop: 10,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
+  statBox: {
+    alignItems: 'flex-start',
   },
-  absentListTitle: {
-    fontSize: 12,
+  statNumber: {
+    ...TYPOGRAPHY.h3,
+    fontWeight: '700',
+  },
+  statLabelSmall: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
+  },
+  loadingHistory: {
+    marginTop: SPACING.xl,
+  },
+  emptyText: {
+    textAlign: 'center',
+    marginTop: SPACING.xl,
+    color: COLORS.textSecondary,
+    ...TYPOGRAPHY.body,
+  },
+  // Student List Styles
+  studentItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: SPACING.md,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.borderLight,
+    backgroundColor: COLORS.white,
+  },
+  studentInfo: {
+    flex: 1,
+  },
+  studentName: {
+    ...TYPOGRAPHY.bodySmall,
+    color: COLORS.text,
     fontWeight: '600',
-    color: COLORS.textLight,
   },
-  absentListText: {
-    fontSize: 13,
-    color: COLORS.error,
-    marginTop: 2,
-    fontWeight: '500',
+  studentRoll: {
+    ...TYPOGRAPHY.caption,
+    color: COLORS.textSecondary,
   },
-  sessionList: {
-    paddingBottom: 20,
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: RADIUS.sm,
+  },
+  presentBadge: {
+    backgroundColor: COLORS.successLight,
+  },
+  absentBadge: {
+    backgroundColor: COLORS.errorLight,
+  },
+  statusText: {
+    fontSize: 10,
+    fontWeight: 'bold',
   },
 });

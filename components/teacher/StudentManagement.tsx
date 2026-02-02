@@ -1,4 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
+// @ts-ignore
+import * as FileSystem from 'expo-file-system';
+// @ts-ignore
+import * as Sharing from 'expo-sharing';
 import { Alert, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { COLORS } from '../../constants/colors';
 import { Student } from '../../storage/sqlite';
@@ -10,10 +14,10 @@ export const StudentManagement = ({ students, filters, onViewDetails, onPrint, h
 
     const isWeb = Platform.OS === 'web';
 
-    const exportCSV = () => {
-        let csv = 'Roll No,PRN,Name,Department,Year,Division,Status\n';
+    const exportCSV = async () => {
+        let csv = 'Roll No,PRN,Name,Department,Year,Division,Status,GFM Name\n';
         students.forEach((s: any) => {
-            csv += `"${s.rollNo}",${s.prn},"${s.fullName}","${s.branch}","${s.yearOfStudy}","${s.division}","${s.verificationStatus}"\n`;
+            csv += `${s.rollNo},${s.prn},"${s.fullName}","${s.branch}","${s.yearOfStudy}","${s.division}","${s.verificationStatus}","${s.gfmName || 'Not Assigned'}"\n`;
         });
 
         if (isWeb) {
@@ -24,7 +28,15 @@ export const StudentManagement = ({ students, filters, onViewDetails, onPrint, h
             a.download = `Student_Report_${filters.dept}.csv`;
             a.click();
         } else {
-            Alert.alert('Export', 'CSV Exported (Simulation)');
+            try {
+                const fileName = `Student_Report_${new Date().getTime()}.csv`;
+                const fileUri = FileSystem.documentDirectory + fileName;
+                await FileSystem.writeAsStringAsync(fileUri, csv, { encoding: FileSystem.EncodingType.UTF8 });
+                await Sharing.shareAsync(fileUri);
+            } catch (error) {
+                console.error('Error sharing CSV:', error);
+                Alert.alert('Error', 'Failed to share CSV file');
+            }
         }
     };
 
@@ -36,9 +48,11 @@ export const StudentManagement = ({ students, filters, onViewDetails, onPrint, h
                 </View>
                 <View style={styles.cardHeaderInfo}>
                     <Text style={styles.cardName}>{s.fullName}</Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <View style={{ marginTop: 4 }}>
                         <Text style={styles.cardPrn}>PRN: {s.prn}</Text>
-                        <View style={styles.rollBadge}><Text style={styles.rollBadgeText}>Roll: {s.rollNo}</Text></View>
+                        <View style={{ flexDirection: 'row', marginTop: 4 }}>
+                            <View style={styles.rollBadge}><Text style={styles.rollBadgeText}>Roll: {s.rollNo}</Text></View>
+                        </View>
                     </View>
                 </View>
                 <View style={[styles.statusBadge, { backgroundColor: s.verificationStatus === 'Verified' ? COLORS.success + '15' : COLORS.warning + '15' }]}>
@@ -166,7 +180,14 @@ const localStyles = StyleSheet.create({
 });
 
 const styles = StyleSheet.create({
-    moduleHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
+    moduleHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center', // Keep center alignment
+        marginBottom: 15,
+        gap: 10,
+        flexWrap: 'wrap' // Allow wrapping on very small screens if needed
+    },
     moduleTitle: { fontSize: 20, fontWeight: '800', color: COLORS.text, letterSpacing: -0.5 },
     actionBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.primary, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12 },
     actionBtnText: { color: '#fff', marginLeft: 8, fontWeight: 'bold', fontSize: 13 },

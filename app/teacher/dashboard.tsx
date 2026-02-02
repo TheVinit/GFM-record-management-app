@@ -1,10 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Picker } from '@react-native-picker/picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Animated,
+  Easing,
   Platform,
   ScrollView,
   Text,
@@ -29,6 +30,9 @@ import { COLORS } from '../../constants/colors';
 import { BRANCH_MAPPINGS, DISPLAY_YEARS, YEAR_MAPPINGS } from '../../constants/Mappings';
 import { clearSession, getSession } from '../../services/session.service';
 
+import { ChangePasswordModal } from '../../components/ChangePasswordModal';
+import { FilterModal } from '../../components/common/FilterModal';
+import { ProfileMenu } from '../../components/common/ProfileMenu';
 import { AcademicViewModal } from '../../components/teacher/AcademicViewModal';
 import { styles } from '../../components/teacher/dashboard.styles';
 import { exportStudentPDF, handleViewDocument } from '../../components/teacher/dashboard.utils';
@@ -54,6 +58,7 @@ export default function TeacherDashboard() {
   const [teacherName, setTeacherName] = useState('');
   const [teacherDept, setTeacherDept] = useState('');
   const [students, setStudents] = useState<Student[]>([]);
+  const [allStudentsData, setAllStudentsData] = useState<Student[]>([]); // Cache for filtering
   const [courses, setCourses] = useState<CourseDef[]>([]);
   const [filteredStudents, setFilteredStudents] = useState<Student[]>([]);
 
@@ -74,16 +79,43 @@ export default function TeacherDashboard() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(Platform.OS === 'web' && width > 1024 ? false : true);
   const [batchConfig, setBatchConfig] = useState<any>(null);
 
+  // Animation
+  const sidebarTranslateX = useRef(new Animated.Value(-260)).current;
+
+  useEffect(() => {
+    if (isSidebarCollapsed) {
+      Animated.timing(sidebarTranslateX, {
+        toValue: -260,
+        duration: 300,
+        useNativeDriver: true, // simplified
+        easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+      }).start();
+    } else {
+      Animated.timing(sidebarTranslateX, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+        easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+      }).start();
+    }
+  }, [isSidebarCollapsed]);
+
   // Filters
-  const [gfmDeptFilter, setGfmDeptFilter] = useState('All');
+  const [gfmDeptFilter, setGfmDeptFilter] = useState('Computer Engineering');
   const [gfmYearFilter, setGfmYearFilter] = useState('All');
   const [gfmDivFilter, setGfmDivFilter] = useState('All');
-  const [attDeptFilter, setAttDeptFilter] = useState('All');
+  const [attDeptFilter, setAttDeptFilter] = useState('Computer Engineering');
+
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [userEmail, setUserEmail] = useState('');
+  const [userPassword, setUserPassword] = useState('');
   const [attYearFilter, setAttYearFilter] = useState('All');
   const [attDivFilter, setAttDivFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [semFilter, setSemFilter] = useState<number | 'All'>('All');
   const [activityTypeFilter, setActivityTypeFilter] = useState<'All' | 'Extra-curricular' | 'Co-curricular' | 'Courses'>('All');
+  const [showFilterModal, setShowFilterModal] = useState(false);
 
   const router = useRouter();
   const [userRole, setUserRole] = useState('');
@@ -105,6 +137,8 @@ export default function TeacherDashboard() {
     setTeacherName(session.fullName ?? '');
     setTeacherDept(session.department ?? '');
     setUserRole(session.role ?? '');
+    setUserEmail(session.email ?? '');
+    setUserPassword(session.password ?? '');
 
     if (session.role === 'admin') {
       const defaultModule = initialModuleParam || 'admin-reports';
@@ -128,44 +162,73 @@ export default function TeacherDashboard() {
   }, [attDeptFilter, attYearFilter, attDivFilter, gfmDeptFilter, gfmYearFilter, gfmDivFilter, activeModuleGroup]);
 
   const loadData = async (roleOverride?: string, prnOverride?: string, idOverride?: string) => {
-    setLoading(true);
+    // Only show loading spinner if we don't have data yet
+    const needsFetch = allStudentsData.length === 0;
+    if (needsFetch) setLoading(true);
+
     try {
-      const allStudents = await getAllStudents();
+      let sourceData = allStudentsData;
+
       const session = await getSession();
+      const tId = idOverride || session?.id || teacherId;
+
+      if (needsFetch) {
+        sourceData = await getAllStudents();
+        setAllStudentsData(sourceData);
+        const allCourses = await getAllCoursesDef();
+        setCourses(allCourses);
+
+        // Fetch batch assignment
+        const config = await getTeacherBatchConfig(tId);
+        setBatchConfig(config);
+      }
+
       const role = roleOverride || session?.role || userRole;
       const prn = prnOverride || session?.prn || teacherPrn;
-      const tId = idOverride || session?.id || teacherId;
       const name = session?.fullName || teacherName;
 
-      // Fetch batch assignment
-      const config = await getTeacherBatchConfig(tId);
-      setBatchConfig(config);
-
-      let filtered = allStudents;
+      let filtered = sourceData;
       if (role === 'teacher') {
         // Strict filtering: If batch config exists, use it as primary filter.
         // Otherwise fallback to direct GFM assignment.
-        filtered = allStudents.filter(s => {
-          if (config) {
-            const matchDept = s.branch === config.department;
+        // Re-using the config fetched (or from state if not fetched now, but strictness might require caching config too? 
+        // batchConfig state might be stale if we didn't fetch it. 
+        // For Filter UI optimization, we assume config doesn't change often.
+        // If needsFetch is false, we use existing batchConfig from state.
+        const currentConfig = needsFetch ? (await getTeacherBatchConfig(tId)) : batchConfig;
+
+        filtered = sourceData.filter(s => {
+          if (currentConfig) {
+            const matchDept = s.branch === currentConfig.department;
 
             // Normalize year (e.g., 'SE' and 'Second Year' both become 'Second Year')
-            const normalizedConfigYear = YEAR_MAPPINGS[config.class] || config.class;
+            const normalizedConfigYear = YEAR_MAPPINGS[currentConfig.class] || currentConfig.class;
             const normalizedStudentYear = YEAR_MAPPINGS[s.yearOfStudy] || s.yearOfStudy;
             const matchYear = normalizedConfigYear === normalizedStudentYear;
 
             // Normalize division (e.g., 'A2' becomes 'A')
-            const configMainDiv = config.division ? config.division[0].toUpperCase() : '';
+            const configMainDiv = currentConfig.division ? currentConfig.division[0].toUpperCase() : '';
             const studentMainDiv = s.division ? s.division[0].toUpperCase() : '';
             const matchDiv = configMainDiv === studentMainDiv;
 
             if (matchDept && matchYear && matchDiv) {
-              const rollNo = parseInt(s.prn.slice(-3));
-              const fromVal = parseInt(config.rbtFrom);
-              const toVal = parseInt(config.rbtTo);
+              const extractNum = (str: string) => {
+                const match = String(str).match(/\d+$/);
+                return match ? parseInt(match[0]) : NaN;
+              };
 
-              if (!isNaN(rollNo) && !isNaN(fromVal) && !isNaN(toVal)) {
-                return rollNo >= fromVal && rollNo <= toVal;
+              // Use rollNo if available, fallback to PRN
+              const rollNoStr = s.rollNo || (s as any).roll_no || s.prn;
+              const studentNum = extractNum(rollNoStr);
+              const fromVal = extractNum(currentConfig.rbtFrom);
+              const toVal = extractNum(currentConfig.rbtTo);
+
+              if (!isNaN(studentNum) && !isNaN(fromVal) && !isNaN(toVal)) {
+                // Handle sequence part (e.g., 28 from CS2428 or 028 from RBT...028)
+                const sSeq = studentNum % 1000;
+                const fSeq = fromVal % 1000;
+                const tSeq = toVal % 1000;
+                return sSeq >= fSeq && sSeq <= tSeq;
               }
             }
             return false;
@@ -184,7 +247,7 @@ export default function TeacherDashboard() {
         const year = isAttendance ? attYearFilter : gfmYearFilter;
         const div = isAttendance ? attDivFilter : gfmDivFilter;
 
-        filtered = allStudents.filter(s => {
+        filtered = sourceData.filter(s => {
           const matchDept = dept === 'All' || s.branch === dept;
           const normalizedStudentYear = YEAR_MAPPINGS[s.yearOfStudy] || s.yearOfStudy;
           const matchYear = year === 'All' || normalizedStudentYear === year;
@@ -195,12 +258,10 @@ export default function TeacherDashboard() {
 
       setStudents(filtered);
       setFilteredStudents(filtered);
-      const allCourses = await getAllCoursesDef();
-      setCourses(allCourses);
     } catch (e) {
       console.error(e);
     } finally {
-      setLoading(false);
+      if (needsFetch) setLoading(false);
     }
   };
 
@@ -246,17 +307,36 @@ export default function TeacherDashboard() {
     }
   };
 
-  const handleVerify = async (table: string, idOrPrn: string, status: string) => {
+  const handleVerify = async (table: string, idOrPrn: any, status: string) => {
     try {
+      const cleanId = String(idOrPrn).trim();
+      if (!cleanId || cleanId === 'undefined' || cleanId === 'null') {
+        console.error(`[Verification] Aborting - Invalid ID received: "${idOrPrn}"`);
+        Alert.alert('Error', 'Invalid record ID. Please refresh and try again.');
+        return;
+      }
+
       const idField = table === 'students' ? 'prn' : 'id';
+      const updateData: any = {
+        verification_status: status,
+        verified_by: teacherName,
+      };
+
+      if (table === 'students') {
+        updateData.last_updated = new Date().toISOString();
+      }
+
+      // If it's not student table, ID is likely a bigint/number
+      const queryId = table === 'students' ? cleanId : parseInt(cleanId);
+
+      if (table !== 'students' && isNaN(queryId as number)) {
+        throw new Error(`Critical Error: ID "${cleanId}" is not a valid number for table ${table}`);
+      }
+
       const { error } = await supabase
         .from(table)
-        .update({
-          verification_status: status,
-          verified_by: teacherName,
-          last_updated: new Date().toISOString()
-        })
-        .eq(idField, idOrPrn);
+        .update(updateData)
+        .eq(idField, queryId);
 
       if (error) throw error;
 
@@ -307,74 +387,22 @@ export default function TeacherDashboard() {
   };
 
   const renderFilters = () => {
-    const isAttendance = activeModuleGroup === 'Attendance';
-    const isTeacher = userRole === 'teacher';
-
-    if (isTeacher) {
-      return (
-        <View style={styles.filterContainer}>
-          <View style={[styles.filterItem, { flex: 1, minWidth: 200 }]}>
-            <Ionicons name="search-outline" size={20} color={COLORS.textLight} style={{ position: 'absolute', left: 12, zIndex: 1 }} />
-            <TextInput
-              style={[styles.input, { flex: 1, paddingLeft: 40, marginBottom: 0 }]}
-              placeholder="Search students..."
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-            />
-          </View>
-        </View>
-      );
-    }
-
-    const dept = isAttendance ? attDeptFilter : gfmDeptFilter;
-    const year = isAttendance ? attYearFilter : gfmYearFilter;
-    const div = isAttendance ? attDivFilter : gfmDivFilter;
-    const setDept = isAttendance ? setAttDeptFilter : setGfmDeptFilter;
-    const setYear = isAttendance ? setAttYearFilter : setGfmYearFilter;
-    const setDiv = isAttendance ? setAttDivFilter : setGfmDivFilter;
-
     return (
-      <View style={styles.filterContainer}>
-        <View style={styles.filterItem}>
-          <Text style={styles.filterLabel}>Dept:</Text>
-          <View style={styles.pickerWrapper}>
-            <Picker selectedValue={dept} onValueChange={setDept} style={styles.picker}>
-              <Picker.Item label="All" value="All" />
-              {Object.keys(BRANCH_MAPPINGS).map(key => (
-                <Picker.Item key={key} label={BRANCH_MAPPINGS[key]} value={key} />
-              ))}
-            </Picker>
-          </View>
-        </View>
-
-        <View style={styles.filterItem}>
-          <Text style={styles.filterLabel}>Year:</Text>
-          <View style={styles.pickerWrapper}>
-            <Picker selectedValue={year} onValueChange={setYear} style={styles.picker}>
-              <Picker.Item label="All" value="All" />
-              {DISPLAY_YEARS.map(y => (
-                <Picker.Item key={y.value} label={y.label} value={y.value} />
-              ))}
-            </Picker>
-          </View>
-        </View>
-
-        <View style={styles.filterItem}>
-          <Text style={styles.filterLabel}>Div:</Text>
-          <View style={styles.pickerWrapper}>
-            <Picker selectedValue={div} onValueChange={setDiv} style={styles.picker}>
-              <Picker.Item label="All" value="All" />
-              {['A', 'B', 'C', 'D'].map(d => (
-                <Picker.Item key={d} label={d} value={d} />
-              ))}
-            </Picker>
-          </View>
-        </View>
-
-        <View style={[styles.filterItem, { flex: 1, minWidth: 200 }]}>
-          <Ionicons name="search-outline" size={20} color={COLORS.textLight} style={{ position: 'absolute', left: 12, zIndex: 1 }} />
+      <View style={[styles.filterContainer, { paddingHorizontal: 20, marginBottom: 15 }]}>
+        <View style={{
+          flex: 1,
+          flexDirection: 'row',
+          alignItems: 'center',
+          backgroundColor: '#fff',
+          borderRadius: 8,
+          borderWidth: 1,
+          borderColor: COLORS.border,
+          height: 45,
+          paddingHorizontal: 10
+        }}>
+          <Ionicons name="search-outline" size={20} color={COLORS.textLight} />
           <TextInput
-            style={[styles.input, { flex: 1, paddingLeft: 40, marginBottom: 0 }]}
+            style={{ flex: 1, marginLeft: 10, fontSize: 16, color: COLORS.text }}
             placeholder="Search students..."
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -397,27 +425,57 @@ export default function TeacherDashboard() {
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <TouchableOpacity onPress={() => setIsSidebarCollapsed(!isSidebarCollapsed)} style={{ marginRight: 15 }}>
-            <Ionicons name={isSidebarCollapsed ? "menu-outline" : "close-outline"} size={26} color="#fff" />
+          {userRole === 'admin' && (
+            <TouchableOpacity onPress={() => router.replace('/admin/dashboard')} style={{ marginRight: 15 }}>
+              <Ionicons name="arrow-back" size={26} color="#fff" />
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            onPress={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              backgroundColor: 'rgba(255,255,255,0.1)',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+          >
+            <Ionicons name={isSidebarCollapsed ? "grid-outline" : "close-outline"} size={22} color="#fff" />
           </TouchableOpacity>
-          <View>
-            <Text style={styles.collegeName}>GFM Record Management</Text>
-            <Text style={styles.tagline}>{teacherName} | {teacherDept} Department</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.collegeName, { letterSpacing: 0.5, textTransform: 'uppercase' }]}>GFM Record Management</Text>
+            <Text style={styles.tagline}>{teacherName} • Department of Computer Science</Text>
           </View>
         </View>
-        <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-          <Ionicons name="log-out-outline" size={20} color="#fff" />
-          {width > 600 && <Text style={styles.logoutText}>Logout</Text>}
+        <TouchableOpacity
+          style={styles.profileBtn}
+          onPress={() => setShowProfileMenu(true)}
+        >
+          <View style={styles.profileIconWrapper}>
+            <Ionicons name="person" size={20} color={COLORS.primary} />
+          </View>
         </TouchableOpacity>
       </View>
 
       <View style={styles.mainContent}>
         {/* Sidebar */}
-        <View style={[styles.sidebar, isSidebarCollapsed && { width: Platform.OS === 'web' ? 70 : 0 }]}>
+
+        {/* Sidebar Overlay (Backdrop) */}
+        {!isSidebarCollapsed && (
+          <TouchableOpacity
+            style={styles.sidebarBackdrop}
+            activeOpacity={1}
+            onPress={() => setIsSidebarCollapsed(true)}
+          />
+        )}
+
+        {/* Animated Sidebar */}
+        <Animated.View style={[styles.sidebar, { transform: [{ translateX: sidebarTranslateX }] }]}>
           <ScrollView>
             {userRole === 'teacher' && (
               <>
-                {!isSidebarCollapsed && <Text style={{ fontSize: 11, fontWeight: 'bold', color: COLORS.textLight, paddingHorizontal: 20, marginVertical: 10, marginTop: 20 }}>GFM TOOLS</Text>}
+                <Text style={{ fontSize: 11, fontWeight: 'bold', color: COLORS.textLight, paddingHorizontal: 20, marginVertical: 10, marginTop: 20 }}>GFM TOOLS</Text>
                 <SidebarItem id="batch-info" icon="information-circle-outline" label="My Batch Info" group="GFM" />
                 <SidebarItem id="students" icon="people-outline" label="My Students" group="GFM" />
                 <SidebarItem id="academic" icon="school-outline" label="Academic Data" group="GFM" />
@@ -427,33 +485,33 @@ export default function TeacherDashboard() {
                 <SidebarItem id="internships" icon="briefcase-outline" label="Internships" group="GFM" />
                 <SidebarItem id="analytics" icon="analytics-outline" label="Batch Analytics" group="GFM" />
 
-                {!isSidebarCollapsed && <Text style={{ fontSize: 11, fontWeight: 'bold', color: COLORS.textLight, paddingHorizontal: 20, marginVertical: 10, marginTop: 20 }}>ATTENDANCE</Text>}
+                <Text style={{ fontSize: 11, fontWeight: 'bold', color: COLORS.textLight, paddingHorizontal: 20, marginVertical: 10, marginTop: 20 }}>ATTENDANCE</Text>
                 <SidebarItem id="attendance-summary" icon="list-outline" label="Attendance Log" group="Attendance" />
               </>
             )}
 
             {userRole === 'admin' && (
               <>
-                {!isSidebarCollapsed && <Text style={{ fontSize: 11, fontWeight: 'bold', color: COLORS.textLight, paddingHorizontal: 20, marginVertical: 10, marginTop: 20 }}>MONITORING</Text>}
+                <Text style={{ fontSize: 11, fontWeight: 'bold', color: COLORS.textLight, paddingHorizontal: 20, marginVertical: 10, marginTop: 20 }}>MONITORING</Text>
                 <SidebarItem id="daily-attendance" icon="calendar-outline" label="Today Status" group="ADMIN" />
                 <SidebarItem id="admin-reports" icon="stats-chart-outline" label="Attendance History" group="ADMIN" />
 
-                {!isSidebarCollapsed && <Text style={{ fontSize: 11, fontWeight: 'bold', color: COLORS.textLight, paddingHorizontal: 20, marginVertical: 10, marginTop: 20 }}>REGISTRATION</Text>}
+                <Text style={{ fontSize: 11, fontWeight: 'bold', color: COLORS.textLight, paddingHorizontal: 20, marginVertical: 10, marginTop: 20 }}>REGISTRATION</Text>
                 <SidebarItem id="register-student" icon="person-add-outline" label="Add Students" group="ADMIN" />
                 <SidebarItem id="students" icon="people-outline" label="Student Database" group="ADMIN" />
 
-                {!isSidebarCollapsed && <Text style={{ fontSize: 11, fontWeight: 'bold', color: COLORS.textLight, paddingHorizontal: 20, marginVertical: 10, marginTop: 20 }}>ADMIN TOOLS</Text>}
+                <Text style={{ fontSize: 11, fontWeight: 'bold', color: COLORS.textLight, paddingHorizontal: 20, marginVertical: 10, marginTop: 20 }}>ADMIN TOOLS</Text>
                 <SidebarItem id="fees" icon="card-outline" label="Fee Monitoring" group="ADMIN" />
                 <SidebarItem id="manage-staff" icon="people-circle-outline" label="Manage Staff" group="ADMIN" />
                 <SidebarItem id="courses" icon="book-outline" label="Course Config" group="ADMIN" />
               </>
             )}
           </ScrollView>
-        </View>
+        </Animated.View>
 
         {/* Content Area */}
         <View style={styles.contentArea}>
-          {currentModule !== 'analytics' && currentModule !== 'attendance' && currentModule !== 'attendance-summary' && currentModule !== 'admin-reports' && currentModule !== 'manage-staff' && currentModule !== 'daily-attendance' && currentModule !== 'register-student' && renderFilters()}
+          {currentModule !== 'analytics' && currentModule !== 'attendance' && currentModule !== 'attendance-summary' && currentModule !== 'admin-reports' && currentModule !== 'manage-staff' && currentModule !== 'daily-attendance' && currentModule !== 'register-student' && currentModule !== 'students' && renderFilters()}
 
           <ScrollView contentContainerStyle={styles.scrollContent}>
             <ModuleRenderer
@@ -486,6 +544,54 @@ export default function TeacherDashboard() {
       </View>
 
       {/* Modals */}
+      <FilterModal
+        visible={showFilterModal}
+        onClose={() => setShowFilterModal(false)}
+        onApply={() => setShowFilterModal(false)}
+        onReset={() => {
+          if (activeModuleGroup === 'Attendance') {
+            setAttDeptFilter('All'); setAttYearFilter('All'); setAttDivFilter('All');
+          } else {
+            setGfmDeptFilter('All'); setGfmYearFilter('All'); setGfmDivFilter('All');
+          }
+          setSearchQuery('');
+        }}
+        department={activeModuleGroup === 'Attendance' ? attDeptFilter : gfmDeptFilter}
+        onDepartmentChange={activeModuleGroup === 'Attendance' ? setAttDeptFilter : setGfmDeptFilter}
+        departments={[{ label: 'All', value: 'All' }, ...Object.keys(BRANCH_MAPPINGS).map(k => ({ label: BRANCH_MAPPINGS[k], value: k }))]}
+        year={activeModuleGroup === 'Attendance' ? attYearFilter : gfmYearFilter}
+        onYearChange={activeModuleGroup === 'Attendance' ? setAttYearFilter : setGfmYearFilter}
+        years={[{ label: 'All', value: 'All' }, ...DISPLAY_YEARS]}
+        division={activeModuleGroup === 'Attendance' ? attDivFilter : gfmDivFilter}
+        onDivisionChange={activeModuleGroup === 'Attendance' ? setAttDivFilter : setGfmDivFilter}
+        divisions={['All', 'A', 'B', 'C'].map(d => ({ label: d, value: d }))}
+      />
+
+      <ProfileMenu
+        visible={showProfileMenu}
+        onClose={() => setShowProfileMenu(false)}
+        userName={teacherName}
+        userEmail={teacherDept + ' Department'}
+        menuItems={[
+          {
+            icon: 'person-circle-outline',
+            label: 'My Profile',
+            onPress: () => { } // Placeholder for future profile edit
+          },
+          {
+            icon: 'lock-closed-outline',
+            label: 'Change Password',
+            onPress: () => { /* Add logic to open change password modal if needed */ }
+          },
+          {
+            icon: 'log-out-outline',
+            label: 'Logout',
+            onPress: handleLogout,
+            color: COLORS.error
+          }
+        ]}
+      />
+
       <StudentDetailsModal
         visible={!!selectedStudentForDetails}
         student={selectedStudentForDetails}
@@ -522,6 +628,27 @@ export default function TeacherDashboard() {
             setPrintOptionsVisible(false);
           }
         }}
+      />
+      <ProfileMenu
+        visible={showProfileMenu}
+        onClose={() => setShowProfileMenu(false)}
+        userName={teacherName}
+        userEmail={userEmail}
+        menuItems={[
+          { icon: 'key-outline', label: 'Change Password', onPress: () => setShowChangePassword(true) },
+          { icon: 'log-out-outline', label: 'Logout', onPress: handleLogout, color: COLORS.error }
+        ]}
+      />
+
+      <ChangePasswordModal
+        visible={showChangePassword}
+        userEmail={userEmail}
+        currentPassword={userPassword}
+        onSuccess={() => {
+          setShowChangePassword(false);
+          Alert.alert('Success', 'Password updated successfully');
+        }}
+        onClose={() => setShowChangePassword(false)}
       />
     </View>
   );

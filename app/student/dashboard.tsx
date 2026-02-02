@@ -16,6 +16,7 @@ import {
   View
 } from 'react-native';
 import { ChangePasswordModal } from '../../components/ChangePasswordModal';
+import { ProfileMenu } from '../../components/common/ProfileMenu';
 import { COLORS } from '../../constants/colors';
 import { logout } from '../../services/auth.service';
 import { populateTemplate } from '../../services/pdf-template.service';
@@ -33,7 +34,7 @@ import { generatePDF } from '../../utils/pdf-generator';
 
 const isWeb = Platform.OS === 'web';
 const LOGO_LEFT_IMG = require('../../assets/images/left.png');
-const LOGO_RIGHT_IMG = require('../../assets/images/right.jpeg');
+const LOGO_RIGHT_IMG = require('../../assets/images/right.png');
 const FALLBACK_LOGO = "https://via.placeholder.com/80?text=LOGO";
 
 const getBase64Image = (source: any, timeout = 5000): Promise<string> => {
@@ -73,174 +74,320 @@ const getBase64Image = (source: any, timeout = 5000): Promise<string> => {
 };
 
 const createStyles = (width: number, isLargeScreen: boolean, isXLargeScreen: boolean) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.background },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background },
-  loadingContent: { alignItems: 'center' },
-  loadingText: { marginTop: 16, fontSize: 16, color: COLORS.textSecondary },
-  errorContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background, padding: 24 },
-  errorContent: { alignItems: 'center', maxWidth: 320 },
-  errorIcon: { width: 80, height: 80, borderRadius: 40, backgroundColor: `${COLORS.primary}15`, justifyContent: 'center', alignItems: 'center', marginBottom: 24 },
-  errorTitle: { fontSize: 22, fontWeight: 'bold', color: COLORS.text, marginBottom: 8 },
-  errorText: { fontSize: 15, color: COLORS.textSecondary, textAlign: 'center', marginBottom: 24, lineHeight: 22 },
-  primaryButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.primary, paddingHorizontal: 24, paddingVertical: 14, borderRadius: 12, gap: 8 },
-  primaryButtonText: { color: COLORS.white, fontSize: 16, fontWeight: '600' },
+  container: { flex: 1, backgroundColor: '#F8FAFC' },
+  loadingContainer: { flex: 1, backgroundColor: '#F8FAFC', justifyContent: 'center', alignItems: 'center' },
   header: {
     backgroundColor: COLORS.primary,
-    paddingTop: Platform.OS === 'ios' ? 60 : 20,
-    paddingBottom: isLargeScreen ? 40 : 30,
-    paddingHorizontal: isLargeScreen ? 32 : 20,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24
+    paddingTop: Platform.OS === 'ios' ? 60 : 40,
+    paddingBottom: 30,
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.2,
+    shadowRadius: 15,
+    elevation: 10,
   },
-  headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: isLargeScreen ? 32 : 24 },
-  headerBrand: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  brandName: { fontSize: isLargeScreen ? 22 : 18, fontWeight: 'bold', color: COLORS.white },
-  logoutButton: {
+  headerTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    marginBottom: 25,
+  },
+  headerBrand: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: isLargeScreen ? 16 : 10,
-    paddingVertical: isLargeScreen ? 10 : 8,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.15)'
+    gap: 12,
   },
-  logoutText: { color: COLORS.white, fontWeight: '600', fontSize: 14 },
-  profileSection: { flexDirection: 'row', alignItems: 'center' },
-  profileImageContainer: { position: 'relative' },
-  profileImage: {
-    width: isLargeScreen ? 88 : 72,
-    height: isLargeScreen ? 88 : 72,
-    borderRadius: isLargeScreen ? 44 : 36,
-    borderWidth: 3,
-    borderColor: COLORS.white
-  },
-  viewBadge: { position: 'absolute', bottom: 0, right: 0, width: 26, height: 26, borderRadius: 13, backgroundColor: COLORS.secondary, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: COLORS.white },
-  profileInfo: { flex: 1, marginLeft: isLargeScreen ? 20 : 16 },
-  welcomeLabel: { fontSize: isLargeScreen ? 15 : 13, color: 'rgba(255,255,255,0.8)', marginBottom: 4 },
-  profileName: { fontSize: isLargeScreen ? 26 : 20, fontWeight: 'bold', color: COLORS.white, marginBottom: 6 },
-  prnBadge: { backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 12, paddingVertical: 5, borderRadius: 12, alignSelf: 'flex-start' },
-  prnText: { fontSize: isLargeScreen ? 14 : 12, color: COLORS.white, fontWeight: '500' },
-  statsContainer: {
-    flexDirection: 'row',
-    marginHorizontal: isLargeScreen ? 32 : 16,
-    marginTop: -20,
-    gap: isLargeScreen ? 16 : 12
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: COLORS.white,
-    borderRadius: 16,
-    padding: isLargeScreen ? 20 : 16,
-    alignItems: 'center',
-    shadowColor: COLORS.shadow,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 1,
-    shadowRadius: 12,
-    elevation: 4
-  },
-  statIconBg: {
-    width: isLargeScreen ? 52 : 44,
-    height: isLargeScreen ? 52 : 44,
-    borderRadius: 14,
+  logoCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: isLargeScreen ? 12 : 10
+    padding: 6,
   },
-  statLabel: { fontSize: isLargeScreen ? 13 : 12, color: COLORS.textLight, marginBottom: 4 },
-  statValue: { fontSize: isLargeScreen ? 17 : 15, fontWeight: 'bold', color: COLORS.text },
-  modulesSection: { padding: isLargeScreen ? 32 : 20 },
-  sectionTitle: { fontSize: isLargeScreen ? 20 : 18, fontWeight: 'bold', color: COLORS.text, marginBottom: 16 },
+  headerLogo: {
+    width: '100%',
+    height: '100%',
+  },
+  brandTitle: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  brandSub: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 10,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+  },
+  profileIconBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.3)',
+    position: 'relative',
+    overflow: 'visible',
+  },
+  headerAvatar: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 22,
+  },
+  headerAvatarFallback: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  onlineBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#10B981',
+    borderWidth: 2,
+    borderColor: COLORS.primary,
+  },
+  welcomeSection: {
+    paddingHorizontal: 24,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  welcomeText: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 14,
+    fontWeight: '500',
+    marginBottom: 4,
+  },
+  studentName: {
+    color: '#FFFFFF',
+    fontSize: 24,
+    fontWeight: 'bold',
+    maxWidth: width * 0.6,
+  },
+  prnContainer: {
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  prnLabel: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 9,
+    fontWeight: 'bold',
+    textTransform: 'uppercase',
+  },
+  prnValue: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  content: {
+    flex: 1,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    marginTop: 16,
+    gap: 10,
+  },
+  statBox: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 12,
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  statIconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  statLabel: {
+    fontSize: 11,
+    color: '#64748B',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+  },
+  statValue: {
+    fontSize: 16,
+    color: '#1E293B',
+    fontWeight: 'bold',
+  },
+  modulesSection: {
+    padding: 24,
+  },
+  sectionHeading: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#1E293B',
+    marginBottom: 20,
+    letterSpacing: -0.5,
+  },
   modulesGrid: {
-    flexDirection: isLargeScreen ? 'row' : 'column',
+    flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: isLargeScreen ? 16 : 12
+    justifyContent: 'space-between',
+    gap: 16,
   },
   moduleCard: {
-    backgroundColor: COLORS.white,
-    padding: isLargeScreen ? 20 : 16,
-    borderRadius: 16,
-    flexDirection: 'row',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 16,
     alignItems: 'center',
-    shadowColor: COLORS.shadow,
+    justifyContent: 'center',
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 1,
+    shadowOpacity: 0.03,
     shadowRadius: 8,
-    elevation: 2
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
   },
-  moduleIconBg: {
-    width: isLargeScreen ? 56 : 48,
-    height: isLargeScreen ? 56 : 48,
-    borderRadius: 14,
+  moduleIconContainer: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: isLargeScreen ? 16 : 14
+    marginBottom: 12,
   },
-  moduleTitle: { flex: 1, fontSize: isLargeScreen ? 16 : 15, fontWeight: '600', color: COLORS.text },
-  editButton: {
+  moduleCardTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#334155',
+    textAlign: 'center',
+  },
+  moduleChevron: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    opacity: 0.3,
+  },
+  footer: {
+    padding: 32,
+    alignItems: 'center',
+    opacity: 0.6,
+  },
+  footerText: {
+    fontSize: 12,
+    color: '#64748B',
+    fontStyle: 'italic',
+  },
+  loadingContent: { alignItems: 'center' },
+  loadingText: { marginTop: 16, fontSize: 16, color: '#64748B', fontWeight: '500' },
+  errorContainer: { flex: 1, backgroundColor: '#F8FAFC', padding: 24, justifyContent: 'center' },
+  errorContent: { alignItems: 'center' },
+  errorIcon: { width: 80, height: 80, borderRadius: 40, backgroundColor: `${COLORS.primary}10`, justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
+  errorTitle: { fontSize: 22, fontWeight: 'bold', color: '#1E293B', marginBottom: 8 },
+  errorText: { fontSize: 15, color: '#64748B', textAlign: 'center', marginBottom: 24, lineHeight: 22 },
+  primaryButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.primary, paddingHorizontal: 24, paddingVertical: 14, borderRadius: 12, gap: 10 },
+  primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' },
+  modalContainer: { flex: 1, backgroundColor: '#F8FAFC' },
+  modalHeader: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: COLORS.primary,
-    marginHorizontal: isLargeScreen ? 32 : 20,
-    padding: isLargeScreen ? 18 : 16,
-    borderRadius: 14,
-    gap: 8,
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4
+    paddingHorizontal: 24,
+    paddingTop: Platform.OS === 'ios' ? 60 : 20,
+    paddingBottom: 20,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
   },
-  editButtonText: { color: COLORS.white, fontSize: 16, fontWeight: 'bold' },
-  footer: { padding: 20, alignItems: 'center' },
-  footerText: { fontSize: 12, color: COLORS.textLight },
-  modalContainer: { flex: 1, backgroundColor: COLORS.background },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: isLargeScreen ? 24 : 16, paddingTop: Platform.OS === 'ios' ? 60 : 20, paddingBottom: 16, backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: COLORS.border },
-  modalCloseBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: COLORS.background, justifyContent: 'center', alignItems: 'center' },
-  modalTitle: { fontSize: isLargeScreen ? 20 : 18, fontWeight: 'bold', color: COLORS.text },
-  modalTabs: { flexDirection: 'row', backgroundColor: COLORS.white, paddingHorizontal: isLargeScreen ? 24 : 16, paddingBottom: 12, gap: 12 },
-  modalTab: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, borderRadius: 10, backgroundColor: COLORS.background, gap: 6, maxWidth: 200 },
-  modalTabActive: { backgroundColor: `${COLORS.primary}12` },
-  modalTabText: { fontSize: 14, color: COLORS.textLight, fontWeight: '500' },
+  modalCloseBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center' },
+  modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#1E293B' },
+  modalTabs: { flexDirection: 'row', backgroundColor: '#FFFFFF', paddingHorizontal: 24, paddingBottom: 16, gap: 10 },
+  modalTab: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, borderRadius: 12, backgroundColor: '#F1F5F9', gap: 6 },
+  modalTabActive: { backgroundColor: `${COLORS.primary}10` },
+  modalTabText: { fontSize: 13, color: '#64748B', fontWeight: '600' },
   modalTabTextActive: { color: COLORS.primary },
   modalContent: { flex: 1 },
-  modalProfileHeader: { alignItems: 'center', paddingVertical: isLargeScreen ? 32 : 24, backgroundColor: COLORS.white, marginBottom: 16 },
+  modalProfileHeader: { alignItems: 'center', paddingVertical: 30, backgroundColor: '#FFFFFF', marginBottom: 12 },
   modalProfileImage: {
-    width: isLargeScreen ? 120 : 100,
-    height: isLargeScreen ? 120 : 100,
-    borderRadius: isLargeScreen ? 60 : 50,
-    borderWidth: 3,
-    borderColor: COLORS.primary,
-    marginBottom: 16
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 4,
+    borderColor: `${COLORS.primary}10`,
+    marginBottom: 15
   },
-  modalProfileName: { fontSize: isLargeScreen ? 26 : 22, fontWeight: 'bold', color: COLORS.text, marginBottom: 4 },
-  modalProfilePrn: { fontSize: isLargeScreen ? 15 : 14, color: COLORS.textSecondary, marginBottom: 12 },
-  statusBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, gap: 6 },
-  verifiedBadge: { backgroundColor: `${COLORS.success}15` },
-  rejectedBadge: { backgroundColor: `${COLORS.error}15` },
-  pendingBadge: { backgroundColor: `${COLORS.warning}15` },
-  statusText: { fontSize: 13, fontWeight: '600' },
-  templateContainer: { padding: isLargeScreen ? 24 : 16 },
-  templateLoading: { alignItems: 'center', paddingVertical: 60 },
-  templateLoadingText: { marginTop: 16, fontSize: 14, color: COLORS.textSecondary },
-  templatePlaceholder: { alignItems: 'center', paddingVertical: 60 },
-  templatePlaceholderText: { fontSize: 14, color: COLORS.textLight, textAlign: 'center' },
-  modalFooter: { flexDirection: 'row', padding: isLargeScreen ? 20 : 16, backgroundColor: COLORS.white, borderTopWidth: 1, borderTopColor: COLORS.border, gap: 12 },
-  footerBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: isLargeScreen ? 16 : 14, borderRadius: 12, gap: 8, maxWidth: isLargeScreen ? 220 : undefined },
-  secondaryBtn: { backgroundColor: `${COLORS.primary}12` },
-  secondaryBtnText: { color: COLORS.primary, fontSize: 15, fontWeight: '600' },
-  primaryBtn: { backgroundColor: COLORS.primary },
-  primaryBtnText: { color: COLORS.white, fontSize: 15, fontWeight: '600' },
-  incompleteOverlay: { flex: 1, backgroundColor: COLORS.overlay, justifyContent: 'center', alignItems: 'center', padding: 20 },
-  incompleteCard: { backgroundColor: COLORS.white, borderRadius: 24, padding: isLargeScreen ? 32 : 24, width: '100%', maxWidth: 440, alignItems: 'center' },
-  incompleteIcon: { width: 80, height: 80, borderRadius: 40, backgroundColor: `${COLORS.warning}15`, justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
-  incompleteTitle: { fontSize: 20, fontWeight: 'bold', color: COLORS.text, marginBottom: 8 },
-  incompleteSubtitle: { fontSize: 14, color: COLORS.textSecondary, textAlign: 'center', marginBottom: 20 },
-  missingList: { maxHeight: 200, width: '100%', marginBottom: 20 },
-  missingItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 14, backgroundColor: `${COLORS.error}08`, borderRadius: 10, marginBottom: 8, gap: 10 },
-  missingText: { fontSize: 14, color: COLORS.error, fontWeight: '500' },
-  completeBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.primary, paddingVertical: 14, paddingHorizontal: 24, borderRadius: 12, gap: 8, width: '100%' },
-  completeBtnText: { color: COLORS.white, fontSize: 16, fontWeight: 'bold' },
+  modalProfileName: { fontSize: 22, fontWeight: 'bold', color: '#1E293B', marginBottom: 4 },
+  modalProfilePrn: { fontSize: 14, color: '#64748B', marginBottom: 15 },
+  statusBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 6, borderRadius: 20, gap: 6 },
+  verifiedBadge: { backgroundColor: '#DCFCE7' },
+  rejectedBadge: { backgroundColor: '#FEE2E2' },
+  pendingBadge: { backgroundColor: '#FEF3C7' },
+  statusText: { fontSize: 13, fontWeight: 'bold', textTransform: 'uppercase' },
+  templateContainer: { padding: 24 },
+  templateLoading: { alignItems: 'center', paddingVertical: 80 },
+  templateLoadingText: { marginTop: 16, fontSize: 15, color: COLORS.textSecondary, fontWeight: '500' },
+  templatePlaceholder: { alignItems: 'center', paddingVertical: 80, paddingHorizontal: 40 },
+  templatePlaceholderText: { fontSize: 15, color: COLORS.textLight, textAlign: 'center', lineHeight: 22 },
+  modalFooter: {
+    flexDirection: 'row',
+    padding: 24,
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+    gap: 12,
+  },
+  footerBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 50,
+    borderRadius: 14,
+    gap: 8,
+  },
+  secondaryBtn: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: COLORS.primary,
+  },
+  secondaryBtnText: {
+    color: COLORS.primary,
+    fontWeight: 'bold',
+  },
+  primaryBtn: {
+    backgroundColor: COLORS.primary,
+  },
+  primaryBtnText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+  },
+  incompleteOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 24 },
+  incompleteCard: { backgroundColor: '#FFFFFF', borderRadius: 24, padding: 24, alignItems: 'center' },
+  incompleteIcon: { marginBottom: 16 },
+  incompleteTitle: { fontSize: 20, fontWeight: 'bold', color: '#1E293B', marginBottom: 8 },
+  incompleteSubtitle: { fontSize: 14, color: '#64748B', textAlign: 'center', marginBottom: 20 },
+  missingList: { width: '100%', maxHeight: 200, marginBottom: 24 },
+  missingItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 10, paddingHorizontal: 12 },
+  missingText: { fontSize: 14, color: '#475569' },
+  completeBtn: { width: '100%', height: 54, borderRadius: 16, backgroundColor: COLORS.primary, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
+  completeBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' },
 });
 
 export default function StudentDashboard() {
@@ -258,7 +405,9 @@ export default function StudentDashboard() {
   const [incompleteModalVisible, setIncompleteModalVisible] = useState(false);
   const [missingFields, setMissingFields] = useState<string[]>([]);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [sessionData, setSessionData] = useState<{ email: string; password: string } | null>(null);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [userEmail, setUserEmail] = useState('');
+  const [userPassword, setUserPassword] = useState('');
   const [viewMode, setViewMode] = useState<'details' | 'template'>('details');
 
   const checkAuth = async () => {
@@ -267,6 +416,8 @@ export default function StudentDashboard() {
       router.replace('/');
       return null;
     }
+    setUserEmail(session.email || '');
+    setUserPassword(session.password || '');
     return session;
   };
 
@@ -370,7 +521,8 @@ export default function StudentDashboard() {
     try {
       const session = await checkAuth();
       if (session) {
-        setSessionData({ email: session.email, password: session.password || '' });
+        setUserEmail(session.email || '');
+        setUserPassword(session.password || '');
         if (session.firstLogin && session.role === 'student') setShowPasswordModal(true);
         const data = await getStudentInfo(session.prn as string);
         setProfile(data);
@@ -451,8 +603,7 @@ export default function StudentDashboard() {
 
   const getModuleCardWidth = () => {
     if (isXLargeScreen) return (width - 80) / 3 - 12;
-    if (isLargeScreen) return (width - 64) / 2 - 8;
-    return '100%';
+    return (width - 64) / 2 - 8;
   };
 
   const styles = createStyles(width, isLargeScreen, isXLargeScreen);
@@ -481,165 +632,193 @@ export default function StudentDashboard() {
   );
 
   return (
-    <>
-      <ScrollView style={styles.container} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[COLORS.primary]} />}>
-        <View style={styles.header}>
-          <View style={styles.headerTop}>
-            <View style={styles.headerBrand}>
-              <Ionicons name="school" size={isLargeScreen ? 28 : 24} color={COLORS.white} />
-              <Text style={styles.brandName}>GFM Record</Text>
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <View style={styles.headerTop}>
+          <View style={styles.headerBrand}>
+            <View style={styles.logoCircle}>
+              <Image source={LOGO_LEFT_IMG} style={styles.headerLogo} resizeMode="contain" />
             </View>
-            <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-              <Ionicons name="log-out-outline" size={20} color={COLORS.white} />
-              {isLargeScreen && <Text style={styles.logoutText}>Logout</Text>}
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.profileSection}>
-            <TouchableOpacity style={styles.profileImageContainer} onPress={() => setProfileModalVisible(true)}>
-              <Image source={{ uri: profile.photoUri || 'https://via.placeholder.com/120' }} style={styles.profileImage} />
-              <View style={styles.viewBadge}><Ionicons name="eye" size={14} color={COLORS.white} /></View>
-            </TouchableOpacity>
-            <View style={styles.profileInfo}>
-              <Text style={styles.welcomeLabel}>Welcome back,</Text>
-              <Text style={styles.profileName}>{profile.fullName || 'Student'}</Text>
-              <View style={styles.prnBadge}><Text style={styles.prnText}>PRN: {profile.prn}</Text></View>
+            <View>
+              <Text style={styles.brandTitle}>GFM</Text>
+              <Text style={styles.brandSub}>Record Management</Text>
             </View>
           </View>
+          <TouchableOpacity
+            style={styles.profileIconBtn}
+            onPress={() => setShowProfileMenu(true)}
+            activeOpacity={0.7}
+          >
+            {profile?.photoUri ? (
+              <Image source={{ uri: profile.photoUri }} style={styles.headerAvatar} />
+            ) : (
+              <View style={styles.headerAvatarFallback}>
+                <Ionicons name="person" size={20} color={COLORS.primary} />
+              </View>
+            )}
+            <View style={styles.onlineBadge} />
+          </TouchableOpacity>
         </View>
 
-        <View style={styles.statsContainer}>
-          <View style={styles.statCard}>
-            <View style={[styles.statIconBg, { backgroundColor: `${COLORS.primary}15` }]}><Ionicons name="school-outline" size={isLargeScreen ? 26 : 22} color={COLORS.primary} /></View>
-            <Text style={styles.statLabel}>Branch</Text>
-            <Text style={styles.statValue}>{profile.branch || 'N/A'}</Text>
+        <View style={styles.welcomeSection}>
+          <View>
+            <Text style={styles.welcomeText}>Welcome back,</Text>
+            <Text style={styles.studentName} numberOfLines={1}>{profile?.fullName || 'Student'}</Text>
           </View>
-          <View style={styles.statCard}>
-            <View style={[styles.statIconBg, { backgroundColor: `${COLORS.secondary}15` }]}><Ionicons name="calendar-outline" size={isLargeScreen ? 26 : 22} color={COLORS.secondary} /></View>
-            <Text style={styles.statLabel}>Year</Text>
-            <Text style={styles.statValue}>{profile.yearOfStudy || 'N/A'}</Text>
+          <View style={styles.prnContainer}>
+            <Text style={styles.prnLabel}>PRN:</Text>
+            <Text style={styles.prnValue}>{profile?.prn}</Text>
           </View>
-          <View style={styles.statCard}>
-            <View style={[styles.statIconBg, { backgroundColor: `${COLORS.accent}15` }]}><Ionicons name="grid-outline" size={isLargeScreen ? 26 : 22} color={COLORS.accent} /></View>
-            <Text style={styles.statLabel}>Division</Text>
-            <Text style={styles.statValue}>{profile.division || 'N/A'}</Text>
+        </View>
+      </View>
+
+      <ScrollView
+        style={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primary} />
+        }
+      >
+        <View style={styles.statsRow}>
+          <View style={styles.statBox}>
+            <View style={[styles.statIconCircle, { backgroundColor: '#E3F2FD' }]}>
+              <Ionicons name="business-outline" size={20} color="#1E88E5" />
+            </View>
+            <View style={{ alignItems: 'center' }}>
+              <Text style={styles.statLabel}>Dept</Text>
+              <Text style={styles.statValue} numberOfLines={1}>{profile?.branch || 'N/A'}</Text>
+            </View>
+          </View>
+          <View style={styles.statBox}>
+            <View style={[styles.statIconCircle, { backgroundColor: '#F1F8E9' }]}>
+              <Ionicons name="layers-outline" size={20} color="#43A047" />
+            </View>
+            <View style={{ alignItems: 'center' }}>
+              <Text style={styles.statLabel}>Div</Text>
+              <Text style={styles.statValue}>{profile?.division || 'N/A'}</Text>
+            </View>
+          </View>
+          <View style={styles.statBox}>
+            <View style={[styles.statIconCircle, { backgroundColor: '#FFF3E0' }]}>
+              <Ionicons name="list" size={20} color="#EF6C00" />
+            </View>
+            <View style={{ alignItems: 'center' }}>
+              <Text style={styles.statLabel}>Roll No</Text>
+              <Text style={styles.statValue}>{profile?.rollNo || 'N/A'}</Text>
+            </View>
           </View>
         </View>
 
         <View style={styles.modulesSection}>
-          <Text style={styles.sectionTitle}>Quick Access</Text>
+          <Text style={styles.sectionHeading}>Academic Services</Text>
           <View style={styles.modulesGrid}>
-            {modules.map((module) => (
+            {[
+              { id: 'academic-records', title: 'Academic', icon: 'school-outline', color: '#6366F1', route: '/student/academic-records' },
+              { id: 'fees', title: 'Fees', icon: 'wallet-outline', color: '#F59E0B', route: '/student/fee-payments' },
+              { id: 'achievements', title: 'Achievements', icon: 'trophy-outline', color: '#EC4899', route: '/student/achievements' },
+              { id: 'activity', title: 'Activities', icon: 'rocket-outline', color: '#8B5CF6', route: '/student/activities' },
+              { id: 'internship', title: 'Internship', icon: 'briefcase-outline', color: '#3B82F6', route: '/student/internships' },
+              { id: 'documents', title: 'Documents', icon: 'folder-open-outline', color: '#64748B', route: '/student/documents' },
+            ].map((module) => (
               <TouchableOpacity
                 key={module.id}
-                style={[styles.moduleCard, typeof getModuleCardWidth() === 'number' && { width: getModuleCardWidth() as number }]}
+                style={[styles.moduleCard, { width: getModuleCardWidth() }]}
                 onPress={() => router.push(module.route as any)}
-                activeOpacity={0.7}
+                activeOpacity={0.8}
               >
-                <View style={[styles.moduleIconBg, { backgroundColor: `${module.color}12` }]}><Ionicons name={module.icon as any} size={isLargeScreen ? 32 : 28} color={module.color} /></View>
-                <Text style={styles.moduleTitle}>{module.title}</Text>
-                <Ionicons name="chevron-forward" size={18} color={COLORS.textLight} />
+                <View style={[styles.moduleIconContainer, { backgroundColor: `${module.color}15` }]}>
+                  <Ionicons name={module.icon as any} size={26} color={module.color} />
+                </View>
+                <Text style={styles.moduleCardTitle}>{module.title}</Text>
+                <Ionicons name="chevron-forward" size={14} color={COLORS.textLight} style={styles.moduleChevron} />
               </TouchableOpacity>
             ))}
           </View>
         </View>
 
-        <TouchableOpacity style={styles.editButton} onPress={() => router.push('/student/personal-info' as any)} activeOpacity={0.8}>
-          <Ionicons name="create-outline" size={20} color={COLORS.white} />
-          <Text style={styles.editButtonText}>Edit Profile</Text>
-        </TouchableOpacity>
-
-        <View style={styles.footer}><Text style={styles.footerText}>Last updated: {profile.lastUpdated ? new Date(profile.lastUpdated).toLocaleDateString() : 'Never'}</Text></View>
+        <View style={styles.footer}>
+          <Text style={styles.footerText}>Last updated: {profile.lastUpdated ? new Date(profile.lastUpdated).toLocaleDateString() : 'Never'}</Text>
+          <Text style={[styles.footerText, { marginTop: 4 }]}>GFM Management System v2.1</Text>
+        </View>
+        <View style={{ height: 100 }} />
       </ScrollView>
 
       <Modal animationType="slide" transparent={false} visible={profileModalVisible} onRequestClose={() => setProfileModalVisible(false)}>
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
-            <TouchableOpacity onPress={() => setProfileModalVisible(false)} style={styles.modalCloseBtn}><Ionicons name="close" size={24} color={COLORS.text} /></TouchableOpacity>
-            <Text style={styles.modalTitle}>Student Profile</Text>
+            <TouchableOpacity onPress={() => setProfileModalVisible(false)} style={styles.modalCloseBtn}>
+              <Ionicons name="close" size={24} color={COLORS.text} />
+            </TouchableOpacity>
+            <Text style={styles.modalTitle}>Detailed Profile</Text>
             <View style={{ width: 40 }} />
           </View>
 
           <View style={styles.modalTabs}>
             <TouchableOpacity style={[styles.modalTab, viewMode === 'details' && styles.modalTabActive]} onPress={() => setViewMode('details')}>
-              <Ionicons name="list-outline" size={18} color={viewMode === 'details' ? COLORS.primary : COLORS.textLight} />
-              <Text style={[styles.modalTabText, viewMode === 'details' && styles.modalTabTextActive]}>Details</Text>
+              <Ionicons name="person-outline" size={18} color={viewMode === 'details' ? COLORS.primary : COLORS.textLight} />
+              <Text style={[styles.modalTabText, viewMode === 'details' && styles.modalTabTextActive]}>Quick Info</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[styles.modalTab, viewMode === 'template' && styles.modalTabActive]} onPress={() => setViewMode('template')}>
-              <Ionicons name="document-outline" size={18} color={viewMode === 'template' ? COLORS.primary : COLORS.textLight} />
-              <Text style={[styles.modalTabText, viewMode === 'template' && styles.modalTabTextActive]}>Report Preview</Text>
+              <Ionicons name="document-text-outline" size={18} color={viewMode === 'template' ? COLORS.primary : COLORS.textLight} />
+              <Text style={[styles.modalTabText, viewMode === 'template' && styles.modalTabTextActive]}>Report Card</Text>
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={styles.modalContent} contentContainerStyle={isLargeScreen ? { maxWidth: 800, alignSelf: 'center', width: '100%' } : undefined}>
+          <ScrollView style={styles.modalContent}>
             {viewMode === 'details' ? (
               <>
                 <View style={styles.modalProfileHeader}>
-                  <Image source={{ uri: profile.photoUri || 'https://via.placeholder.com/150' }} style={styles.modalProfileImage} />
+                  <Image source={{ uri: profile.photoUri || FALLBACK_LOGO }} style={styles.modalProfileImage} />
                   <Text style={styles.modalProfileName}>{profile.fullName}</Text>
                   <Text style={styles.modalProfilePrn}>PRN: {profile.prn}</Text>
                   <View style={[styles.statusBadge, profile.verificationStatus === 'Verified' ? styles.verifiedBadge : (profile.verificationStatus === 'Rejected' ? styles.rejectedBadge : styles.pendingBadge)]}>
-                    <Ionicons name={profile.verificationStatus === 'Verified' ? 'checkmark-circle' : (profile.verificationStatus === 'Rejected' ? 'close-circle' : 'time')} size={14} color={profile.verificationStatus === 'Verified' ? COLORS.success : (profile.verificationStatus === 'Rejected' ? COLORS.error : COLORS.warning)} />
-                    <Text style={[styles.statusText, { color: profile.verificationStatus === 'Verified' ? COLORS.success : (profile.verificationStatus === 'Rejected' ? COLORS.error : COLORS.warning) }]}>{profile.verificationStatus || 'Pending'}</Text>
+                    <Ionicons
+                      name={profile.verificationStatus === 'Verified' ? 'checkmark-circle' : (profile.verificationStatus === 'Rejected' ? 'close-circle' : 'time')}
+                      size={14}
+                      color={profile.verificationStatus === 'Verified' ? COLORS.success : (profile.verificationStatus === 'Rejected' ? COLORS.error : COLORS.warning)}
+                    />
+                    <Text style={[styles.statusText, { color: profile.verificationStatus === 'Verified' ? COLORS.success : (profile.verificationStatus === 'Rejected' ? COLORS.error : COLORS.warning) }]}>
+                      {profile.verificationStatus || 'Pending'}
+                    </Text>
                   </View>
                 </View>
 
-                <ProfileSection title="Personal Information" icon="person-outline" isLargeScreen={isLargeScreen}>
+                <ProfileSection title="Personal Info" icon="person" isLargeScreen={isLargeScreen}>
                   <ProfileRow label="Full Name" value={profile.fullName} isLargeScreen={isLargeScreen} />
                   <ProfileRow label="Gender" value={profile.gender} isLargeScreen={isLargeScreen} />
-                  <ProfileRow label="Date of Birth" value={profile.dob} isLargeScreen={isLargeScreen} />
-                  <ProfileRow label="Religion" value={profile.religion} isLargeScreen={isLargeScreen} />
+                  <ProfileRow label="DOB" value={profile.dob} isLargeScreen={isLargeScreen} />
                   <ProfileRow label="Category" value={profile.category} isLargeScreen={isLargeScreen} />
-                  <ProfileRow label="Caste" value={profile.caste} isLargeScreen={isLargeScreen} />
                 </ProfileSection>
 
-                <ProfileSection title="Contact Information" icon="call-outline" isLargeScreen={isLargeScreen}>
-                  <ProfileRow label="Phone Number" value={profile.phone} isLargeScreen={isLargeScreen} />
-                  <ProfileRow label="Email ID" value={profile.email} isLargeScreen={isLargeScreen} />
-                  <ProfileRow label="Aadhaar Number" value={profile.aadhar} isLargeScreen={isLargeScreen} />
-                </ProfileSection>
-
-                <ProfileSection title="Address" icon="location-outline" isLargeScreen={isLargeScreen}>
-                  <ProfileRow label="Permanent Address" value={profile.permanentAddress} isLargeScreen={isLargeScreen} />
-                  <ProfileRow label="Pincode" value={profile.pincode} isLargeScreen={isLargeScreen} />
-                  {profile.temporaryAddress && <ProfileRow label="Temporary Address" value={profile.temporaryAddress} isLargeScreen={isLargeScreen} />}
-                </ProfileSection>
-
-                <ProfileSection title="Family Details" icon="people-outline" isLargeScreen={isLargeScreen}>
-                  <ProfileRow label="Father/Guardian Name" value={profile.fatherName} isLargeScreen={isLargeScreen} />
-                  <ProfileRow label="Father's Occupation" value={profile.fatherOccupation} isLargeScreen={isLargeScreen} />
-                  <ProfileRow label="Father's Phone" value={profile.fatherPhone} isLargeScreen={isLargeScreen} />
-                  <ProfileRow label="Mother's Name" value={profile.motherName} isLargeScreen={isLargeScreen} />
-                  <ProfileRow label="Mother's Occupation" value={profile.motherOccupation} isLargeScreen={isLargeScreen} />
-                  <ProfileRow label="Mother's Phone" value={profile.motherPhone} isLargeScreen={isLargeScreen} />
-                  <ProfileRow label="Annual Income" value={`₹${profile.annualIncome}`} isLargeScreen={isLargeScreen} />
-                </ProfileSection>
-
-                <ProfileSection title="Academic Details" icon="school-outline" isLargeScreen={isLargeScreen}>
+                <ProfileSection title="Academic Context" icon="school" isLargeScreen={isLargeScreen}>
                   <ProfileRow label="Branch" value={profile.branch} isLargeScreen={isLargeScreen} />
-                  <ProfileRow label="Year of Study" value={profile.yearOfStudy} isLargeScreen={isLargeScreen} />
+                  <ProfileRow label="Year" value={profile.yearOfStudy} isLargeScreen={isLargeScreen} />
                   <ProfileRow label="Division" value={profile.division} isLargeScreen={isLargeScreen} />
-                  <ProfileRow label="Admission Type" value={profile.admissionType} isLargeScreen={isLargeScreen} />
-                  {profile.jeePercentile && <ProfileRow label="JEE Percentile" value={profile.jeePercentile} isLargeScreen={isLargeScreen} />}
-                  {profile.mhtCetPercentile && <ProfileRow label="MHT-CET Percentile" value={profile.mhtCetPercentile} isLargeScreen={isLargeScreen} />}
+                  <ProfileRow label="Roll No" value={profile.rollNo} isLargeScreen={isLargeScreen} />
                 </ProfileSection>
-                <View style={{ height: 100 }} />
+
+                <ProfileSection title="Contact Info" icon="call" isLargeScreen={isLargeScreen}>
+                  <ProfileRow label="Phone" value={profile.phone} isLargeScreen={isLargeScreen} />
+                  <ProfileRow label="Email" value={profile.email} isLargeScreen={isLargeScreen} />
+                  <ProfileRow label="Father Name" value={profile.fatherName} isLargeScreen={isLargeScreen} />
+                </ProfileSection>
+                <View style={{ height: 40 }} />
               </>
             ) : (
               <View style={styles.templateContainer}>
                 {templateLoading ? (
                   <View style={styles.templateLoading}>
                     <ActivityIndicator size="large" color={COLORS.primary} />
-                    <Text style={styles.templateLoadingText}>Generating Preview...</Text>
+                    <Text style={styles.templateLoadingText}>Preparing Your Report...</Text>
                   </View>
                 ) : htmlContent ? (
                   isWeb ? (
-                    <div style={{ backgroundColor: 'white', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', width: '100%', maxWidth: '210mm', margin: '0 auto', transform: width < 800 ? `scale(${Math.min(1, (width - 40) / 794)})` : 'none', transformOrigin: 'top center' }} dangerouslySetInnerHTML={{ __html: htmlContent }} />
+                    <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '12px', boxShadow: '0 4px 15px rgba(0,0,0,0.05)', width: '100%', maxWidth: '800px', margin: '0 auto' }} dangerouslySetInnerHTML={{ __html: htmlContent }} />
                   ) : (
-                    <View style={styles.templatePlaceholder}><Text style={styles.templatePlaceholderText}>Template preview is optimized for web. Use Download PDF option.</Text></View>
+                    <View style={styles.templatePlaceholder}><Text style={styles.templatePlaceholderText}>Preview available on Web. Please download PDF to view.</Text></View>
                   )
                 ) : (
-                  <View style={styles.templatePlaceholder}><Text style={styles.templatePlaceholderText}>No template available</Text></View>
+                  <View style={styles.templatePlaceholder}><Text style={styles.templatePlaceholderText}>No report data found</Text></View>
                 )}
               </View>
             )}
@@ -647,38 +826,77 @@ export default function StudentDashboard() {
 
           <View style={styles.modalFooter}>
             <TouchableOpacity style={[styles.footerBtn, styles.secondaryBtn]} onPress={downloadReport} disabled={templateLoading}>
-              <Ionicons name="download-outline" size={20} color={COLORS.primary} />
+              <Ionicons name="cloud-download-outline" size={20} color={COLORS.primary} />
               <Text style={styles.secondaryBtnText}>Download PDF</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[styles.footerBtn, styles.primaryBtn]} onPress={() => { setProfileModalVisible(false); router.push('/student/personal-info' as any); }}>
               <Ionicons name="create-outline" size={20} color={COLORS.white} />
-              <Text style={styles.primaryBtnText}>Edit Details</Text>
+              <Text style={styles.primaryBtnText}>Edit Profile</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      {sessionData && <ChangePasswordModal visible={showPasswordModal} userEmail={sessionData.email} currentPassword={sessionData.password} onSuccess={handlePasswordChangeSuccess} isFirstLogin={true} />}
+      <ChangePasswordModal
+        visible={showPasswordModal}
+        userEmail={userEmail}
+        currentPassword={userPassword}
+        onSuccess={handlePasswordChangeSuccess}
+      />
+
+      <ProfileMenu
+        visible={showProfileMenu}
+        onClose={() => setShowProfileMenu(false)}
+        userName={profile?.fullName || 'Student'}
+        userEmail={userEmail}
+        photoUri={profile?.photoUri}
+        menuItems={[
+          {
+            icon: 'person-outline',
+            label: 'Quick Profile',
+            onPress: () => setProfileModalVisible(true)
+          },
+          {
+            icon: 'create-outline',
+            label: 'Edit Info',
+            onPress: () => router.push('/student/personal-info' as any)
+          },
+          {
+            icon: 'key-outline',
+            label: 'Change Password',
+            onPress: () => setShowPasswordModal(true)
+          },
+          {
+            icon: 'log-out-outline',
+            label: 'Logout',
+            onPress: handleLogout,
+            color: COLORS.error
+          }
+        ]}
+      />
 
       <Modal animationType="fade" transparent={true} visible={incompleteModalVisible} onRequestClose={() => { }}>
         <View style={styles.incompleteOverlay}>
           <View style={styles.incompleteCard}>
             <View style={styles.incompleteIcon}><Ionicons name="alert-circle" size={48} color={COLORS.warning} /></View>
-            <Text style={styles.incompleteTitle}>Complete Your Profile</Text>
-            <Text style={styles.incompleteSubtitle}>Please fill in the following information:</Text>
+            <Text style={styles.incompleteTitle}>Profile Incomplete</Text>
+            <Text style={styles.incompleteSubtitle}>Please update these fields for full access:</Text>
             <ScrollView style={styles.missingList}>
               {missingFields.map((field, index) => (
-                <View key={index} style={styles.missingItem}><Ionicons name="close-circle" size={18} color={COLORS.error} /><Text style={styles.missingText}>{field}</Text></View>
+                <View key={index} style={styles.missingItem}>
+                  <Ionicons name="chevron-forward" size={16} color={COLORS.error} />
+                  <Text style={styles.missingText}>{field}</Text>
+                </View>
               ))}
             </ScrollView>
             <TouchableOpacity style={styles.completeBtn} onPress={() => { setIncompleteModalVisible(false); router.push('/student/personal-info' as any); }}>
-              <Ionicons name="create-outline" size={20} color={COLORS.white} />
-              <Text style={styles.completeBtnText}>Complete Profile</Text>
+              <Ionicons name="arrow-forward" size={20} color={COLORS.white} />
+              <Text style={styles.completeBtnText}>Continue Setup</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
-    </>
+    </View>
   );
 }
 

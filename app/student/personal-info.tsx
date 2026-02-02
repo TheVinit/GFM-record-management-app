@@ -232,12 +232,12 @@ export default function PersonalInfoForm() {
                 />
               </View>
               <FormInput
-                label="Phone *"
+                label="Phone (Admin Managed)"
                 keyboardType="numeric"
                 maxLength={10}
                 value={formData.phone}
-                onChangeText={v => updateField('phone', v, 'phone')}
-                placeholder="10-digit mobile number"
+                editable={false}
+                placeholder="Set by admin"
                 error={errors.phone}
               />
               <FormInput

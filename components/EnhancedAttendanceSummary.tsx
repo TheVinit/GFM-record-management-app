@@ -235,20 +235,38 @@ export const EnhancedAttendanceSummary: React.FC<EnhancedAttendanceSummaryProps>
         <View style={styles.container}>
             {/* Batch Info Header */}
             <View style={styles.batchInfoCard}>
-                <View style={styles.batchHeader}>
-                    <Ionicons name="people" size={24} color={COLORS.primary} />
-                    <Text style={styles.batchTitle}>My Batch</Text>
-                </View>
-                <View style={styles.batchDetails}>
-                    <Text style={styles.batchName}>
-                        {batchConfig?.department} - {batchConfig?.class} - {batchConfig?.division}
-                    </Text>
-                    <Text style={styles.batchRange}>
-                        Roll Range: {batchConfig?.rbt_from} - {batchConfig?.rbt_to}
-                    </Text>
-                    <Text style={styles.studentCount}>
-                        Total Students: {enhancedStudents.length}
-                    </Text>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <View style={{ flex: 1 }}>
+                        <View style={styles.batchHeader}>
+                            <Ionicons name="people" size={24} color={COLORS.primary} />
+                            <Text style={styles.batchTitle}>My Batch Details</Text>
+                        </View>
+                        <View style={styles.batchDetails}>
+                            <Text style={styles.batchName}>
+                                {batchConfig?.department} • Div {batchConfig?.division}
+                            </Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 15, marginTop: 4 }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                    <Ionicons name="list-outline" size={14} color={COLORS.textLight} />
+                                    <Text style={styles.batchRange}>
+                                        Roll: {batchConfig?.rbtFrom || '-'} - {batchConfig?.rbtTo || '-'}
+                                    </Text>
+                                </View>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                    <Ionicons name="people-outline" size={14} color={COLORS.textLight} />
+                                    <Text style={styles.studentCount}>
+                                        Total: {enhancedStudents.length}
+                                    </Text>
+                                </View>
+                            </View>
+                        </View>
+                    </View>
+                    <TouchableOpacity
+                        style={{ backgroundColor: COLORS.primary + '10', padding: 10, borderRadius: 12 }}
+                        onPress={onRefresh}
+                    >
+                        <Ionicons name="refresh" size={20} color={COLORS.primary} />
+                    </TouchableOpacity>
                 </View>
             </View>
 

@@ -18,7 +18,7 @@ const ManageAllocations = () => {
     const [modalType, setModalType] = useState<'batch' | 'assignment'>('batch');
     const [editingBatchId, setEditingBatchId] = useState<string | null>(null);
     const [students, setStudents] = useState<any[]>([]);
-    const [rbtSuggestions, setRbtSuggestions] = useState<any[]>([]);
+    const [rollSuggestions, setRollSuggestions] = useState<any[]>([]);
     const [activeInput, setActiveInput] = useState<'from' | 'to' | null>(null);
 
     // Batch Form State (Aligned with Database Keys)
@@ -54,14 +54,13 @@ const ManageAllocations = () => {
         if (activeInput && students.length > 0) {
             const filtered = students
                 .filter(s => {
-                    // Strict Context Check: Ensure student matches CURRENT form selection
                     const matchesContext =
                         s.branch === batchForm.department &&
                         s.year_of_study === batchForm.class &&
                         s.division === batchForm.division;
 
                     if (!matchesContext) return false;
-                    if (!query) return true; // Show top results if empty
+                    if (!query) return true;
 
                     const matchRoll = s.roll_no && s.roll_no.toString().toLowerCase().includes(query);
                     return matchRoll;
@@ -72,9 +71,9 @@ const ManageAllocations = () => {
                     prn: s.prn.toString()
                 }))
                 .slice(0, 10);
-            setRbtSuggestions(filtered);
+            setRollSuggestions(filtered);
         } else {
-            setRbtSuggestions([]);
+            setRollSuggestions([]);
         }
     }, [batchForm.rbt_from, batchForm.rbt_to, activeInput, students, batchForm.department, batchForm.class, batchForm.division]);
 
@@ -322,10 +321,10 @@ const ManageAllocations = () => {
     return (
         <View style={styles.container}>
             <View style={styles.header}>
-                <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+                <TouchableOpacity onPress={() => router.replace('/admin/dashboard')} style={styles.backBtn}>
                     <Ionicons name="arrow-back" size={24} color={COLORS.text} />
                 </TouchableOpacity>
-                <Text style={styles.title}>GFM Management</Text>
+                <Text style={styles.title}>Batch & GFM Management</Text>
                 <View style={{ width: 40 }} />
             </View>
 
@@ -465,18 +464,18 @@ const ManageAllocations = () => {
                                             />
                                         </View>
                                     </View>
-                                    {rbtSuggestions.length > 0 && activeInput && (
+                                    {rollSuggestions.length > 0 && activeInput && (
                                         <View style={styles.suggestionsBox}>
                                             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                                                 <View style={styles.suggestionsGrid}>
-                                                    {rbtSuggestions.map((s, idx) => (
+                                                    {rollSuggestions.map((s, idx) => (
                                                         <TouchableOpacity key={idx} style={styles.suggestionChip} onPress={() => {
                                                             if (activeInput === 'from') {
                                                                 setBatchForm({ ...batchForm, rbt_from: s.roll });
                                                             } else {
                                                                 setBatchForm({ ...batchForm, rbt_to: s.roll });
                                                             }
-                                                            setRbtSuggestions([]);
+                                                            setRollSuggestions([]);
                                                             setActiveInput(null);
                                                         }}>
                                                             <View>

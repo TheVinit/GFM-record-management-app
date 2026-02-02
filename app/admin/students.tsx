@@ -17,6 +17,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import { FilterModal } from '../../components/common/FilterModal';
 import { COLORS } from '../../constants/colors';
 import { DISPLAY_BRANCHES, DISPLAY_YEARS, getFullBranchName, getFullYearName } from '../../constants/Mappings';
 import { getSession } from '../../services/session.service';
@@ -38,12 +39,54 @@ export default function ManageStudents() {
     prn: '',
     fullName: '',
     email: '',
+    phone: '',
+    rollNo: '',
     branch: 'Computer Engineering',
     yearOfStudy: 'First Year',
     division: 'A'
   });
 
   const [yearsOfStudy, setYearsOfStudy] = useState<string[]>([]);
+
+  // Filtering State
+  const [filteredStudents, setFilteredStudents] = useState<Student[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showFilterModal, setShowFilterModal] = useState(false);
+  // Filters
+  const [deptFilter, setDeptFilter] = useState('Computer Engineering');
+  const [yearFilter, setYearFilter] = useState('All');
+  const [divFilter, setDivFilter] = useState('All');
+
+  useEffect(() => {
+    filterStudents();
+  }, [searchQuery, deptFilter, yearFilter, divFilter, students]);
+
+  const filterStudents = () => {
+    let result = students;
+
+    // Filter by Dept
+    if (deptFilter !== 'All') {
+      result = result.filter(s => s.branch && s.branch.toLowerCase() === deptFilter.toLowerCase());
+    }
+    // Filter by Year
+    if (yearFilter !== 'All') {
+      result = result.filter(s => s.yearOfStudy === yearFilter);
+    }
+    // Filter by Division
+    if (divFilter !== 'All') {
+      result = result.filter(s => s.division === divFilter);
+    }
+    // Search
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(s =>
+        s.fullName.toLowerCase().includes(q) ||
+        s.prn.toString().includes(q)
+      );
+    }
+
+    setFilteredStudents(result);
+  };
 
   useEffect(() => {
     checkAuth();
@@ -68,6 +111,7 @@ export default function ManageStudents() {
     try {
       const studentData = await getAllStudents();
       setStudents(studentData);
+      setFilteredStudents(studentData);
     } catch (error) {
       console.error('Error loading data:', error);
       Alert.alert('Error', 'Failed to load data');
@@ -77,8 +121,12 @@ export default function ManageStudents() {
   };
 
   const handleAddStudent = async () => {
-    if (!newStudent.prn || !newStudent.fullName || !newStudent.email) {
-      Alert.alert('Error', 'Please enter PRN, Full Name and Email');
+    if (!newStudent.prn || !newStudent.fullName || !newStudent.email || !newStudent.phone) {
+      Alert.alert('Error', 'Please enter PRN, Full Name, Email and Mobile Number');
+      return;
+    }
+    if (newStudent.phone.length !== 10 || !/^[0-9]+$/.test(newStudent.phone)) {
+      Alert.alert('Error', 'Mobile number must be exactly 10 digits');
       return;
     }
     try {
@@ -92,6 +140,8 @@ export default function ManageStudents() {
         prn: '',
         fullName: '',
         email: '',
+        phone: '',
+        rollNo: '',
         branch: 'Computer Engineering',
         yearOfStudy: 'First Year',
         division: 'A'
@@ -241,11 +291,26 @@ export default function ManageStudents() {
         />
       )}
 
+      <View style={styles.searchBarContainer}>
+        <View style={styles.searchInputWrapper}>
+          <Ionicons name="search" size={20} color={COLORS.textLight} style={styles.searchIcon} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search by Name or PRN..."
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+        </View>
+        <TouchableOpacity style={styles.filterBtn} onPress={() => setShowFilterModal(true)}>
+          <Ionicons name="options-outline" size={24} color={COLORS.primary} />
+        </TouchableOpacity>
+      </View>
+
       {loading ? (
         <ActivityIndicator size="large" color={COLORS.primary} style={styles.loader} />
       ) : (
         <FlatList
-          data={students}
+          data={filteredStudents}
           keyExtractor={(item) => item.prn}
           renderItem={renderStudentItem}
           contentContainerStyle={styles.listContent}
@@ -254,6 +319,28 @@ export default function ManageStudents() {
           }
         />
       )}
+
+
+      <FilterModal
+        visible={showFilterModal}
+        onClose={() => setShowFilterModal(false)}
+        onApply={() => setShowFilterModal(false)}
+        onReset={() => {
+          setDeptFilter('All');
+          setYearFilter('All');
+          setDivFilter('All');
+          setSearchQuery('');
+        }}
+        department={deptFilter}
+        onDepartmentChange={setDeptFilter}
+        departments={[{ label: 'All', value: 'All' }, ...DISPLAY_BRANCHES]}
+        year={yearFilter}
+        onYearChange={setYearFilter}
+        years={[{ label: 'All', value: 'All' }, ...DISPLAY_YEARS]}
+        division={divFilter}
+        onDivisionChange={setDivFilter}
+        divisions={['All', 'A', 'B', 'C'].map(d => ({ label: d, value: d }))}
+      />
 
       <Modal visible={modalVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
@@ -267,52 +354,96 @@ export default function ManageStudents() {
 
             <ScrollView showsVerticalScrollIndicator={false}>
               <Text style={styles.label}>Full Name *</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Student's Full Name"
-                value={newStudent.fullName}
-                onChangeText={t => setNewStudent({ ...newStudent, fullName: t })}
-              />
+              <View style={styles.inputContainer}>
+                <Ionicons name="person-outline" size={20} color={COLORS.textLight} style={styles.inputIcon} />
+                <TextInput
+                  style={styles.inputField}
+                  placeholder="Student's Full Name"
+                  placeholderTextColor="#94A3B8"
+                  value={newStudent.fullName}
+                  onChangeText={t => setNewStudent({ ...newStudent, fullName: t })}
+                />
+              </View>
 
               <Text style={styles.label}>Email ID *</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="student@email.com"
-                value={newStudent.email}
-                onChangeText={t => setNewStudent({ ...newStudent, email: t })}
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
+              <View style={styles.inputContainer}>
+                <Ionicons name="mail-outline" size={20} color={COLORS.textLight} style={styles.inputIcon} />
+                <TextInput
+                  style={styles.inputField}
+                  placeholder="student@email.com"
+                  placeholderTextColor="#94A3B8"
+                  value={newStudent.email}
+                  onChangeText={t => setNewStudent({ ...newStudent, email: t })}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+              </View>
 
-              <Text style={styles.label}>PRN *</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Unique PRN Number"
-                value={newStudent.prn}
-                onChangeText={t => setNewStudent({ ...newStudent, prn: t })}
-                autoCapitalize="characters"
-              />
+              <Text style={styles.label}>Mobile Number *</Text>
+              <View style={styles.inputContainer}>
+                <Ionicons name="call-outline" size={20} color={COLORS.textLight} style={styles.inputIcon} />
+                <TextInput
+                  style={styles.inputField}
+                  placeholder="10-digit mobile number"
+                  placeholderTextColor="#94A3B8"
+                  value={newStudent.phone}
+                  onChangeText={t => setNewStudent({ ...newStudent, phone: t.replace(/[^0-9]/g, '') })}
+                  keyboardType="phone-pad"
+                  maxLength={10}
+                />
+              </View>
 
               <View style={styles.row}>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.label}>Branch</Text>
-                  <View style={styles.pickerContainer}>
-                    <Picker
-                      selectedValue={newStudent.branch}
-                      onValueChange={v => setNewStudent({ ...newStudent, branch: v })}
-                    >
-                      {DISPLAY_BRANCHES.map(b => (
-                        <Picker.Item key={b.value} label={b.label} value={b.value} />
-                      ))}
-                    </Picker>
+                  <Text style={styles.label}>Roll No (Optional)</Text>
+                  <View style={styles.inputContainer}>
+                    <Ionicons name="list-outline" size={20} color={COLORS.textLight} style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.inputField}
+                      placeholder="e.g. 101"
+                      placeholderTextColor="#94A3B8"
+                      value={newStudent.rollNo || ''}
+                      onChangeText={t => setNewStudent({ ...newStudent, rollNo: t })}
+                    />
                   </View>
                 </View>
-                <View style={{ flex: 1, marginLeft: 10 }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.label}>PRN *</Text>
+                  <View style={styles.inputContainer}>
+                    <Ionicons name="card-outline" size={20} color={COLORS.textLight} style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.inputField}
+                      placeholder="Unique PRN Number"
+                      placeholderTextColor="#94A3B8"
+                      value={newStudent.prn}
+                      onChangeText={t => setNewStudent({ ...newStudent, prn: t })}
+                      autoCapitalize="characters"
+                    />
+                  </View>
+                </View>
+              </View>
+
+              <Text style={styles.label}>Branch</Text>
+              <View style={styles.pickerContainer}>
+                <Picker
+                  selectedValue={newStudent.branch}
+                  onValueChange={v => setNewStudent({ ...newStudent, branch: v })}
+                  style={isWeb ? { border: 'none', background: 'transparent' } : {}}
+                >
+                  {DISPLAY_BRANCHES.map(b => (
+                    <Picker.Item key={b.value} label={b.label} value={b.value} />
+                  ))}
+                </Picker>
+              </View>
+
+              <View style={[styles.row, { marginTop: 10 }]}>
+                <View style={{ flex: 1 }}>
                   <Text style={styles.label}>Year</Text>
                   <View style={styles.pickerContainer}>
                     <Picker
                       selectedValue={newStudent.yearOfStudy}
                       onValueChange={v => setNewStudent({ ...newStudent, yearOfStudy: v })}
+                      style={isWeb ? { border: 'none', background: 'transparent' } : {}}
                     >
                       {DISPLAY_YEARS.map(y => (
                         <Picker.Item key={y.value} label={y.label} value={y.value} />
@@ -320,27 +451,20 @@ export default function ManageStudents() {
                     </Picker>
                   </View>
                 </View>
-              </View>
-
-              <Text style={styles.label}>Division</Text>
-              <View style={styles.pickerContainer}>
-                <Picker
-                  selectedValue={newStudent.division}
-                  onValueChange={v => setNewStudent({ ...newStudent, division: v })}
-                >
-                  <Picker.Item label="A" value="A" />
-                  <Picker.Item label="A1" value="A1" />
-                  <Picker.Item label="A2" value="A2" />
-                  <Picker.Item label="A3" value="A3" />
-                  <Picker.Item label="B" value="B" />
-                  <Picker.Item label="B1" value="B1" />
-                  <Picker.Item label="B2" value="B2" />
-                  <Picker.Item label="B3" value="B3" />
-                  <Picker.Item label="C" value="C" />
-                  <Picker.Item label="C1" value="C1" />
-                  <Picker.Item label="C2" value="C2" />
-                  <Picker.Item label="C3" value="C3" />
-                </Picker>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.label}>Division</Text>
+                  <View style={styles.pickerContainer}>
+                    <Picker
+                      selectedValue={newStudent.division}
+                      onValueChange={v => setNewStudent({ ...newStudent, division: v })}
+                      style={isWeb ? { border: 'none', background: 'transparent' } : {}}
+                    >
+                      {['A', 'A1', 'A2', 'A3', 'B', 'B1', 'B2', 'B3', 'C', 'C1', 'C2', 'C3'].map(d => (
+                        <Picker.Item key={d} label={d} value={d} />
+                      ))}
+                    </Picker>
+                  </View>
+                </View>
               </View>
             </ScrollView>
 
@@ -408,6 +532,40 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F4F7F6',
+  },
+  searchBarContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+    marginBottom: 10,
+    gap: 10,
+  },
+  searchInputWrapper: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    paddingHorizontal: 10,
+  },
+  searchIcon: {
+    marginRight: 10,
+  },
+  searchInput: {
+    flex: 1,
+    paddingVertical: 10,
+    fontSize: 16,
+    color: COLORS.text,
+  },
+  filterBtn: {
+    backgroundColor: '#fff',
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   header: {
     flexDirection: 'row',
@@ -526,28 +684,70 @@ const styles = StyleSheet.create({
     color: COLORS.text,
   },
   label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: COLORS.text,
-    marginBottom: 5,
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#64748B', // Slate color
+    marginBottom: 2,
     marginTop: 10,
+    marginLeft: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   input: {
     borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 8,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
     padding: 12,
     fontSize: 16,
-    backgroundColor: '#fff',
+    backgroundColor: '#F8FAFC',
+    color: '#1E293B',
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    backgroundColor: '#fff', // Changed to white for better contrast with shadow
+    paddingHorizontal: 15,
+    height: 54,
+    marginBottom: 8,
+    // Subtle shadow
+    shadowColor: "#64748B",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  inputIcon: {
+    marginRight: 10,
+    opacity: 0.5,
+  },
+  inputField: {
+    flex: 1,
+    fontSize: 15,
+    color: '#1E293B',
+    fontWeight: '500',
+    height: '100%',
   },
   row: {
     flexDirection: 'row',
+    gap: 25,
   },
   pickerContainer: {
     borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 8,
-    marginTop: 5,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    backgroundColor: '#fff', // Changed to white
+    height: 54,
+    justifyContent: 'center',
+    marginBottom: 8,
+    overflow: 'hidden',
+    shadowColor: "#64748B",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
   },
   modalButtons: {
     flexDirection: 'row',

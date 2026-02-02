@@ -14,18 +14,21 @@ import { generatePDF } from '../../utils/pdf-generator';
 const isWeb = Platform.OS === 'web';
 const FALLBACK_LOGO = "https://via.placeholder.com/80?text=LOGO";
 const LOGO_LEFT_IMG = require('../../assets/images/left.png');
-const LOGO_RIGHT_IMG = require('../../assets/images/right.jpeg');
+const LOGO_RIGHT_IMG = require('../../assets/images/right.png');
 
 export const getBase64Image = (source: any, timeout = 5000): Promise<string> => {
     return new Promise((resolve) => {
-        if (!source) return resolve('');
+        if (!source) {
+            console.warn('[getBase64Image] No source provided');
+            return resolve(FALLBACK_LOGO);
+        }
 
         // On Native, we can't easily use canvas to get base64.
         // For now, return the URI directly if it's already a string or resolve source.
         if (!isWeb) {
             if (typeof source === 'string') return resolve(source);
             const resolved = Image.resolveAssetSource(source);
-            return resolve(resolved?.uri || '');
+            return resolve(resolved?.uri || FALLBACK_LOGO);
         }
 
         if (typeof source === 'string' && source.startsWith('data:')) return resolve(source);
@@ -42,16 +45,23 @@ export const getBase64Image = (source: any, timeout = 5000): Promise<string> => 
             }
         } catch (e) {
             console.warn('[getBase64Image] Error resolving source:', e);
+            return resolve(FALLBACK_LOGO);
         }
 
-        if (!url) return resolve('');
+        if (!url) {
+            console.warn('[getBase64Image] No URL resolved');
+            return resolve(FALLBACK_LOGO);
+        }
+
+        console.log('[getBase64Image] Loading image from:', url);
 
         const img = document.createElement('img');
         img.setAttribute('crossOrigin', 'anonymous');
 
         const timer = setTimeout(() => {
+            console.warn('[getBase64Image] Timeout loading image:', url);
             img.src = "";
-            resolve(url || '');
+            resolve(FALLBACK_LOGO);
         }, timeout);
 
         img.onload = () => {
@@ -62,14 +72,18 @@ export const getBase64Image = (source: any, timeout = 5000): Promise<string> => 
             const ctx = canvas.getContext('2d');
             ctx?.drawImage(img, 0, 0);
             try {
-                resolve(canvas.toDataURL('image/png'));
+                const dataUrl = canvas.toDataURL('image/png');
+                console.log('[getBase64Image] Successfully converted to base64');
+                resolve(dataUrl);
             } catch (e) {
-                resolve(url || '');
+                console.error('[getBase64Image] Canvas conversion error:', e);
+                resolve(FALLBACK_LOGO);
             }
         };
-        img.onerror = () => {
+        img.onerror = (err) => {
             clearTimeout(timer);
-            resolve(url?.includes('supabase.co') ? FALLBACK_LOGO : (url || ''));
+            console.error('[getBase64Image] Image load error:', err, 'URL:', url);
+            resolve(FALLBACK_LOGO);
         };
         img.src = url;
     });

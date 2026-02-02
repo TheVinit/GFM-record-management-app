@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import { getSession, saveSession } from '../services/session.service';
 import { supabase } from '../services/supabase';
 
 interface ChangePasswordModalProps {
@@ -74,13 +75,25 @@ export function ChangePasswordModal({
     try {
       const { error: updateError } = await supabase
         .from('profiles')
-        .update({ 
+        .update({
           password: newPassword,
-          first_login: false 
+          first_login: false
         })
-        .eq('email', userEmail.toLowerCase());
+        .eq('email', userEmail.toLowerCase().trim());
 
       if (updateError) throw updateError;
+
+      // Update Supabase Auth if applicable
+      const { error: authError } = await supabase.auth.updateUser({ password: newPassword });
+      if (authError) console.warn('Supabase Auth update skipped:', authError.message);
+
+      // Sync session
+      const session = await getSession();
+      if (session && session.email.toLowerCase() === userEmail.toLowerCase()) {
+        session.password = newPassword;
+        session.firstLogin = false;
+        await saveSession(session);
+      }
 
       if (Platform.OS === 'web') {
         window.alert('Password Changed!\n\nYour password has been updated successfully.');

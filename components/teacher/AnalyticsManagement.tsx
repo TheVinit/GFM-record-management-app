@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, Text, View } from 'react-native';
 import { COLORS } from '../../constants/colors';
 import {
@@ -9,13 +10,21 @@ import {
 } from '../../storage/sqlite';
 import { styles } from './dashboard.styles';
 
-export const AnalyticsRowComp = ({ label, verified, total, color }: any) => (
-    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-        <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: color, marginRight: 10 }} />
-        <Text style={{ flex: 1, fontSize: 13, color: COLORS.text }}>{label}</Text>
+export const VerificationItem = ({ icon, label, verified, total, color, bg }: any) => (
+    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8, backgroundColor: bg || '#F8FAFC', padding: 12, borderRadius: 12 }}>
+        <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: color + '15', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+            <Ionicons name={icon as any} size={18} color={color} />
+        </View>
+        <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 13, fontWeight: '600', color: COLORS.text }}>{label}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: color }} />
+                <Text style={{ fontSize: 11, color: COLORS.textLight }}>Verification Track</Text>
+            </View>
+        </View>
         <View style={{ alignItems: 'flex-end' }}>
-            <Text style={{ fontWeight: 'bold', fontSize: 13, color }}>{verified} / {total}</Text>
-            <Text style={{ fontSize: 10, color: COLORS.textLight }}>Verified</Text>
+            <Text style={{ fontWeight: '800', fontSize: 14, color }}>{verified} / {total}</Text>
+            <Text style={{ fontSize: 10, color: COLORS.textLight, fontWeight: '600' }}>VERIFIED</Text>
         </View>
     </View>
 );
@@ -71,14 +80,40 @@ export const AnalyticsManagement = ({ students, filters }: any) => {
 
         // Fee analytics needs a bit more care since it's a summary object
         // Actually, we can recalculate it from filteredFees or just use the local student count
-        const totalRemaining = filteredFees.reduce((acc: number, f: any) => acc + (f.lastBalance || 0), 0);
-        const paidAmount = filteredFees.reduce((acc: number, f: any) => acc + (f.paidAmount || 0), 0);
+        const paidAmount = filteredFees.reduce((acc: number, f: any) => acc + (f.amountPaid || 0), 0);
+        const studentsPaidCount = filteredFees.filter((f: any) => f.amountPaid > 0).length;
+        const totalStudentsInBatch = students.length;
+
+        // Calculate the standard fee for this batch based on students who have already updated their records
+        // Many students might have 0 because they haven't uploaded a first receipt.
+        const feeCounts: Record<number, number> = {};
+        filteredFees.forEach(f => {
+            if (f.totalFee > 0) {
+                feeCounts[f.totalFee] = (feeCounts[f.totalFee] || 0) + 1;
+            }
+        });
+
+        let batchStandardFee = 0;
+        let maxCount = 0;
+        Object.entries(feeCounts).forEach(([fee, count]) => {
+            if (count > maxCount) {
+                maxCount = count;
+                batchStandardFee = Number(fee);
+            }
+        });
+
+        // The target should reflect the cumulative fees expected from ALL students in the batch
+        const totalTarget = filteredFees.reduce((acc: number, f: any) => {
+            return acc + (f.totalFee || batchStandardFee);
+        }, 0);
 
         setStats({
             total, verified, pending, deptWise,
             feeStats: {
-                total: totalRemaining + paidAmount,
-                paid: paidAmount
+                total: totalTarget,
+                paid: paidAmount,
+                studentsPaid: studentsPaidCount,
+                studentsTotal: totalStudentsInBatch
             },
             moduleStats: {
                 activities: { total: filteredActs.length, verified: filteredActs.filter((a: any) => a.verificationStatus === 'Verified').length },
@@ -94,64 +129,100 @@ export const AnalyticsManagement = ({ students, filters }: any) => {
     return (
         <View>
             <View style={styles.statsRow}>
-                <View style={styles.statCard}>
-                    <Text style={styles.statLabel}>Total Students</Text>
-                    <Text style={styles.statValue}>{stats.total}</Text>
+                <View style={[styles.statCard, { borderLeftWidth: 0, backgroundColor: '#EEF2FF', elevation: 0, borderRightWidth: 1, borderRightColor: '#E2E8F0' }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <Ionicons name="people" size={20} color="#6366F1" />
+                        <Text style={[styles.statLabel, { marginBottom: 0 }]}>Total Students</Text>
+                    </View>
+                    <Text style={[styles.statValue, { marginTop: 10 }]}>{stats.total}</Text>
                 </View>
-                <View style={[styles.statCard, { borderLeftWidth: 4, borderLeftColor: COLORS.success }]}>
-                    <Text style={styles.statLabel}>Verified (Profiles)</Text>
-                    <Text style={[styles.statValue, { color: COLORS.success }]}>{stats.verified}</Text>
+                <View style={[styles.statCard, { borderLeftWidth: 0, backgroundColor: '#F0FDF4', elevation: 0, borderRightWidth: 1, borderRightColor: '#E2E8F0' }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <Ionicons name="checkmark-circle" size={20} color={COLORS.success} />
+                        <Text style={[styles.statLabel, { marginBottom: 0 }]}>Verified</Text>
+                    </View>
+                    <Text style={[styles.statValue, { color: COLORS.success, marginTop: 10 }]}>{stats.verified}</Text>
                 </View>
-                <View style={[styles.statCard, { borderLeftWidth: 4, borderLeftColor: COLORS.warning }]}>
-                    <Text style={styles.statLabel}>Pending (Profiles)</Text>
-                    <Text style={[styles.statValue, { color: COLORS.warning }]}>{stats.pending}</Text>
+                <View style={[styles.statCard, { borderLeftWidth: 0, backgroundColor: '#FFF7ED', elevation: 0 }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <Ionicons name="time" size={20} color={COLORS.warning} />
+                        <Text style={[styles.statLabel, { marginBottom: 0 }]}>Pending</Text>
+                    </View>
+                    <Text style={[styles.statValue, { color: COLORS.warning, marginTop: 10 }]}>{stats.pending}</Text>
                 </View>
             </View>
 
-            <View style={styles.row}>
-                <View style={[styles.moduleCard, { flex: 1 }]}>
-                    <Text style={styles.moduleTitle}>Fee Collection Progress</Text>
-                    <View style={{ marginTop: 20, alignItems: 'center' }}>
-                        <Text style={{ fontSize: 24, fontWeight: 'bold', color: COLORS.success }}>
-                            {stats.feeStats.total > 0 ? ((stats.feeStats.paid / stats.feeStats.total) * 100).toFixed(1) : 0}%
-                        </Text>
-                        <Text style={styles.helperText}>Collected of Total ₹{stats.feeStats.total}</Text>
-                        <View style={{ width: '100%', height: 12, backgroundColor: '#eee', borderRadius: 6, overflow: 'hidden', marginTop: 10 }}>
-                            <View style={{ height: '100%', backgroundColor: COLORS.success, width: `${(stats.feeStats.paid / (stats.feeStats.total || 1)) * 100}%` }} />
-                        </View>
+            {/* Fee Collection Card */}
+            <View style={[styles.moduleCard, { marginBottom: 15 }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 15 }}>
+                    <View style={{ backgroundColor: COLORS.success + '15', padding: 8, borderRadius: 10 }}>
+                        <Ionicons name="card" size={22} color={COLORS.success} />
                     </View>
+                    <Text style={styles.moduleTitle}>Fee Collection Progress</Text>
                 </View>
 
-                <View style={[styles.moduleCard, { flex: 1 }]}>
-                    <Text style={styles.moduleTitle}>Verification Status</Text>
-                    <View style={{ marginTop: 10 }}>
-                        <AnalyticsRowComp label="Activities" verified={stats.moduleStats.activities.verified} total={stats.moduleStats.activities.total} color={COLORS.secondary} />
-                        <AnalyticsRowComp label="Internships" verified={stats.moduleStats.internships.verified} total={stats.moduleStats.internships.total} color={COLORS.warning} />
-                        <AnalyticsRowComp label="Fee Payments" verified={stats.moduleStats.fees.verified} total={stats.moduleStats.fees.total} color={COLORS.success} />
+                <View style={{ alignItems: 'center', paddingVertical: 10 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
+                        <Text style={{ fontSize: 28, fontWeight: '900', color: COLORS.text }}>
+                            {stats.feeStats.studentsPaid} / {stats.feeStats.studentsTotal}
+                        </Text>
+                        <Text style={{ fontSize: 13, color: COLORS.textSecondary, fontWeight: '600' }}>Students Paid</Text>
+                    </View>
+
+                    <View style={{ width: '100%', height: 10, backgroundColor: '#F1F5F9', borderRadius: 5, overflow: 'hidden', marginTop: 15, marginBottom: 8 }}>
+                        <View style={{ height: '100%', backgroundColor: COLORS.success, width: `${(stats.feeStats.studentsPaid / (stats.feeStats.studentsTotal || 1)) * 100}%` }} />
+                    </View>
+
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%' }}>
+                        <View>
+                            <Text style={{ fontSize: 11, color: COLORS.textLight, fontWeight: '600' }}>COLLECTED</Text>
+                            <Text style={{ fontSize: 15, fontWeight: '700', color: COLORS.success }}>₹{stats.feeStats.paid.toLocaleString()}</Text>
+                        </View>
+                        <View style={{ alignItems: 'flex-end' }}>
+                            <Text style={{ fontSize: 11, color: COLORS.textLight, fontWeight: '600' }}>TOTAL TARGET</Text>
+                            <Text style={{ fontSize: 15, fontWeight: '700', color: COLORS.textSecondary }}>₹{stats.feeStats.total.toLocaleString()}</Text>
+                        </View>
                     </View>
                 </View>
             </View>
 
             <View style={styles.moduleCard}>
-                <Text style={styles.moduleTitle}>Department Distribution</Text>
-                <View style={{ marginTop: 20 }}>
-                    {Object.entries(stats.deptWise).map(([dept, count]: any) => (
-                        <View key={dept} style={{ marginBottom: 15 }}>
-                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 }}>
-                                <Text style={{ fontWeight: '500', color: COLORS.text }}>{dept}</Text>
-                                <Text style={{ color: COLORS.textLight }}>{count} Students</Text>
-                            </View>
-                            <View style={{ height: 10, backgroundColor: '#eee', borderRadius: 5, overflow: 'hidden' }}>
-                                <View style={{
-                                    height: '100%',
-                                    backgroundColor: COLORS.secondary,
-                                    width: `${(count / (stats.total || 1)) * 100}%`
-                                }} />
-                            </View>
-                        </View>
-                    ))}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 15 }}>
+                    <View style={{ backgroundColor: COLORS.primary + '15', padding: 8, borderRadius: 10 }}>
+                        <Ionicons name="shield-checkmark" size={22} color={COLORS.primary} />
+                    </View>
+                    <Text style={styles.moduleTitle}>Verification Status</Text>
+                </View>
+
+                <View style={{ gap: 4 }}>
+                    <VerificationItem
+                        icon="layers"
+                        label="Activities"
+                        verified={stats.moduleStats.activities.verified}
+                        total={stats.moduleStats.activities.total}
+                        color={COLORS.secondary}
+                        bg="#EEF2FF"
+                    />
+                    <VerificationItem
+                        icon="briefcase"
+                        label="Internships"
+                        verified={stats.moduleStats.internships.verified}
+                        total={stats.moduleStats.internships.total}
+                        color={COLORS.warning}
+                        bg="#FFFBEB"
+                    />
+                    <VerificationItem
+                        icon="receipt"
+                        label="Fee Payments"
+                        verified={stats.moduleStats.fees.verified}
+                        total={stats.moduleStats.fees.total}
+                        color={COLORS.success}
+                        bg="#F0FDF4"
+                    />
                 </View>
             </View>
+
+
         </View>
     );
 };
