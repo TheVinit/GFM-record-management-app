@@ -17,7 +17,7 @@ import { BRANCH_MAPPINGS, YEAR_MAPPINGS } from '../../constants/Mappings';
 import { calculatePercentage, sanitizeInput, validateStep } from '../../constants/validation';
 import { markProfileComplete } from '../../services/auth.service';
 import { uploadToCloudinary } from '../../services/cloudinaryservices';
-import { getUserPrn } from '../../services/session.service';
+import { getSession } from '../../services/session.service';
 import { getStudentInfo, saveStudentInfo, Student } from '../../storage/sqlite';
 
 export default function PersonalInfoForm() {
@@ -25,6 +25,7 @@ export default function PersonalInfoForm() {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
+  const [userId, setUserId] = useState('');
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
 
   const [formData, setFormData] = useState<Student>({
@@ -43,11 +44,13 @@ export default function PersonalInfoForm() {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const prn = await getUserPrn();
-        if (!prn) {
+        const session = await getSession();
+        if (!session) {
           router.replace('/' as any);
           return;
         }
+        setUserId(session.id);
+        const prn = session.prn || '';
         setFormData(prev => ({ ...prev, prn }));
         const existingData = await getStudentInfo(prn);
         if (existingData) setFormData(existingData);
@@ -138,7 +141,7 @@ export default function PersonalInfoForm() {
       await saveStudentInfo(finalData);
       console.log('✅ Student info saved');
 
-      await markProfileComplete(formData.prn);
+      await markProfileComplete(userId);
       console.log('✅ Profile marked as complete');
 
       await AsyncStorage.setItem('personalInfoCompleted', 'true');

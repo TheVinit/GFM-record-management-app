@@ -50,11 +50,17 @@ export default function Index() {
         else if (user.role === 'attendance_taker') router.replace('/attendance-taker/dashboard');
       }
     } catch (error: any) {
-      const msg = error.message || 'Invalid credentials';
-      if (msg.includes('User not found')) {
-        Alert.alert('Login Failed', 'Incorrect username. Please check your PRN/Email.');
-      } else if (msg.includes('Invalid password')) {
-        Alert.alert('Login Failed', 'Incorrect password. Please try again.');
+      const msg = error.message || 'Something went wrong. Please try again.';
+      if (msg.includes('No account found') || msg.includes('User not found')) {
+        Alert.alert(
+          'Account Not Found',
+          msg,
+          [{ text: 'OK' }]
+        );
+      } else if (msg.includes('Invalid password') || msg.includes('password')) {
+        Alert.alert('Wrong Password', 'The password you entered is incorrect. Please try again.');
+      } else if (msg.includes('network') || msg.includes('fetch')) {
+        Alert.alert('Connection Error', 'Unable to connect. Please check your internet connection and try again.');
       } else {
         Alert.alert('Login Failed', msg);
       }

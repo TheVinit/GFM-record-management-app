@@ -1410,7 +1410,9 @@ export const getAttendanceRecords = async (sessionId: string) => {
         students!student_prn(
           full_name,
           phone,
-          roll_no
+          roll_no,
+          father_phone,
+          mother_phone
         )
       `)
     .eq('session_id', sessionId);
@@ -1423,7 +1425,9 @@ export const getAttendanceRecords = async (sessionId: string) => {
     ...toCamelCase(item),
     fullName: (item as any).students?.full_name,
     phone: (item as any).students?.phone,
-    rollNo: (item as any).students?.roll_no
+    rollNo: (item as any).students?.roll_no,
+    fatherPhone: (item as any).students?.father_phone,
+    motherPhone: (item as any).students?.mother_phone
   }));
 };
 

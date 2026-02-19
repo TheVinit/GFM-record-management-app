@@ -64,69 +64,108 @@ const ReportsDashboard = () => {
 
         setGenerating(true);
         try {
-            // 1. Get GFM's students
-            // We need a helper to get students, let's assume we can query profiles or students table with GFM ID
-            // For now, let's assume we use the same logic as dashboard: getStudentsForGFM or similar?
-            // But wait, the SQL migration added RLS policies, so maybe we can just query directly?
-
-            // Let's call a database function or do it client side for now (simpler for prototype)
-            // Getting Batch Config
+            // 1. Get Batch Config
             const { data: batchConfig } = await supabase
                 .from('teacher_batch_configs')
                 .select('*')
                 .eq('teacher_id', session.id)
                 .single();
 
-            if (!batchConfig) throw new Error("Batch config not found");
+            if (!batchConfig) throw new Error("Batch config not found. Please ensure your batch is assigned.");
 
             const dateStr = startDate.toISOString().split('T')[0];
 
-            // 2. Get Statistics
-            // This is a simplified "Daily Report". For range reports, we'd need start/end.
-            // Let's assume Daily Report for now as table has 'date'.
+            // 2. Fetch all students in this batch
+            const { data: studentsInRange } = await supabase
+                .from('students')
+                .select('prn, roll_no, full_name')
+                .eq('branch', batchConfig.department)
+                .eq('year_of_study', batchConfig.class)
+                .eq('division', batchConfig.division?.[0] || 'A');
 
-            // Fetch attendance sessions for this day/batch
-            // And count absent/present
+            if (!studentsInRange || studentsInRange.length === 0) {
+                throw new Error("No students found in this batch allocation.");
+            }
 
-            // We will perform a Remote Procedure Call (RPC) or complex query here?
-            // Let's simply insert a dummy report record for now to test the UI flow, 
-            // as the actual aggregation logic is complex and might be handled better by a backend function.
+            // Numeric range filtering (matches dashboard logic)
+            const extractTailNum = (str: string) => {
+                const match = String(str).match(/\d+$/);
+                return match ? parseInt(match[0]) : NaN;
+            };
 
-            // REAL IMPLEMENTATION STUB:
-            // In a real app, you would query 'attendance_records' for this date and these students.
+            const fNum = extractTailNum(batchConfig.rbt_from);
+            const tNum = extractTailNum(batchConfig.rbt_to);
+
+            const batchStudents = studentsInRange.filter(s => {
+                const sNum = extractTailNum(s.roll_no || s.prn);
+                if (isNaN(fNum) || isNaN(tNum) || isNaN(sNum)) return false;
+                const seq = sNum % 1000;
+                const fSeq = fNum % 1000;
+                const tSeq = tNum % 1000;
+                return seq >= fSeq && seq <= tSeq;
+            });
+
+            const studentPrns = batchStudents.map(s => s.prn);
+            const totalStudentsCount = batchStudents.length;
+
+            // 3. Fetch Attendance Records for this date and students
+            const { data: attendanceRecords } = await supabase
+                .from('attendance_records')
+                .select('student_prn, status')
+                .eq('date', dateStr)
+                .in('student_prn', studentPrns);
+
+            const absentPrns = attendanceRecords?.filter(r => r.status === 'Absent').map(r => r.student_prn) || [];
+            const totalAbsentCount = absentPrns.length;
+
+            // 4. Fetch Follow-ups and Leave Notes
+            const { count: contactedCount } = await supabase
+                .from('attendance_follow_ups')
+                .select('*', { count: 'exact', head: true })
+                .eq('date', dateStr)
+                .in('student_prn', studentPrns);
+
+            const { count: leaveNotesCount } = await supabase
+                .from('pre_informed_absences')
+                .select('*', { count: 'exact', head: true })
+                .eq('date', dateStr)
+                .in('student_prn', studentPrns);
+
+            // 5. Build Report Object
+            const absentDetails = batchStudents
+                .filter(s => absentPrns.includes(s.prn))
+                .map(s => ({ roll: s.roll_no, name: s.full_name }));
 
             const newReport = {
                 date: dateStr,
                 gfm_id: session.id,
                 department: batchConfig.department,
-                year: batchConfig.class || batchConfig.academic_year, // Fallback
+                year: batchConfig.class,
                 division: batchConfig.division?.[0] || 'A',
                 batch_range: `${batchConfig.rbt_from}-${batchConfig.rbt_to}`,
-                total_students: 20, // Mock
-                total_absent: 2,   // Mock
-                total_contacted: 1, // Mock
-                total_pre_informed: 1, // Mock
+                total_students: totalStudentsCount,
+                total_absent: totalAbsentCount,
+                total_contacted: contactedCount || 0,
+                total_pre_informed: leaveNotesCount || 0,
                 report_data: {
-                    summary: "Generated Report",
-                    absent_details: []
+                    summary: `Generated Report for ${dateStr}`,
+                    absent_details: absentDetails
                 }
             };
 
-            const { data, error } = await supabase
+            const { error } = await supabase
                 .from('attendance_reports')
-                .insert(newReport)
-                .select()
-                .single();
+                .insert(newReport);
 
             if (error) throw error;
 
             setCreateModalVisible(false);
             loadReports();
-            Alert.alert("Success", "Report generated successfully");
+            Alert.alert("Success", "Report generated successfully using live attendance data.");
 
-        } catch (err) {
+        } catch (err: any) {
             console.error('Error generating report:', err);
-            Alert.alert('Error', 'Failed to generate report');
+            Alert.alert('Report Generation Failed', err.message || 'Check your internet connection and batch assignment.');
         } finally {
             setGenerating(false);
         }

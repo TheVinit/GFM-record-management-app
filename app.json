@@ -8,9 +8,11 @@
     "scheme": "gfmrecord",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.gfm.record"
     },
     "android": {
+      "package": "com.gfm.record",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
