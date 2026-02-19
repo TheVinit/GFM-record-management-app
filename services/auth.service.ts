@@ -57,29 +57,37 @@ export const login = async (identifier: string, pass: string) => {
   try {
     let profile = null;
 
-    // Try to find user by PRN first, then by email
     if (!identifier.includes('@')) {
-      const { data, error } = await supabase
+      // Step 1: Try to find user by PRN / EMPID (stored in `prn` column)
+      const { data: byPrn, error: prnError } = await supabase
         .from('profiles')
-        .select('id, email, role, prn, full_name, department, password, first_login')
-        .eq('prn', identifier)
+        .select('id, email, role, prn, full_name, department, password, first_login, is_profile_complete')
+        .eq('prn', identifier.trim())
         .maybeSingle();
 
-      if (error) throw error;
-      profile = data;
+      if (prnError) throw prnError;
+      profile = byPrn;
+
+      // Step 2: Fallback — try matching by full_name if still not found
+      // (rare, but useful for admins searching by name)
+      // Note: Primary fallback is covered — EMPID lives in `prn` for all staff
     } else {
-      const { data, error } = await supabase
+      const { data: byEmail, error: emailError } = await supabase
         .from('profiles')
-        .select('id, email, role, prn, full_name, department, password, first_login')
-        .eq('email', identifier.toLowerCase())
+        .select('id, email, role, prn, full_name, department, password, first_login, is_profile_complete')
+        .eq('email', identifier.toLowerCase().trim())
         .maybeSingle();
 
-      if (error) throw error;
-      profile = data;
+      if (emailError) throw emailError;
+      profile = byEmail;
     }
 
     if (!profile) {
-      throw new Error('User not found. Please check your PRN or Email.');
+      throw new Error(
+        identifier.includes('@')
+          ? 'No account found with this email. Please check your registered email address.'
+          : 'No account found with this EMPID / PRN. Please check your ID or use your registered email address instead.'
+      );
     }
 
     if (profile.password !== pass) {
@@ -98,7 +106,7 @@ export const login = async (identifier: string, pass: string) => {
       email: profile.email,
       role: profile.role,
       prn: profile.prn,
-      isProfileComplete: true,
+      isProfileComplete: !!profile.is_profile_complete,
       fullName: profile.full_name,
       department: profile.department,
       password: profile.password,
@@ -128,14 +136,18 @@ export const loginWithCode = async (email: string, passwordValue: string, role: 
 
   const { data: profile, error: lookupError } = await supabase
     .from('profiles')
-    .select('id, email, role, prn, full_name, department, password')
-    .eq('email', email)
+    .select('id, email, role, prn, full_name, department, password, first_login, is_profile_complete')
+    .eq('email', email.toLowerCase().trim())
     .single();
 
-  if (lookupError || !profile) throw new Error("User not found");
-  if (profile.role !== role) throw new Error(`User is not an ${role}`);
+  if (lookupError || !profile) {
+    throw new Error('No account found with this email. Please verify the email provided during registration.');
+  }
+  if (profile.role !== role) {
+    throw new Error(`This email is not registered as a${role === 'admin' ? 'n' : ''} ${role.replace('_', ' ')}.`);
+  }
 
-  if (profile.password !== passwordValue) throw new Error("Invalid password");
+  if (profile.password !== passwordValue) throw new Error('Invalid password. Please try again.');
 
   // --- LOCAL-ONLY AUTHENTICATION FLOW ---
   console.log(`✅ [AuthService] Local verification successful for ${profile.role}: ${profile.email}`);
@@ -147,9 +159,11 @@ export const loginWithCode = async (email: string, passwordValue: string, role: 
     email: profile.email,
     role: profile.role,
     prn: profile.prn,
-    isProfileComplete: true,
+    isProfileComplete: !!profile.is_profile_complete,
     fullName: profile.full_name,
     department: profile.department,
+    password: profile.password,
+    firstLogin: profile.first_login ?? true,
     // We pass a dummy token since we are using local-profile auth
     access_token: 'local-session-' + profile.id,
     refresh_token: 'local-refresh-' + profile.id
@@ -182,10 +196,22 @@ export const logout = async () => {
 };
 
 export const markProfileComplete = async (userId: string) => {
-  // Update your profiles table if needed
-  const session = await getSession();
-  if (session && session.id === userId) {
-    session.isProfileComplete = true;
-    await saveSession(session);
+  try {
+    // 1. Update Supabase
+    const { error } = await supabase
+      .from('profiles')
+      .update({ is_profile_complete: true })
+      .eq('id', userId);
+
+    if (error) console.error('Error updating profile status in Supabase:', error);
+
+    // 2. Update local session
+    const session = await getSession();
+    if (session && session.id === userId) {
+      session.isProfileComplete = true;
+      await saveSession(session);
+    }
+  } catch (e) {
+    console.error('Failed to mark profile complete:', e);
   }
 };

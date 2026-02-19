@@ -138,8 +138,31 @@ export const DailyAttendanceTracking = () => {
         filteredSessions = filteredSessions.filter((s: any) => s.division === selectedDiv || (s.division && s.division[0] === selectedDiv));
     }
 
-    const completedBatchIds = new Set(filteredSessions.map((s: any) => s.batchConfigId));
-    const pendingBatches = filteredBatches.filter((b: any) => !completedBatchIds.has(b.id));
+    // Logic: A batch is completed if there is a session that:
+    // 1. Explicitly links to the batchConfigId
+    // 2. OR matches the criteria (Dept, Year, Div) and covers the batch range or is a whole-division session.
+    const pendingBatches = filteredBatches.filter((b: any) => {
+        const isCompleted = filteredSessions.some((s: any) => {
+            // Direct ID match
+            if (s.batchConfigId === b.id) return true;
+
+            // Criteria match (for sessions created by Attendance Takers)
+            const sameContext = s.department === b.department &&
+                s.academicYear === b.class &&
+                s.division === b.division;
+
+            if (!sameContext) return false;
+
+            // If it's a whole-division session (batchName contains 'Division')
+            if (s.batchName && s.batchName.includes('Division')) return true;
+
+            // If batch names match exactly
+            if (s.batchName === b.batchName) return true;
+
+            return false;
+        });
+        return !isCompleted;
+    });
 
     const renderMobileHeader = () => (
         <View style={styles.header}>

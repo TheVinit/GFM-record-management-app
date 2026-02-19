@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
@@ -386,10 +387,6 @@ export default function AttendanceTakerDashboard() {
         setSessionAllocations(allocs || []);
         setSessionBatches(batches || []);
       }
-
-      if (!error) {
-        setSessionAllocations(allocs || []);
-      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -516,144 +513,160 @@ export default function AttendanceTakerDashboard() {
   );
 
   const renderAddForm = () => (
-    <ScrollView
-      contentContainerStyle={styles.formContent}
-      keyboardShouldPersistTaps="handled"
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={{ flex: 1 }}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 0}
     >
-      {/* Current Batch Summary */}
-      <View style={styles.batchSummaryCard}>
-        <View style={styles.batchHeader}>
-          <Text style={styles.batchTitle}>Current Batch</Text>
-          <TouchableOpacity
-            style={styles.changeBatchBtn}
-            onPress={() => setShowFilterModal(true)}
-          >
-            <Text style={styles.changeBatchText}>Change</Text>
-            <Ionicons name="chevron-forward" size={16} color={COLORS.primary} />
-          </TouchableOpacity>
-        </View>
+      <ScrollView
+        contentContainerStyle={styles.formContent}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Current Batch Summary */}
+        <View style={styles.batchSummaryCard}>
+          <View style={styles.batchHeader}>
+            <Text style={styles.batchTitle}>Current Batch</Text>
+            <TouchableOpacity
+              style={styles.changeBatchBtn}
+              onPress={() => setShowFilterModal(true)}
+            >
+              <Text style={styles.changeBatchText}>Change</Text>
+              <Ionicons name="chevron-forward" size={16} color={COLORS.primary} />
+            </TouchableOpacity>
+          </View>
 
-        <View style={styles.tagsContainer}>
-          <View style={styles.tag}>
-            <Ionicons name="business" size={14} color={COLORS.textSecondary} />
-            <Text style={styles.tagText}>{deptFilter}</Text>
-          </View>
-          <View style={styles.tag}>
-            <Ionicons name="school" size={14} color={COLORS.textSecondary} />
-            <Text style={styles.tagText}>{yearFilter}</Text>
-          </View>
-          <View style={styles.tag}>
-            <Ionicons name="people" size={14} color={COLORS.textSecondary} />
-            <Text style={styles.tagText}>Div {divFilter}</Text>
-          </View>
-          {subBatchFilter ? (
-            <View style={[styles.tag, styles.activeTag]}>
-              <Ionicons name="layers" size={14} color={COLORS.primary} />
-              <Text style={[styles.tagText, { color: COLORS.primary }]}>Batch {divFilter}{subBatchFilter}</Text>
-            </View>
-          ) : (
+          <View style={styles.tagsContainer}>
             <View style={styles.tag}>
-              <Ionicons name="layers" size={14} color={COLORS.textSecondary} />
-              <Text style={styles.tagText}>Whole Class</Text>
+              <Ionicons name="business" size={14} color={COLORS.textSecondary} />
+              <Text style={styles.tagText}>{deptFilter}</Text>
             </View>
-          )}
-        </View>
-      </View>
-
-      {lastSubmitted && (
-        <View style={styles.lastSubmittedCard}>
-          <View style={styles.lastSubmittedHeader}>
-            <Ionicons name="checkmark-circle" size={20} color={COLORS.success} />
-            <Text style={styles.lastSubmittedTitle}>Last Submission Success</Text>
-          </View>
-          <View style={styles.lastSubmittedDetails}>
-            <Text style={styles.lastSubmittedText}>
-              Class: <Text style={{ fontWeight: 'bold' }}>{getFullBranchName(lastSubmitted.session.department)} {getFullYearName(lastSubmitted.session.class)} ({lastSubmitted.session.division})</Text>
-            </Text>
-            <Text style={styles.lastSubmittedText}>
-              Stats: <Text style={{ color: COLORS.success, fontWeight: 'bold' }}>{lastSubmitted.totalCount - lastSubmitted.absentCount} Present</Text>, {' '}
-              <Text style={{ color: COLORS.error, fontWeight: 'bold' }}>{lastSubmitted.absentCount} Absent</Text>
-            </Text>
-          </View>
-        </View>
-      )}
-
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Mark Attendance</Text>
-
-        {completedDivisions.length >= 3 ? (
-          <View style={styles.completedBanner}>
-            <Ionicons name="checkmark-done-circle" size={24} color={COLORS.success} />
-            <Text style={styles.completedText}>All divisions (A, B, C) recorded for today.</Text>
-          </View>
-        ) : (
-          <>
-            {completedDivisions.includes(divFilter) && !subBatchFilter && (
-              <View style={styles.warningBanner}>
-                <Ionicons name="alert-circle" size={20} color={COLORS.warning} />
-                <Text style={styles.warningText}>Division {divFilter} already recorded today.</Text>
+            <View style={styles.tag}>
+              <Ionicons name="school" size={14} color={COLORS.textSecondary} />
+              <Text style={styles.tagText}>{yearFilter}</Text>
+            </View>
+            <View style={styles.tag}>
+              <Ionicons name="people" size={14} color={COLORS.textSecondary} />
+              <Text style={styles.tagText}>Div {divFilter}</Text>
+            </View>
+            {subBatchFilter ? (
+              <View style={[styles.tag, styles.activeTag]}>
+                <Ionicons name="layers" size={14} color={COLORS.primary} />
+                <Text style={[styles.tagText, { color: COLORS.primary }]}>Batch {divFilter}{subBatchFilter}</Text>
+              </View>
+            ) : (
+              <View style={styles.tag}>
+                <Ionicons name="layers" size={14} color={COLORS.textSecondary} />
+                <Text style={styles.tagText}>Whole Class</Text>
               </View>
             )}
+          </View>
+        </View>
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Absent Roll Numbers</Text>
-              <Text style={styles.helperText}>Enter Full Roll No (e.g. CS2401, CS2405)</Text>
-              <TextInput
-                style={styles.textInput}
-                placeholder="Type to search..."
-                value={absentRollNos}
-                onChangeText={handleAbsentTextChange}
-                onFocus={() => {
-                  setIsFocused(true);
-                }}
-                onBlur={() => {
-                  setTimeout(() => {
-                    setIsFocused(false);
-                  }, 500);
-                }}
-                multiline
-                numberOfLines={4}
-              />
-              {suggestions.length > 0 && (
-                <View style={styles.suggestionBox}>
-                  {suggestions.map((s: any, idx) => (
-                    <TouchableOpacity
-                      key={idx}
-                      style={styles.suggestionItem}
-                      onPress={() => applySuggestion(s)}
-                    >
-                      <View style={styles.suggestionInfo}>
-                        <Text style={styles.suggestionText}>{s.roll}</Text>
-                        <Text style={styles.suggestionName}>{s.name}</Text>
-                      </View>
-                      <Ionicons name="add-circle-outline" size={20} color={COLORS.primary} />
-                    </TouchableOpacity>
-                  ))}
+        {lastSubmitted && (
+          <View style={styles.lastSubmittedCard}>
+            <View style={styles.lastSubmittedHeader}>
+              <Ionicons name="checkmark-circle" size={20} color={COLORS.success} />
+              <Text style={styles.lastSubmittedTitle}>Last Submission Success</Text>
+            </View>
+            <View style={styles.lastSubmittedDetails}>
+              <Text style={styles.lastSubmittedText}>
+                Class: <Text style={{ fontWeight: 'bold' }}>{getFullBranchName(lastSubmitted.session.department)} {getFullYearName(lastSubmitted.session.class)} ({lastSubmitted.session.division})</Text>
+              </Text>
+              <Text style={styles.lastSubmittedText}>
+                Stats: <Text style={{ color: COLORS.success, fontWeight: 'bold' }}>{lastSubmitted.totalCount - lastSubmitted.absentCount} Present</Text>, {' '}
+                <Text style={{ color: COLORS.error, fontWeight: 'bold' }}>{lastSubmitted.absentCount} Absent</Text>
+              </Text>
+            </View>
+          </View>
+        )}
+
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Mark Attendance</Text>
+
+          {completedDivisions.length >= 3 ? (
+            <View style={styles.completedBanner}>
+              <Ionicons name="checkmark-done-circle" size={24} color={COLORS.success} />
+              <Text style={styles.completedText}>All divisions (A, B, C) recorded for today.</Text>
+            </View>
+          ) : (
+            <>
+              {completedDivisions.includes(divFilter) && !subBatchFilter && (
+                <View style={styles.warningBanner}>
+                  <Ionicons name="alert-circle" size={20} color={COLORS.warning} />
+                  <Text style={styles.warningText}>Division {divFilter} already recorded today.</Text>
                 </View>
               )}
-            </View>
 
-            <TouchableOpacity
-              style={[
-                styles.submitBtn,
-                (submitting || (completedDivisions.includes(divFilter) && !subBatchFilter)) && { opacity: 0.7 }
-              ]}
-              onPress={handleSubmitAttendance}
-              disabled={submitting || (completedDivisions.includes(divFilter) && !subBatchFilter)}
-            >
-              {submitting ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <>
-                  <Ionicons name="cloud-upload" size={20} color="#fff" style={{ marginRight: 8 }} />
-                  <Text style={styles.submitBtnText}>Submit Record</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          </>
-        )}
-      </View>
-    </ScrollView>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Absent Roll Numbers</Text>
+                <Text style={styles.helperText}>Enter Full Roll No (e.g. CS2401, CS2405)</Text>
+
+                {/* Suggestions rendered ABOVE the input so keyboard never hides them */}
+                {suggestions.length > 0 && (
+                  <View style={styles.suggestionBox}>
+                    <ScrollView
+                      keyboardShouldPersistTaps="handled"
+                      nestedScrollEnabled
+                      style={{ maxHeight: 200 }}
+                    >
+                      {suggestions.map((s: any, idx) => (
+                        <TouchableOpacity
+                          key={idx}
+                          style={styles.suggestionItem}
+                          onPress={() => applySuggestion(s)}
+                        >
+                          <View style={styles.suggestionInfo}>
+                            <Text style={styles.suggestionText}>{s.roll}</Text>
+                            <Text style={styles.suggestionName}>{s.name}</Text>
+                          </View>
+                          <Ionicons name="add-circle-outline" size={20} color={COLORS.primary} />
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Type roll no to search & add..."
+                  value={absentRollNos}
+                  onChangeText={handleAbsentTextChange}
+                  onFocus={() => {
+                    setIsFocused(true);
+                  }}
+                  onBlur={() => {
+                    setTimeout(() => {
+                      setIsFocused(false);
+                    }, 300);
+                  }}
+                  multiline
+                  numberOfLines={4}
+                  textAlignVertical="top"
+                />
+              </View>
+
+              <TouchableOpacity
+                style={[
+                  styles.submitBtn,
+                  (submitting || (completedDivisions.includes(divFilter) && !subBatchFilter)) && { opacity: 0.7 }
+                ]}
+                onPress={handleSubmitAttendance}
+                disabled={submitting || (completedDivisions.includes(divFilter) && !subBatchFilter)}
+              >
+                {submitting ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <>
+                    <Ionicons name="cloud-upload" size={20} color="#fff" style={{ marginRight: 8 }} />
+                    <Text style={styles.submitBtnText}>Submit Record</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 
   const renderHistory = () => (
@@ -1155,13 +1168,13 @@ const styles = StyleSheet.create({
     color: COLORS.text,
   },
   suggestionBox: {
-    marginTop: SPACING.sm,
+    marginBottom: SPACING.sm,
     borderWidth: 1,
-    borderColor: COLORS.border,
+    borderColor: COLORS.primary,
     borderRadius: RADIUS.md,
     backgroundColor: COLORS.white,
-    ...SHADOWS.sm,
-    maxHeight: 200,
+    ...SHADOWS.md,
+    overflow: 'hidden',
   },
   suggestionItem: {
     flexDirection: 'row',

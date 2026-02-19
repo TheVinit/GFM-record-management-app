@@ -85,28 +85,33 @@ export const AttendanceSummaryManagement = ({ filters }: any) => {
             const filtered = attRecords.filter(r => {
                 const fromVal = batchConfig.rbtFrom.toUpperCase();
                 const toVal = batchConfig.rbtTo.toUpperCase();
-                const prnVal = r.studentPrn.toUpperCase();
 
-                if (!isNaN(Number(fromVal)) && !isNaN(Number(toVal))) {
-                    const extractTailNum = (str: string) => {
-                        const match = String(str).match(/\d+$/);
-                        return match ? parseInt(match[0]) : NaN;
+                // Always extract trailing numeric sequence for comparison
+                // This handles PRN formats like "CS2401", "RBT24CS001", "001", etc.
+                const extractTailNum = (str: string) => {
+                    const match = String(str).match(/\d+$/);
+                    return match ? parseInt(match[0]) : NaN;
+                };
+
+                const studentSeqRaw = extractTailNum(r.studentPrn || r.rollNo || '');
+                const fromSeqRaw = extractTailNum(fromVal);
+                const toSeqRaw = extractTailNum(toVal);
+
+                if (!isNaN(studentSeqRaw) && !isNaN(fromSeqRaw) && !isNaN(toSeqRaw)) {
+                    // Normalize: if the number is > 2 digits, use only the last 2 digits
+                    // e.g., "2401" -> 01, "001" -> 01, "1" -> 1
+                    const normalize = (n: number) => {
+                        const s = n.toString();
+                        return s.length > 2 ? parseInt(s.slice(-2)) : n;
                     };
-                    const studentRoll = extractTailNum(r.rollNo || r.studentPrn);
-                    const fromNum = parseInt(fromVal);
-                    const toNum = parseInt(toVal);
-
-                    const sStr = studentRoll.toString();
-                    const studentSeq = sStr.length > 2 ? parseInt(sStr.slice(2)) : studentRoll;
-
-                    const fStr = fromNum.toString();
-                    const fromSeq = fStr.length > 2 ? parseInt(fStr.slice(2)) : fromNum;
-
-                    const tStr = toNum.toString();
-                    const toSeq = tStr.length > 2 ? parseInt(tStr.slice(2)) : toNum;
-
+                    const studentSeq = normalize(studentSeqRaw);
+                    const fromSeq = normalize(fromSeqRaw);
+                    const toSeq = normalize(toSeqRaw);
                     return studentSeq >= fromSeq && studentSeq <= toSeq;
                 }
+
+                // Fallback: pure string comparison (only when no digits found)
+                const prnVal = (r.studentPrn || '').toUpperCase();
                 return prnVal >= fromVal && prnVal <= toVal;
             });
             setRecords(filtered);
