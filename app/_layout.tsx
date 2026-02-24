@@ -1,5 +1,5 @@
 import { Slot, useRouter, useSegments } from 'expo-router'
-import React, { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, StyleSheet, View } from 'react-native'
 import { clearSession, getSession } from '../services/session.service'
 import { supabase } from '../services/supabase'
@@ -72,8 +72,8 @@ export default function RootLayout() {
 
           // Validate with Supabase (background)
           const { data } = await supabase.auth.getSession()
-          if (!data.session) {
-            console.warn('⚠️ Supabase session invalid — clearing cache')
+          if (!data.session && !session) {
+            console.warn('⚠️ Supabase session invalid and no local session — clearing cache')
             await clearSQLite()
             await clearSession()
             router.replace('/')
@@ -94,9 +94,12 @@ export default function RootLayout() {
     const { data: { subscription } } =
       supabase.auth.onAuthStateChange(async (event) => {
         if (event === 'SIGNED_OUT') {
-          await clearSQLite()
-          await clearSession()
-          router.replace('/')
+          const session = await getSession();
+          if (!session) {
+            await clearSQLite()
+            await clearSession()
+            router.replace('/')
+          }
         }
       })
 

@@ -59,7 +59,7 @@ export const AttendanceSummaryManagement = ({ filters }: any) => {
             const academicMatch = batchConfig.class || batchConfig.academicYear;
             const fullYearName = YEAR_MAPPINGS[academicMatch] || academicMatch;
 
-            console.log(`[AttendanceSummary] Loading Dashboard - Date: ${selectedDate}, Dept: ${batchConfig.department}, Academic: ${academicMatch}, Div: ${mainDivision}`);
+            console.log(`[AttendanceSummary] Loading Dashboard - Date: ${selectedDate}, Dept: ${batchConfig.department}, Academic: ${academicMatch} (full: ${fullYearName}), Div: ${mainDivision}`);
 
             // Robust session lookup
             const { data: sessions, error: sessionError } = await supabase
@@ -71,6 +71,11 @@ export const AttendanceSummaryManagement = ({ filters }: any) => {
                 .order('created_at', { ascending: false });
 
             if (sessionError) throw sessionError;
+
+            console.log(`[AttendanceSummary] Found ${sessions?.length || 0} sessions for date=${selectedDate}, dept=${batchConfig.department}, div=${mainDivision}`);
+            if (sessions && sessions.length > 0) {
+                console.log(`[AttendanceSummary] Session academic_year values: [${sessions.map((s: any) => s.academic_year).join(', ')}]`);
+            }
 
             // Find the best academic match in code to avoid complex SQL or logic
             const divSession = (sessions || []).find(sess => {
@@ -84,11 +89,17 @@ export const AttendanceSummaryManagement = ({ filters }: any) => {
                     (academicMatch === 'First Year' && (sYear === 'FE' || sYear === '1st'));
             });
 
-            console.log(`[AttendanceSummary] Found session: ${divSession ? divSession.id : 'None'}`);
+            // Fallback: if no year match but sessions exist for this date/dept/div, use latest
+            const selectedSession = divSession || (sessions && sessions.length > 0 ? sessions[0] : null);
+            if (!divSession && selectedSession) {
+                console.warn(`[AttendanceSummary] No exact year match, falling back to latest session: ${selectedSession.id} (year=${selectedSession.academic_year})`);
+            }
 
-            if (divSession) {
-                setSession(toCamelCase(divSession));
-                const attRecords = await getAttendanceRecords(divSession.id);
+            console.log(`[AttendanceSummary] Selected session: ${selectedSession ? selectedSession.id : 'None'}`);
+
+            if (selectedSession) {
+                setSession(toCamelCase(selectedSession));
+                const attRecords = await getAttendanceRecords(selectedSession.id);
 
                 const fromVal = (batchConfig.rbtFrom || '').trim().toUpperCase();
                 const toVal = (batchConfig.rbtTo || '').trim().toUpperCase();

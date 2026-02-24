@@ -16,24 +16,29 @@ export const saveAndShareCSV = async (csvData: string, filename: string) => {
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
+            URL.revokeObjectURL(url);
             return;
         }
 
-        if (!documentDirectory) {
-            throw new Error('FileSystem documentDirectory is not available');
-        }
-        const fileUri = `${documentDirectory}${filename}`;
-        await FileSystem.writeAsStringAsync(fileUri, csvData, {
-            encoding: EncodingType?.UTF8 || 'utf8'
-        });
-
+        // Native Platform Strategy
         if (Platform.OS === 'ios' || Platform.OS === 'android') {
+            if (!documentDirectory) {
+                throw new Error('FileSystem documentDirectory is not available on this device');
+            }
+            const fileUri = `${documentDirectory}${filename}`;
+            await FileSystem.writeAsStringAsync(fileUri, csvData, {
+                encoding: EncodingType?.UTF8 || 'utf8'
+            });
+
             const isAvailable = await Sharing.isAvailableAsync();
             if (isAvailable) {
                 await Sharing.shareAsync(fileUri);
             } else {
                 Alert.alert('Error', 'Sharing is not available on this device');
             }
+        } else {
+            console.warn('CSV Saving: Unsupported platform for native FileSystem');
+            Alert.alert('Unsupported Platform', 'Saving CSV is not supported on this platform version');
         }
     } catch (error) {
         console.error('Error saving CSV:', error);
