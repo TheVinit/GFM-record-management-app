@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
-import { Alert, Platform, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Linking, Platform, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { COLORS } from '../../constants/colors';
 import { getFullYearName } from '../../constants/Mappings';
 import { getFeePaymentsByFilter } from '../../storage/sqlite';
@@ -167,7 +167,15 @@ export const FeeManagement = ({ students, filters, handleVerify }: any) => {
                                     </Text>
                                     <View style={{ width: 120, flexDirection: 'row', gap: 5, alignItems: 'center' }}>
                                         {f.receiptUri && (
-                                            <TouchableOpacity onPress={() => Alert.alert('Receipt', 'Viewing receipt: ' + f.receiptUri)}>
+                                            <TouchableOpacity onPress={() => {
+                                                if (isWeb) {
+                                                    window.open(f.receiptUri, '_blank');
+                                                } else {
+                                                    Linking.openURL(f.receiptUri).catch(() =>
+                                                        Alert.alert('Error', 'Could not open receipt')
+                                                    );
+                                                }
+                                            }}>
                                                 <Ionicons name="receipt-outline" size={20} color={COLORS.secondary} />
                                             </TouchableOpacity>
                                         )}

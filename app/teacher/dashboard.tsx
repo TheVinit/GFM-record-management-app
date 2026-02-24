@@ -61,6 +61,7 @@ export default function TeacherDashboard() {
   const [allStudentsData, setAllStudentsData] = useState<Student[]>([]); // Cache for filtering
   const [courses, setCourses] = useState<CourseDef[]>([]);
   const [filteredStudents, setFilteredStudents] = useState<Student[]>([]);
+  const [isFirstLoginSession, setIsFirstLoginSession] = useState(false);
 
   // Selection states for Modals
   const [selectedStudentForDetails, setSelectedStudentForDetails] = useState<Student | null>(null);
@@ -139,6 +140,12 @@ export default function TeacherDashboard() {
     setUserRole(session.role ?? '');
     setUserEmail(session.email ?? '');
     setUserPassword(session.password ?? '');
+
+    // CHECK FOR FIRST LOGIN
+    if (session.firstLogin) {
+      setIsFirstLoginSession(true);
+      setShowChangePassword(true);
+    }
 
     if (session.role === 'admin') {
       const defaultModule = initialModuleParam || 'admin-reports';
@@ -671,12 +678,17 @@ export default function TeacherDashboard() {
       <ChangePasswordModal
         visible={showChangePassword}
         userEmail={userEmail}
+        userId={teacherId}
+        userPrn={teacherPrn}
+        userRole="teacher"
         currentPassword={userPassword}
         onSuccess={() => {
           setShowChangePassword(false);
+          setIsFirstLoginSession(false);
           Alert.alert('Success', 'Password updated successfully');
         }}
-        onClose={() => setShowChangePassword(false)}
+        onClose={isFirstLoginSession ? undefined : () => setShowChangePassword(false)}
+        isFirstLogin={isFirstLoginSession}
       />
     </View>
   );

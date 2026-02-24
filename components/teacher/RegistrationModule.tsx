@@ -326,7 +326,7 @@ export const RegistrationModule = () => {
                         <View style={styles.pickerContainer}>
                             <Picker
                                 selectedValue={newStudent.branch}
-                                onValueChange={v => setNewStudent({ ...newStudent, branch: v })}
+                                onValueChange={(v: string) => setNewStudent({ ...newStudent, branch: v })}
                                 style={isWeb ? { border: 'none', background: 'transparent' } : {}}
                             >
                                 {Object.keys(BRANCH_MAPPINGS).map(key => (
@@ -341,7 +341,7 @@ export const RegistrationModule = () => {
                                 <View style={styles.pickerContainer}>
                                     <Picker
                                         selectedValue={newStudent.yearOfStudy}
-                                        onValueChange={v => setNewStudent({ ...newStudent, yearOfStudy: v })}
+                                        onValueChange={(v: string) => setNewStudent({ ...newStudent, yearOfStudy: v })}
                                         style={isWeb ? { border: 'none', background: 'transparent' } : {}}
                                     >
                                         {Object.keys(YEAR_MAPPINGS).filter(k => k.length === 2).map(year => (
@@ -355,7 +355,7 @@ export const RegistrationModule = () => {
                                 <View style={styles.pickerContainer}>
                                     <Picker
                                         selectedValue={newStudent.division}
-                                        onValueChange={v => setNewStudent({ ...newStudent, division: v })}
+                                        onValueChange={(v: string) => setNewStudent({ ...newStudent, division: v })}
                                         style={isWeb ? { border: 'none', background: 'transparent' } : {}}
                                     >
                                         <Picker.Item label="A" value="A" />

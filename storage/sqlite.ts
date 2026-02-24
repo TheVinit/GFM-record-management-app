@@ -2,6 +2,7 @@ import * as SQLite from 'expo-sqlite';
 import { Platform } from 'react-native';
 import { supabase } from '../services/supabase';
 import { getLocalDateString } from '../utils/date';
+import { safeFeePayment, safeStudent } from '../utils/validation';
 
 const generateUUID = (): string => {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -229,6 +230,7 @@ export interface AcademicRecord {
 // ============= MAPPING UTILITIES =============
 
 export const toSnakeCase = (obj: any) => {
+  if (!obj || typeof obj !== 'object') return obj ?? {};
   const newObj: any = {};
   for (const key in obj) {
     const snakeKey = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
@@ -238,6 +240,7 @@ export const toSnakeCase = (obj: any) => {
 };
 
 export const toCamelCase = (obj: any) => {
+  if (!obj || typeof obj !== 'object') return obj ?? {};
   const newObj: any = {};
   for (const key in obj) {
     const camelKey = key.replace(/([-_][a-z])/g, group =>
@@ -380,14 +383,14 @@ export const getStudentInfo = async (prn: string): Promise<Student | null> => {
   } catch (e) { console.warn('Cache read failed:', e); }
 
   // 2. Fetch from Supabase
-  const { data, error } = await supabase
+  const result = await supabase
     .from('students')
     .select('*')
     .eq('prn', prn)
-    .single();
+    .maybeSingle();
 
-  if (error || !data) return null;
-  const student = toCamelCase(data) as Student;
+  if (result.error || !result.data) return null;
+  const student = safeStudent(toCamelCase(result.data)) as Student;
 
   // 3. Update Cache
   try {
@@ -412,7 +415,8 @@ export const saveStudentInfo = async (s: Student) => {
     .select();
 
   if (error) {
-    console.error('❌ Error saving student info:', error);
+    console.error('❌ Supabase error in saveStudentInfo:');
+    console.error(JSON.stringify(error, null, 2));
     throw error;
   }
 
@@ -479,7 +483,7 @@ export const getAchievementsByFilter = async (dept: string, year: string, div: s
   const { data, error } = await query.order('achievement_date', { ascending: false });
   if (error) return [];
 
-  return data.map(item => ({
+  return data.map((item: any) => ({
     ...toCamelCase(item),
     fullName: item.students.full_name,
     division: item.students.division,
@@ -533,7 +537,7 @@ export const getAllActivitiesByFilter = async (dept: string, year: string, div: 
   const { data, error } = await query.order('activity_date', { ascending: false });
   if (error) return [];
 
-  return data.map(item => ({
+  return data.map((item: any) => ({
     ...toCamelCase(item),
     fullName: item.students.full_name,
     division: item.students.division,
@@ -568,15 +572,19 @@ export const saveCourse = async (course: Course) => {
 // ============= FEE PAYMENT OPERATIONS (SUPABASE ONLY) =============
 
 export const getFeePayments = async (prn: string): Promise<FeePayment[]> => {
-  const { data, error } = await supabase
+  const result = await supabase
     .from('fee_payments')
     .select('*')
     .eq('prn', prn)
     .order('academic_year', { ascending: false })
     .order('installment_number', { ascending: true });
 
-  if (error) return [];
-  return data.map(toCamelCase) as FeePayment[];
+  if (result.error) {
+    console.error('[getFeePayments] Error:', result.error.message);
+    return [];
+  }
+
+  return (result.data || []).map((p: any) => safeFeePayment(toCamelCase(p)) as FeePayment);
 };
 
 export const getTotalFeeForYear = async (prn: string, academicYear: string): Promise<number | null> => {
@@ -664,7 +672,7 @@ export const getAllInternshipsByFilter = async (dept: string, year: string, div:
   const { data, error } = await query.order('start_date', { ascending: false });
   if (error) return [];
 
-  return data.map(item => ({
+  return data.map((item: any) => ({
     ...toCamelCase(item),
     fullName: item.students.full_name,
     division: item.students.division,
@@ -693,7 +701,7 @@ export const getAcademicRecordsByStudent = async (prn: string): Promise<any[]> =
 
   if (error) return [];
 
-  return data.map(item => ({
+  return data.map((item: any) => ({
     ...toCamelCase(item),
     courseName: item.courses_def.course_name,
     courseCode: item.courses_def.course_code,
@@ -729,7 +737,7 @@ export const getAcademicRecordsByFilter = async (dept: string, year: string, div
   const { data, error } = await query;
   if (error) return [];
 
-  return data.map(item => ({
+  return data.map((item: any) => ({
     ...toCamelCase(item),
     fullName: item.students.full_name,
     courseName: item.courses_def.course_name,
@@ -788,16 +796,22 @@ export const getFeePaymentsByFilter = async (dept: string, year: string, div: st
     }
 
     // Sort by last 3 digits of PRN
-    const sortedData = (data || []).sort((a, b) => {
+    const sortedData = (data || []).sort((a: any, b: any) => {
       const aSeq = parseInt(a.prn.slice(-3)) || 0;
       const bSeq = parseInt(b.prn.slice(-3)) || 0;
       return aSeq - bSeq;
     });
 
     // Transform data to expected format
-    return sortedData.map(student => {
+    return sortedData.map((student: any) => {
       const payments = (student.fee_payments as any[]) || [];
       const latestPayment = payments.sort((a, b) => b.id - a.id)[0] || {};
+
+      const paidAmount = payments.reduce((sum: number, p: any) => sum + (p.amount_paid || 0), 0);
+      const totalFee = latestPayment.total_fee || 0;
+      const lastBalance = latestPayment.remaining_balance != null
+        ? latestPayment.remaining_balance
+        : Math.max(0, totalFee - paidAmount);
 
       return {
         prn: student.prn,
@@ -807,8 +821,9 @@ export const getFeePaymentsByFilter = async (dept: string, year: string, div: st
         branch: student.branch,
         division: student.division,
         address: student.permanent_address || student.temporary_address,
-        totalFee: latestPayment.total_fee || 0,
-        amountPaid: payments.reduce((sum: number, p: any) => sum + p.amount_paid, 0),
+        totalFee,
+        paidAmount,
+        lastBalance,
         status: latestPayment.verification_status || 'Pending',
         lastPaymentDate: latestPayment.payment_date,
         installmentNumber: latestPayment.installment_number || 0,
@@ -931,7 +946,7 @@ export const getFeeAnalytics = async (dept: string, year: string, div: string) =
   let studentsWithRemaining = 0;
   let totalRemainingAmount = 0;
 
-  data.forEach(student => {
+  data.forEach((student: any) => {
     const payments = (student.fee_payments as any[]) || [];
     if (payments.length > 0) {
       const latestPayment = payments.sort((a, b) => b.id - a.id)[0];
@@ -1022,7 +1037,7 @@ export const getDistinctYearsOfStudy = async (): Promise<string[]> => {
 
   if (error || !data) return ['FE', 'SE', 'TE', 'BE'];
 
-  const dbYears = data.map(item => item.year_of_study).filter(Boolean);
+  const dbYears = data.map((item: any) => item.year_of_study).filter(Boolean);
   // Return raw keys (FE, SE, etc.) to ensure DB queries match
   const years = Array.from(new Set(['FE', 'SE', 'TE', 'BE', ...dbYears])).sort();
   return years as string[];
@@ -1056,7 +1071,7 @@ export const getFacultyMembers = async (): Promise<FacultyMember[]> => {
     .order('prn', { ascending: true });
 
   if (error) return [];
-  return data.map(item => ({
+  return data.map((item: any) => ({
     prn: item.prn,
     fullName: item.full_name,
     department: item.department,
@@ -1074,7 +1089,7 @@ export const getAttendanceTakers = async (): Promise<FacultyMember[]> => {
     .order('prn', { ascending: true });
 
   if (error) return [];
-  return data.map(item => ({
+  return data.map((item: any) => ({
     prn: item.prn,
     fullName: item.full_name,
     department: item.department,
@@ -1088,15 +1103,14 @@ export const saveFacultyMember = async (prn: string, password: string, fullName?
   const id = generateUUID();
   const { error } = await supabase
     .from('profiles')
-    .insert({
-      id,
+    .upsert({
       prn,
       role: 'teacher',
-      email: email || `${prn.toLowerCase()} @gfm.com`,
-      full_name: fullName || `Faculty ${prn} `,
+      email: email || `${prn.toLowerCase()}@gfm.com`,
+      full_name: fullName || `Faculty ${prn}`,
       department: department || null,
       password: password
-    });
+    }, { onConflict: 'prn' });
 
   if (error) throw error;
 };
@@ -1105,15 +1119,14 @@ export const saveAttendanceTaker = async (prn: string, password: string, fullNam
   const id = generateUUID();
   const { error } = await supabase
     .from('profiles')
-    .insert({
-      id,
+    .upsert({
       prn,
       role: 'attendance_taker',
-      email: email || `${prn.toLowerCase()} @at.com`,
-      full_name: fullName || `Taker ${prn} `,
+      email: email || `${prn.toLowerCase()}@at.com`,
+      full_name: fullName || `Taker ${prn}`,
       department: department || null,
       password: password
-    });
+    }, { onConflict: 'prn' });
 
   if (error) throw error;
 };
@@ -1218,7 +1231,7 @@ export const getAllTeachers = async (): Promise<TeacherProfile[]> => {
     .order('full_name', { ascending: true });
 
   if (error) return [];
-  return data.map(item => ({
+  return data.map((item: any) => ({
     id: item.id,
     fullName: item.full_name,
     department: item.department,
@@ -1227,39 +1240,73 @@ export const getAllTeachers = async (): Promise<TeacherProfile[]> => {
 };
 
 export const saveStudent = async (student: Partial<Student>) => {
+  console.log('💾 [SQLite] saving student:', student.prn);
   const snakeData = toSnakeCase(student);
 
-  // Sanitize UUID fields - empty strings must be null
-  if (snakeData.gfm_id === '') {
-    snakeData.gfm_id = null;
-  }
+  // Sanitize data: Empty strings should be null for the database
+  Object.keys(snakeData).forEach(key => {
+    if (snakeData[key] === '') {
+      snakeData[key] = null;
+    }
+  });
 
-  // 1. Insert into students table
+  // 1. Upsert into students table
   const { error: studentError } = await supabase
     .from('students')
-    .insert(snakeData);
+    .upsert(snakeData, { onConflict: 'prn' });
 
   if (studentError) {
-    console.error('Error in saveStudent (students table):', studentError);
+    console.error('❌ Supabase error in saveStudent (students table):');
+    console.error(JSON.stringify(studentError, null, 2));
     throw studentError;
   }
 
-  // 2. Also create a profile for login (PRN as password initially)
-  const id = generateUUID();
-  const { error: profileError } = await supabase
-    .from('profiles')
-    .insert({
-      id,
+  // 2. Manage profile for login
+  try {
+    console.log('DEBUG: Managing profile for student...');
+    // Check if profile exists by PRN
+    const { data: existingProfile } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('prn', student.prn)
+      .maybeSingle();
+
+    const profileData = {
       email: student.email,
       prn: student.prn,
       full_name: student.fullName,
       role: 'student',
-      password: student.prn
-    });
+      password: student.prn,
+      first_login: true
+    };
 
-  if (profileError) {
-    console.error('Error creating student profile:', profileError);
-    throw profileError;
+    if (existingProfile) {
+      console.log('DEBUG: Updating existing profile:', existingProfile.id);
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update(profileData)
+        .eq('id', existingProfile.id);
+
+      if (updateError) {
+        console.error('❌ Error updating student profile:');
+        console.error(JSON.stringify(updateError, null, 2));
+      }
+    } else {
+      console.log('DEBUG: Creating new profile...');
+      const { error: insertError } = await supabase
+        .from('profiles')
+        .insert({
+          id: generateUUID(),
+          ...profileData
+        });
+
+      if (insertError) {
+        console.error('❌ Error inserting student profile:');
+        console.error(JSON.stringify(insertError, null, 2));
+      }
+    }
+  } catch (profileErr) {
+    console.warn('⚠️ Profile sync encountered an issue (non-fatal for student record):', profileErr);
   }
 };
 
@@ -1441,7 +1488,7 @@ export const getAttendanceRecords = async (sessionId: string) => {
       console.log(`[sqlite.ts] Sample raw record:`, JSON.stringify(data[0]).slice(0, 150));
     }
 
-    return (data || []).map(item => {
+    return (data || []).map((item: any) => {
       const camel = toCamelCase(item);
       return {
         ...camel,
@@ -1507,7 +1554,7 @@ export const getStudentsByRbtRange = async (dept: string, year: string, div: str
   if (error) throw error;
 
   // Sorting: Last 3 digits of PRN sequence (numeric)
-  const sortedData = data.sort((a, b) => {
+  const sortedData = data.sort((a: any, b: any) => {
     const aSeq = parseInt(a.prn.slice(-3)) || 0;
     const bSeq = parseInt(b.prn.slice(-3)) || 0;
     return aSeq - bSeq;
@@ -1580,7 +1627,7 @@ export const getStudentsByDivision = async (dept: string, year: string, div: str
   if (error) throw error;
 
   // Sorting: Last 3 digits of PRN sequence (numeric)
-  const sortedData = data.sort((a, b) => {
+  const sortedData = data.sort((a: any, b: any) => {
     const aSeq = parseInt(a.prn.slice(-3)) || 0;
     const bSeq = parseInt(b.prn.slice(-3)) || 0;
     return aSeq - bSeq;
@@ -1659,7 +1706,7 @@ export const getTodayAttendanceSummary = async (date: string) => {
   if (batchError) throw batchError;
 
   // 3. Fetch all absentee records for these sessions
-  const sessionIds = sessions.map(s => s.id);
+  const sessionIds = sessions.map((s: any) => s.id);
   let absentRecords: any[] = [];
 
   if (sessionIds.length > 0) {
@@ -1674,11 +1721,11 @@ export const getTodayAttendanceSummary = async (date: string) => {
   }
 
   return {
-    sessions: sessions.map(s => ({
+    sessions: sessions.map((s: any) => ({
       ...toCamelCase(s),
       teacherName: (s as any).profiles?.full_name
     })),
-    batchConfigs: batchConfigs.map(b => ({
+    batchConfigs: batchConfigs.map((b: any) => ({
       ...toCamelCase(b),
       teacherName: (b as any).profiles?.full_name
     })),
@@ -1746,15 +1793,15 @@ export const getAdminAnalytics = async () => {
     if (leaveError) console.warn('Leave notes fetch error:', leaveError);
 
     return {
-      sessions: sessions.map(s => ({
+      sessions: sessions.map((s: any) => ({
         ...toCamelCase(s),
         teacherName: (s as any).profiles?.full_name
       })),
-      batchConfigs: batchConfigs.map(b => ({
+      batchConfigs: batchConfigs.map((b: any) => ({
         ...toCamelCase(b),
         teacherName: (b as any).profiles?.full_name
       })),
-      absentRecords: (absents || []).map(item => {
+      absentRecords: (absents || []).map((item: any) => {
         const camel = toCamelCase(item);
         return {
           ...camel,
@@ -1764,7 +1811,7 @@ export const getAdminAnalytics = async () => {
           academicYear: camel.sessionYear // Map for consistency in AdminReports
         };
       }),
-      calls: (calls || []).map(c => ({
+      calls: (calls || []).map((c: any) => ({
         ...toCamelCase(c),
         id: c.log_id,
         teacherName: c.gfm_name,
@@ -1773,7 +1820,7 @@ export const getAdminAnalytics = async () => {
         studentRollNo: c.student_roll_no
       })),
       students: sortedStudents.map(toCamelCase),
-      leaveNotes: (leaveNotes || []).map(l => ({
+      leaveNotes: (leaveNotes || []).map((l: any) => ({
         ...toCamelCase(l),
         id: l.leave_id,
         studentName: l.student_name

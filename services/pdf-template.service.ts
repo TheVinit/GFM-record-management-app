@@ -38,23 +38,29 @@ export const STUDENT_PROFILE_STYLES = `
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 15px;
+        margin-bottom: 10px;
+        gap: 15px;
     }
     
     .a4-page .logo {
         width: 80px;
         height: 80px;
-        border: 1px solid #ddd;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 10px;
-        color: #666;
+        flex-shrink: 0;
+        overflow: hidden;
     }
     
     .a4-page .logo img {
-        max-width: 100%;
-        max-height: 100%;
+        width: 80px;
+        height: 80px;
+        object-fit: contain;
+    }
+    
+    .a4-page .header-center {
+        flex: 1;
+        text-align: center;
     }
     
     .a4-page .college-name {
@@ -291,17 +297,18 @@ export const STUDENT_PROFILE_CONTENT = `
         <header class="header">
             <div class="logos">
                 <div class="logo"><img src="{{college_logo_left}}" alt="Logo Left"></div>
+                <div class="header-center">
+                    <div class="college-name">
+                        Jayawant Shikshan Prasarak Mandal's
+                    </div>
+                    <div class="college-subtitle">
+                        Rajarshi Shahu College of Engineering, Tathawade, Pune
+                    </div>
+                    <div class="college-subtitle">
+                        (Autonomous Institute)
+                    </div>
+                </div>
                 <div class="logo"><img src="{{college_logo_right}}" alt="Logo Right"></div>
-            </div>
-            
-            <div class="college-name">
-                Jayawant Shikshan Prasarak Mandal's
-            </div>
-            <div class="college-subtitle">
-                Rajarshi Shahu College of Engineering, Tathawade, Pune
-            </div>
-            <div class="college-subtitle">
-                (Autonomous Institute)
             </div>
             
             <div class="report-title">{{report_title}}</div>
@@ -529,7 +536,7 @@ export function populateTemplate(data: Record<string, string>, wrapFull = true) 
         const regex = new RegExp(`{{\\s*${key}\\s*}}`, 'g');
         content = content.replace(regex, value);
     }
-    
+
     if (!wrapFull) {
         return `<style>${STUDENT_PROFILE_STYLES}</style>${content}`;
     }
