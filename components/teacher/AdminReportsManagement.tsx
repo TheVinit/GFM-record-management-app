@@ -7,6 +7,7 @@ import { PieChart } from 'react-native-chart-kit';
 import { COLORS } from '../../constants/colors';
 import { generateDetailedGFMReportCSV, generateTodayAttendanceCSV, saveAndShareCSV } from '../../services/csv.service';
 import { getAdminAnalytics } from '../../storage/sqlite';
+import { getLocalDateString } from '../../utils/date';
 import { handleViewDocument } from './dashboard.utils';
 
 const isWeb = Platform.OS === 'web';
@@ -47,8 +48,8 @@ export const AdminReportsManagement = ({ filters }: any) => {
         dept: filters.dept || 'All',
         year: filters.year || 'All',
         div: filters.div || 'All',
-        date: new Date().toISOString().split('T')[0],
-        startDate: new Date().toISOString().split('T')[0],
+        date: getLocalDateString(),
+        startDate: getLocalDateString(),
         endDate: '',
         gfmSearch: ''
     });
@@ -98,6 +99,16 @@ export const AdminReportsManagement = ({ filters }: any) => {
             return (localFilters.dept === 'All' || b.department === localFilters.dept) && yearMatch;
         });
 
+        // Filter absents by the selected date context
+        const targetDate = localFilters.startDate || localFilters.date;
+        const absentsForPie = stats.absentRecords.filter((r: any) => {
+            const rDate = r.sessionDate || new Date(r.createdAt).toISOString().split('T')[0];
+            if (localFilters.startDate && localFilters.endDate && localFilters.endDate !== localFilters.startDate) {
+                return rDate >= localFilters.startDate && rDate <= localFilters.endDate;
+            }
+            return rDate === targetDate;
+        });
+
         if (localFilters.div !== 'All') {
             const subBatchStats: Record<string, number> = {};
             relevantBatches
@@ -111,22 +122,19 @@ export const AdminReportsManagement = ({ filters }: any) => {
                         return match ? parseInt(match[0]) : NaN;
                     };
 
-                    const batchAbsents = stats.absentRecords.filter((r: any) => {
+                    const batchAbsents = absentsForPie.filter((r: any) => {
                         const rollNo = extractTailNum(r.rollNo || r.studentPrn);
                         const fromVal = extractTailNum(batch.rbtFrom);
                         const toVal = extractTailNum(batch.rbtTo);
-                        const session = stats.sessions.find((s: any) => s.id === r.sessionId);
 
                         if (isNaN(rollNo) || isNaN(fromVal) || isNaN(toVal)) return false;
 
-                        // Modulo logic for multi-year safety
                         const seq = rollNo % 1000;
                         const fSeq = fromVal % 1000;
                         const tSeq = toVal % 1000;
 
-                        return session &&
-                            session.department === batch.department &&
-                            session.division === batch.division &&
+                        return r.sessionDept === batch.department &&
+                            r.sessionDiv === batch.division &&
                             seq >= fSeq && seq <= tSeq;
                     });
                     subBatchStats[batchKey] += batchAbsents.length;
@@ -145,20 +153,19 @@ export const AdminReportsManagement = ({ filters }: any) => {
         }
 
         const divisionStats: any = { 'A': 0, 'B': 0, 'C': 0 };
-        const extractTailNum = (str: string) => {
-            const match = String(str).match(/\d+$/);
-            return match ? parseInt(match[0]) : NaN;
-        };
-
         relevantBatches.forEach((batch: any) => {
             const mainDiv = batch.division ? batch.division[0].toUpperCase() : 'Unknown';
             if (!divisionStats[mainDiv]) divisionStats[mainDiv] = 0;
 
-            const batchAbsents = stats.absentRecords.filter((r: any) => {
+            const extractTailNum = (str: string) => {
+                const match = String(str).match(/\d+$/);
+                return match ? parseInt(match[0]) : NaN;
+            };
+
+            const batchAbsents = absentsForPie.filter((r: any) => {
                 const rollNo = extractTailNum(r.rollNo || r.studentPrn);
                 const fromVal = extractTailNum(batch.rbtFrom);
                 const toVal = extractTailNum(batch.rbtTo);
-                const session = stats.sessions.find((s: any) => s.id === r.sessionId);
 
                 if (isNaN(rollNo) || isNaN(fromVal) || isNaN(toVal)) return false;
 
@@ -166,9 +173,8 @@ export const AdminReportsManagement = ({ filters }: any) => {
                 const fSeq = fromVal % 1000;
                 const tSeq = toVal % 1000;
 
-                return session &&
-                    session.department === batch.department &&
-                    session.division === mainDiv &&
+                return r.sessionDept === batch.department &&
+                    r.sessionDiv?.startsWith(mainDiv) &&
                     seq >= fSeq && seq <= tSeq;
             });
             divisionStats[mainDiv] += batchAbsents.length;
@@ -184,33 +190,24 @@ export const AdminReportsManagement = ({ filters }: any) => {
     const getAuditData = () => {
         if (!stats) return [];
 
-        let filteredAbsents = stats.absentRecords;
+        const targetDate = localFilters.startDate || localFilters.date;
+        const filteredAbsents = stats.absentRecords.filter((r: any) => {
+            const rDate = r.sessionDate || new Date(r.createdAt || new Date()).toISOString().split('T')[0];
 
-        if (localFilters.startDate && localFilters.endDate && localFilters.endDate !== localFilters.startDate) {
-            filteredAbsents = filteredAbsents.filter((r: any) => {
-                const rDate = new Date(r.createdAt || new Date()).toISOString().split('T')[0];
-                return rDate >= localFilters.startDate && rDate <= localFilters.endDate;
-            });
-        } else {
-            const targetDate = localFilters.startDate || localFilters.date;
-            filteredAbsents = filteredAbsents.filter((r: any) => {
-                const rDate = new Date(r.createdAt || new Date()).toISOString().split('T')[0];
-                return rDate === targetDate;
-            });
-        }
+            // Date Filter
+            let dateMatch = false;
+            if (localFilters.startDate && localFilters.endDate && localFilters.endDate !== localFilters.startDate) {
+                dateMatch = rDate >= localFilters.startDate && rDate <= localFilters.endDate;
+            } else {
+                dateMatch = rDate === targetDate;
+            }
+            if (!dateMatch) return false;
 
-        return filteredAbsents.map((absent: any) => {
-            const absentDateStr = new Date(absent.createdAt || new Date()).toLocaleDateString();
-            const callLog = stats.calls.find((c: any) =>
-                c.studentPrn === absent.studentPrn &&
-                new Date(c.createdAt).toLocaleDateString() === absentDateStr
-            );
+            // Dept Filter
+            if (localFilters.dept !== 'All' && r.sessionDept !== localFilters.dept) return false;
 
-            const session = stats.sessions.find((s: any) => s.id === absent.sessionId);
-
-            if (localFilters.dept !== 'All' && session?.department !== localFilters.dept) return null;
-
-            const sessionYear = session?.academicYear || '';
+            // Year Filter
+            const sessionYear = r.sessionYear || '';
             const filterYear = localFilters.year || 'All';
             const yearMatch = filterYear === 'All' ||
                 sessionYear === filterYear ||
@@ -218,58 +215,48 @@ export const AdminReportsManagement = ({ filters }: any) => {
                 (filterYear === 'Second Year' && (sessionYear === 'SE' || sessionYear === '2nd')) ||
                 (filterYear === 'Third Year' && (sessionYear === 'TE' || sessionYear === '3rd')) ||
                 (filterYear === 'Final Year' && (sessionYear === 'BE' || sessionYear === '4th'));
+            if (!yearMatch) return false;
 
-            if (!yearMatch) return null;
-            if (localFilters.div !== 'All' && session?.division !== localFilters.div && session?.division[0] !== localFilters.div) return null;
+            // Division Filter
+            if (localFilters.div !== 'All' && r.sessionDiv !== localFilters.div && r.sessionDiv?.[0] !== localFilters.div) return false;
 
-            const extractTailNum = (str: string) => {
-                const match = String(str).match(/\d+$/);
-                return match ? parseInt(match[0]) : NaN;
-            };
+            return true;
+        });
 
-            const student = stats.students?.find((s: any) => s.prn === absent.studentPrn);
-            const batch = stats.batchConfigs.find((b: any) => {
-                const roll = extractTailNum(student?.rollNo || absent.studentPrn);
-                const fromRoll = extractTailNum(b.rbtFrom);
-                const toRoll = extractTailNum(b.rbtTo);
+        return filteredAbsents.map((absent: any) => {
+            const absentDateStr = absent.sessionDate;
 
-                if (isNaN(roll) || isNaN(fromRoll) || isNaN(toRoll)) return false;
+            // Precise matching for calls and leave notes using the session date
+            const callLog = stats.calls.find((c: any) =>
+                c.studentPrn === absent.studentPrn &&
+                (c.sessionDate === absentDateStr || new Date(c.createdAt).toISOString().split('T')[0] === absentDateStr)
+            );
 
-                const seq = roll % 1000;
-                const fSeq = fromRoll % 1000;
-                const tSeq = toRoll % 1000;
-
-                return session && b.department === session.department &&
-                    b.class === session.academicYear &&
-                    b.division === session.division &&
-                    seq >= fSeq && seq <= tSeq;
-            });
             const leave = stats.leaveNotes?.find((l: any) =>
                 l.studentPrn === absent.studentPrn &&
-                l.startDate <= localFilters.date && l.endDate >= localFilters.date
+                l.startDate <= absentDateStr && l.endDate >= absentDateStr
             );
 
             const auditItem = {
-                dept: session?.department || '-',
-                year: session?.academicYear || '-',
-                div: session?.division || '-',
-                batch: batch?.batchName || '-',
-                name: student?.fullName || student?.full_name || absent.studentPrn,
-                rollNo: student?.rollNo || student?.roll_no || absent.studentPrn,
+                dept: absent.sessionDept || '-',
+                year: absent.sessionYear || absent.studentYear || '-',
+                div: absent.sessionDiv || absent.studentDiv || '-',
+                batch: absent.sessionBatch || '-',
+                name: absent.fullName || absent.studentPrn,
+                rollNo: absent.rollNo || absent.studentPrn,
                 prn: absent.studentPrn,
                 date: absentDateStr,
                 status: callLog ? 'Called' : (leave ? 'Leave Note' : 'Pending'),
-                gfmName: callLog?.teacherName || batch?.teacherName || 'Unknown',
+                gfmName: callLog?.teacherName || 'Unknown', // View provides teacherName for call
                 callTime: callLog ? new Date(callLog.createdAt).toLocaleTimeString() : '-',
                 reason: callLog?.reason || 'No Call Logged',
-                leaveNote: leave ? `${leave.reason}${leave.proof_url ? ' (Proof Uploaded)' : ''}` : '-',
-                leaveProofUrl: leave?.proof_url || null,
+                leaveNote: leave ? `${leave.reason}${leave.proofUrl ? ' (Proof Uploaded)' : ''}` : '-',
+                leaveProofUrl: leave?.proofUrl || null,
                 leaveAddedAt: leave?.createdAt ? new Date(leave.createdAt).toLocaleTimeString() : undefined,
                 isCompliant: !!callLog || !!leave,
                 fullDate: absent.createdAt || new Date().toISOString()
             } as AuditItem;
 
-            // Apply GFM Search filter
             if (localFilters.gfmSearch && !auditItem.gfmName.toLowerCase().includes(localFilters.gfmSearch.toLowerCase())) {
                 return null;
             }
@@ -277,6 +264,7 @@ export const AdminReportsManagement = ({ filters }: any) => {
             return auditItem;
         }).filter(Boolean).sort((a: any, b: any) => new Date(b.fullDate).getTime() - new Date(a.fullDate).getTime());
     };
+
 
     const pieData = getPieChartData();
     const auditData: AuditItem[] = getAuditData();

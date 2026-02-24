@@ -23,6 +23,7 @@ import {
   getStudentActivities,
   saveStudentActivity
 } from '../../storage/sqlite';
+import { getLocalDateString } from '../../utils/date';
 
 export default function CoursesScreen() {
   const router = useRouter();
@@ -38,7 +39,7 @@ export default function CoursesScreen() {
   const [platform, setPlatform] = useState('');
   const [duration, setDuration] = useState('');
   const [semester, setSemester] = useState('3');
-  const [completionDate, setCompletionDate] = useState(new Date().toISOString().split('T')[0]);
+  const [completionDate, setCompletionDate] = useState(getLocalDateString());
   const [description, setDescription] = useState('');
   const [certificateUri, setCertificateUri] = useState('');
   const [certificateFileInfo, setCertificateFileInfo] = useState<{ name: string, type: string } | null>(null);
@@ -152,7 +153,7 @@ export default function CoursesScreen() {
     setPlatform('');
     setDuration('');
     setSemester('3');
-    setCompletionDate(new Date().toISOString().split('T')[0]);
+    setCompletionDate(getLocalDateString());
     setDescription('');
     setCertificateUri('');
   };

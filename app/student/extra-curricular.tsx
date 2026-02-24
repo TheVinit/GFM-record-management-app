@@ -24,6 +24,7 @@ import {
   getStudentActivities,
   saveStudentActivity
 } from '../../storage/sqlite';
+import { getLocalDateString } from '../../utils/date';
 
 export default function ExtraCurricularScreen() {
   const [prn, setPrn] = useState('');
@@ -34,7 +35,7 @@ export default function ExtraCurricularScreen() {
   // Form fields
   const [activityName, setActivityName] = useState('');
   const [semester, setSemester] = useState(1);
-  const [activityDate, setActivityDate] = useState(new Date().toISOString().split('T')[0]);
+  const [activityDate, setActivityDate] = useState(getLocalDateString());
   const [description, setDescription] = useState('');
   const [certificateUri, setCertificateUri] = useState('');
   const [certificatePreview, setCertificatePreview] = useState('');
@@ -194,7 +195,7 @@ export default function ExtraCurricularScreen() {
     setShowForm(false);
     setSemester(1);
     setActivityName('');
-    setActivityDate(new Date().toISOString().split('T')[0]);
+    setActivityDate(getLocalDateString());
     setDescription('');
     setCertificateUri('');
     setCertificatePreview('');

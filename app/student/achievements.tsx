@@ -29,6 +29,7 @@ import {
   getAchievements,
   saveAchievement
 } from '../../storage/sqlite';
+import { getLocalDateString } from '../../utils/date';
 
 // Local function removed in favor of global one from sqlite.ts
 
@@ -45,7 +46,7 @@ export default function AchievementsScreen() {
   const [achievementName, setAchievementName] = useState('');
   const [semester, setSemester] = useState(1);
   const [type, setType] = useState('Technical');
-  const [achievementDate, setAchievementDate] = useState(new Date().toISOString().split('T')[0]);
+  const [achievementDate, setAchievementDate] = useState(getLocalDateString());
   const [description, setDescription] = useState('');
   const [certificateUri, setCertificateUri] = useState('');
   const [certificateFileInfo, setCertificateFileInfo] = useState<{ name: string, type: string } | null>(null);
@@ -190,7 +191,7 @@ export default function AchievementsScreen() {
     setAchievementName('');
     setSemester(1);
     setType('Technical');
-    setAchievementDate(new Date().toISOString().split('T')[0]);
+    setAchievementDate(getLocalDateString());
     setDescription('');
     setCertificateUri('');
     setCertificateFileInfo(null);

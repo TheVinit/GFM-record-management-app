@@ -13,6 +13,7 @@ import {
     Student,
     toCamelCase
 } from '../../storage/sqlite';
+import { getLocalDateString } from '../../utils/date';
 import { styles } from './dashboard.styles';
 
 export const AttendanceManagement = ({
@@ -56,7 +57,7 @@ export const AttendanceManagement = ({
             const div = batchConfig?.division || filters.div;
 
             // Check if attendance already taken today for this division
-            const today = new Date().toISOString().split('T')[0];
+            const today = getLocalDateString();
             const { data: existingSession, error } = await supabase
                 .from('attendance_sessions')
                 .select('*')
@@ -135,7 +136,7 @@ export const AttendanceManagement = ({
 
             const newSession = await createAttendanceSession({
                 teacherId: s!.id,
-                date: new Date().toISOString().split('T')[0],
+                date: getLocalDateString(),
                 academicYear: year,
                 department: dept,
                 class: year,

@@ -16,6 +16,7 @@ import {
 import { COLORS } from '../../constants/colors';
 import { getSession } from '../../services/session.service';
 import { supabase } from '../../services/supabase';
+import { getLocalDateString } from '../../utils/date';
 import { generatePDF } from '../../utils/pdf-generator';
 
 const ReportsDashboard = () => {
@@ -73,7 +74,7 @@ const ReportsDashboard = () => {
 
             if (!batchConfig) throw new Error("Batch config not found. Please ensure your batch is assigned.");
 
-            const dateStr = startDate.toISOString().split('T')[0];
+            const dateStr = getLocalDateString(startDate);
 
             // 2. Fetch all students in this batch
             const { data: studentsInRange } = await supabase
@@ -109,10 +110,18 @@ const ReportsDashboard = () => {
             const totalStudentsCount = batchStudents.length;
 
             // 3. Fetch Attendance Records for this date and students
+            // First get sessions for this date
+            const { data: sessions } = await supabase
+                .from('attendance_sessions')
+                .select('id')
+                .eq('date', dateStr);
+
+            const sessionIds = sessions?.map(s => s.id) || [];
+
             const { data: attendanceRecords } = await supabase
                 .from('attendance_records')
                 .select('student_prn, status')
-                .eq('date', dateStr)
+                .in('session_id', sessionIds)
                 .in('student_prn', studentPrns);
 
             const absentPrns = attendanceRecords?.filter(r => r.status === 'Absent').map(r => r.student_prn) || [];
@@ -122,14 +131,15 @@ const ReportsDashboard = () => {
             const { count: contactedCount } = await supabase
                 .from('attendance_follow_ups')
                 .select('*', { count: 'exact', head: true })
-                .eq('date', dateStr)
-                .in('student_prn', studentPrns);
+                .in('student_prn', studentPrns)
+                .or(`date.eq.${dateStr},created_at.gte.${dateStr}T00:00:00,created_at.lte.${dateStr}T23:59:59`);
 
             const { count: leaveNotesCount } = await supabase
                 .from('pre_informed_absences')
                 .select('*', { count: 'exact', head: true })
-                .eq('date', dateStr)
-                .in('student_prn', studentPrns);
+                .in('student_prn', studentPrns)
+                .lte('start_date', dateStr)
+                .gte('end_date', dateStr);
 
             // 5. Build Report Object
             const absentDetails = batchStudents

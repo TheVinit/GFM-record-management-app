@@ -19,6 +19,7 @@ import { checkIfPreInformed, initiateCall, savePreInformedAbsence, updateFollowU
 import { getSession } from '../services/session.service';
 import { pickAbsenceProof, uploadAbsenceProof } from '../services/storage.service';
 import { supabase } from '../services/supabase';
+import { getLocalDateString } from '../utils/date';
 
 interface EnhancedAttendanceSummaryProps {
     students: any[];
@@ -57,7 +58,7 @@ export const EnhancedAttendanceSummary: React.FC<EnhancedAttendanceSummaryProps>
     }, [students]);
 
     const loadPreInformedStatus = async () => {
-        const todayStr = new Date().toISOString().split('T')[0];
+        const todayStr = getLocalDateString();
 
         // Fetch calls for today for this batch area
         const { data: todayCalls } = await supabase
@@ -71,14 +72,18 @@ export const EnhancedAttendanceSummary: React.FC<EnhancedAttendanceSummaryProps>
 
         const today = new Date();
         const uniquePrns = new Set();
-        // Normalize students to ensure they have a consistent 'prn' property
+        // Normalize students to ensure they have consistent properties from our new view
         const normalizedStudents = students.map((s: any) => ({
             ...s,
-            prn: s.prn || s.studentPrn
+            id: s.id || s.recordId,
+            prn: s.prn || s.studentPrn,
+            fullName: s.fullName || s.studentFullName,
+            rollNo: s.rollNo || s.studentRollNo,
+            status: s.status || 'Unknown'
         }));
 
         const uniqueStudents = normalizedStudents.filter((s: any) => {
-            if (!s.prn) return true; // Keep for warning if both missing
+            if (!s.prn) return true;
             if (uniquePrns.has(s.prn)) return false;
             uniquePrns.add(s.prn);
             return true;
@@ -100,6 +105,7 @@ export const EnhancedAttendanceSummary: React.FC<EnhancedAttendanceSummaryProps>
                 };
             })
         );
+        console.log(`[EnhancedSummary] Props: ${students.length}, Unique: ${uniqueStudents.length}, Enhanced: ${enhanced.length}`);
         setEnhancedStudents(enhanced);
     };
 

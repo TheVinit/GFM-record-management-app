@@ -25,6 +25,7 @@ export default function Index() {
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [focusedInput, setFocusedInput] = useState<string | null>(null);
   const passwordRef = React.useRef<TextInput>(null);
@@ -40,6 +41,7 @@ export default function Index() {
     }
 
     setLoading(true);
+    setLoginError(null);
     try {
       const user = await login(identifier, password);
 
@@ -51,14 +53,8 @@ export default function Index() {
       }
     } catch (error: any) {
       const msg = error.message || 'Something went wrong. Please try again.';
-      if (msg.includes('No account found') || msg.includes('User not found')) {
-        Alert.alert(
-          'Account Not Found',
-          msg,
-          [{ text: 'OK' }]
-        );
-      } else if (msg.includes('Invalid password') || msg.includes('password')) {
-        Alert.alert('Wrong Password', 'The password you entered is incorrect. Please try again.');
+      if (msg.includes('No account found') || msg.includes('User not found') || msg.includes('Invalid password') || msg.includes('password') || msg.includes('Invalid login credentials')) {
+        setLoginError('Invalid credentials');
       } else if (msg.includes('network') || msg.includes('fetch')) {
         Alert.alert('Connection Error', 'Unable to connect. Please check your internet connection and try again.');
       } else {
@@ -179,6 +175,13 @@ export default function Index() {
               <Text style={styles.forgotText}>Forgot Password?</Text>
             </TouchableOpacity>
 
+            {loginError && (
+              <View style={styles.errorContainer}>
+                <Ionicons name="alert-circle" size={18} color={COLORS.error} />
+                <Text style={styles.errorText}>{loginError}</Text>
+              </View>
+            )}
+
             {/* Login Button */}
             <TouchableOpacity
               style={[styles.loginButton, loading && styles.loginButtonDisabled]}
@@ -209,7 +212,7 @@ export default function Index() {
 
           {/* Footer */}
           <View style={styles.footer}>
-            <Text style={styles.footerText}>© 2024 GFM Record Management</Text>
+            <Text style={styles.footerText}>© 2026 @ GFM Record Management</Text>
             <Text style={styles.footerSubtext}>Secure • Reliable • Efficient</Text>
           </View>
         </ScrollView>
@@ -408,5 +411,21 @@ const styles = StyleSheet.create({
   footerSubtext: {
     color: 'rgba(255, 255, 255, 0.7)',
     fontSize: 11,
+  },
+  errorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF5F5',
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#FED7D7',
+  },
+  errorText: {
+    color: COLORS.error,
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 8,
   },
 });
