@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Platform,
   RefreshControl,
   ScrollView,
@@ -12,8 +13,9 @@ import {
   useWindowDimensions,
   View
 } from 'react-native';
+import { ChangePasswordModal } from '../../components/ChangePasswordModal';
 import { COLORS } from '../../constants/colors';
-import { clearSession, getSession } from '../../services/session.service';
+import { clearSession, getSession, SessionUser } from '../../services/session.service';
 import { supabase } from '../../services/supabase';
 
 export default function AdminDashboard() {
@@ -25,6 +27,8 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [adminName, setAdminName] = useState('Admin');
+  const [currentUser, setCurrentUser] = useState<SessionUser | null>(null);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [stats, setStats] = useState({
     totalStudents: 0,
     totalFaculty: 0,
@@ -48,6 +52,7 @@ export default function AdminDashboard() {
       router.replace('/');
     } else {
       setAdminName(session.fullName || 'Admin');
+      setCurrentUser(session);
     }
   };
 
@@ -131,10 +136,21 @@ export default function AdminDashboard() {
               <Text style={styles.brandSubtitle}>Admin Control Panel</Text>
             </View>
           </View>
-          <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn}>
-            <Ionicons name="log-out-outline" size={20} color={COLORS.white} />
-            {isLargeScreen && <Text style={styles.logoutText}>Logout</Text>}
-          </TouchableOpacity>
+          <View style={styles.headerRight}>
+            <TouchableOpacity
+              onPress={() => setShowPasswordModal(true)}
+              style={styles.profileIconBtn}
+            >
+              <View style={styles.avatarCircle}>
+                <Ionicons name="person" size={20} color={COLORS.primary} />
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn}>
+              <Ionicons name="log-out-outline" size={20} color={COLORS.white} />
+              {isLargeScreen && <Text style={styles.logoutText}>Logout</Text>}
+            </TouchableOpacity>
+          </View>
         </View>
 
         <View style={styles.welcomeSection}>
@@ -226,6 +242,23 @@ export default function AdminDashboard() {
           <Text style={styles.footerText}>GFM Record Management System v2.0</Text>
         </View>
       </ScrollView>
+
+      {currentUser && (
+        <ChangePasswordModal
+          visible={showPasswordModal}
+          onClose={() => setShowPasswordModal(false)}
+          onSuccess={() => {
+            setShowPasswordModal(false);
+            Alert.alert('Success', 'Password updated successfully');
+          }}
+          userId={currentUser.id}
+          userPrn={currentUser.prn}
+          userRole={currentUser.role}
+          userEmail={currentUser.email}
+          currentPassword={currentUser.password || ''}
+          isFirstLogin={currentUser.firstLogin}
+        />
+      )}
     </View>
   );
 }
@@ -252,6 +285,22 @@ const createStyles = (width: number, isLargeScreen: boolean, isXLargeScreen: boo
   },
   brandName: { fontSize: isLargeScreen ? 24 : 20, fontWeight: 'bold', color: COLORS.white },
   brandSubtitle: { fontSize: isLargeScreen ? 14 : 12, color: 'rgba(255,255,255,0.7)' },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  profileIconBtn: {
+    padding: 2,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  avatarCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: COLORS.white,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
   logoutBtn: {
     flexDirection: 'row',
     alignItems: 'center',

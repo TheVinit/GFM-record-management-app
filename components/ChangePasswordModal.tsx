@@ -82,58 +82,43 @@ export function ChangePasswordModal({
     setLoading(true);
 
     try {
-      let attempts = [];
-      let data: any[] | null = null;
-      let updateError: any = null;
+      // 🎯 [THE VERIFIED RPC STRATEGY]
+      // We use a custom database RPC (Security Definer) to perform the update.
+      // 1. It bypasses RLS recursion/restrictions.
+      // 2. It verifies the old password directly against the profiles table.
+      // 3. It works even if Supabase Auth (UUID) and Profiles (Local ID) are drifted.
+      const cleanEmail = userEmail.trim().toLowerCase();
 
-      // ULTIMATE STRATEGY: Use UPSERT on PRN. 
-      // This is the most robust method because:
-      // 1. It's exactly how saveStudent works (which currently succeeds).
-      // 2. It doesn't rely on volatile internal UUIDs.
-      // 3. It targets the "Business Key" (PRN) which we know is correct.
+      // CRITICAL FIX: If first login, the "Current Password" field is hidden.
+      // We must use the currentPassword prop as the verification credential.
+      const rawOld = isFirstLogin ? currentPassword : oldPassword;
+      const cleanOld = rawOld.trim();
+      const cleanNew = newPassword.trim();
 
-      const identifier = userPrn?.trim() || userId || userEmail;
-      attempts.push(`Identifier: ${identifier}`);
+      console.log('🔄 [VerifiedRPC] Attempting secure password update for:', cleanEmail);
 
-      if (!userPrn?.trim()) {
-        console.warn('⚠️ No userPrn available in modal. Falling back to ID/Email.');
+      const { data: successData, error: rpcError } = await supabase.rpc('verified_password_update', {
+        p_email: cleanEmail,
+        p_old_password: cleanOld,
+        p_new_password: cleanNew
+      });
+
+      if (rpcError) {
+        console.error('❌ [VerifiedRPC] RPC Failed:', rpcError.message);
+        throw new Error(rpcError.message);
       }
 
-      // We perform an upsert that onConflict:prn will just update the provided fields.
-      const { data: upsertData, error: upsertError } = await supabase
-        .from('profiles')
-        .upsert({
-          prn: userPrn?.trim() || undefined,
-          id: userId || undefined,
-          role: userRole,
-          email: userEmail?.toLowerCase().trim() || undefined,
-          password: newPassword,
-          first_login: false
-        }, { onConflict: 'prn' })
-        .select();
-
-      data = upsertData;
-      updateError = upsertError;
-
-      if (updateError) {
-        console.error('❌ Profile upsert error:', JSON.stringify(updateError, null, 2));
-        throw updateError;
+      if (!successData) {
+        console.error('❌ [VerifiedRPC] Logic failed (wrong old password)');
+        throw new Error('Verification failed. Please ensure your Old Password is correct.');
       }
 
-      if (!data || data.length === 0) {
-        throw new Error(`Profile not found or update blocked. Tried identifying by: ${attempts.join(', ')}.`);
-      }
-
-      console.log('✅ Password updated in DB for profile:', data[0].id);
-
-      // Update Supabase Auth if applicable
-      const { error: authError } = await supabase.auth.updateUser({ password: newPassword });
-      if (authError) console.warn('Supabase Auth update skipped:', authError.message);
+      console.log('✅ [VerifiedRPC] Password change confirmed in Cloud');
 
       // Sync session
       const session = await getSession();
       if (session) {
-        session.password = newPassword;
+        session.password = cleanNew;
         session.firstLogin = false;
         await saveSession(session);
         console.log('📦 Local session synced with new password');
