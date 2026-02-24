@@ -1229,12 +1229,20 @@ export const getAllTeachers = async (): Promise<TeacherProfile[]> => {
 export const saveStudent = async (student: Partial<Student>) => {
   const snakeData = toSnakeCase(student);
 
+  // Sanitize UUID fields - empty strings must be null
+  if (snakeData.gfm_id === '') {
+    snakeData.gfm_id = null;
+  }
+
   // 1. Insert into students table
   const { error: studentError } = await supabase
     .from('students')
     .insert(snakeData);
 
-  if (studentError) throw studentError;
+  if (studentError) {
+    console.error('Error in saveStudent (students table):', studentError);
+    throw studentError;
+  }
 
   // 2. Also create a profile for login (PRN as password initially)
   const id = generateUUID();
@@ -1251,6 +1259,7 @@ export const saveStudent = async (student: Partial<Student>) => {
 
   if (profileError) {
     console.error('Error creating student profile:', profileError);
+    throw profileError;
   }
 };
 

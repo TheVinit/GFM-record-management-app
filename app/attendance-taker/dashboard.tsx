@@ -201,7 +201,8 @@ export default function AttendanceTakerDashboard() {
 
   const checkCompletedDivisions = async () => {
     try {
-      const today = new Date().toISOString().split('T')[0];
+      const today = getLocalDateString(); // Use local date, consistent with session creation
+      console.log(`[AttendanceTaker] Checking completed divisions for date=${today}, year=${yearFilter}, dept=${deptFilter}`);
       const { data, error } = await supabase
         .from('attendance_sessions')
         .select('division')
@@ -211,6 +212,7 @@ export default function AttendanceTakerDashboard() {
 
       if (error) throw error;
       const completed = data?.map(d => d.division) || [];
+      console.log(`[AttendanceTaker] Completed divisions: [${completed.join(', ')}]`);
       setCompletedDivisions(completed);
 
       // If current division is completed, switch to next available one
@@ -264,15 +266,24 @@ export default function AttendanceTakerDashboard() {
     setSubmitting(true);
     try {
       const s = await getSession();
-      if (!s) return;
+      if (!s) {
+        console.error('[AttendanceTaker] No session found during submission');
+        Alert.alert('Error', 'Your session has expired. Please log in again.');
+        setSubmitting(false);
+        return;
+      }
+      console.log('[AttendanceTaker] Starting submission for teacher:', s.id);
+      console.log('[AttendanceTaker] Filters:', { deptFilter, yearFilter, divFilter, subBatchFilter });
 
       // 1. Fetch students for this division to map roll numbers
       const students = await getStudentsByDivision(deptFilter, yearFilter, divFilter, true);
       if (students.length === 0) {
+        console.warn('[AttendanceTaker] No students found for selection');
         Alert.alert('Error', 'No students found for this selection');
         setSubmitting(false);
         return;
       }
+      console.log(`[AttendanceTaker] Found ${students.length} students for mapping`);
 
       // 2. Parse absent roll numbers and normalize them
       const absentInput = absentRollNos
@@ -314,9 +325,12 @@ export default function AttendanceTakerDashboard() {
         };
       });
 
-      await saveAttendanceRecords(records);
-
       const absentCount = records.filter(r => r.status === 'Absent').length;
+      console.log(`[AttendanceTaker] Saving ${records.length} records (${absentCount} absent) for session ${newSession.id}`);
+      console.log(`[AttendanceTaker] Session payload → dept=${deptFilter}, year=${yearFilter}, div=${divFilter}, date=${getLocalDateString()}, batch=${batchLabel}`);
+      await saveAttendanceRecords(records);
+      console.log('[AttendanceTaker] ✅ Successfully saved records to Supabase');
+
       setLastSubmitted({
         session: newSession,
         absentCount,
@@ -326,12 +340,18 @@ export default function AttendanceTakerDashboard() {
       // Refresh completed divisions
       await checkCompletedDivisions();
 
-      Alert.alert('Success', `Attendance recorded: ${students.length - absentCount} Present, ${absentCount} Absent`);
+      Alert.alert(
+        '✅ Attendance Submitted',
+        `${deptFilter} • ${yearFilter} • Div ${divFilter}${subBatchFilter ? ` (${batchLabel})` : ''}\n\n` +
+        `Present: ${students.length - absentCount}\n` +
+        `Absent: ${absentCount}\n\n` +
+        `The record is now visible in the GFM portal.`
+      );
       setAbsentRollNos('');
       // Do not reset viewMode to 'home' to keep year/dept selected
-    } catch (e) {
-      console.error(e);
-      Alert.alert('Error', 'Failed to record attendance. Please check all fields.');
+    } catch (e: any) {
+      console.error('[AttendanceTaker] ❌ Submission failed:', e?.message || e);
+      Alert.alert('Submission Failed', `Could not save attendance.\n\nError: ${e?.message || 'Unknown error'}\n\nPlease try again.`);
     } finally {
       setSubmitting(false);
     }
@@ -348,6 +368,7 @@ export default function AttendanceTakerDashboard() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
+      console.log(`[AttendanceTaker] Loaded ${data?.length || 0} history sessions for ${dateStr}`);
       setHistorySessions(data?.map(toCamelCase) || []);
       setSelectedSession(null);
       setSessionRecords([]);

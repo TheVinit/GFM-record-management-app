@@ -513,7 +513,7 @@ export default function TeacherDashboard() {
         <View style={styles.contentArea}>
           {currentModule !== 'analytics' && currentModule !== 'attendance' && currentModule !== 'attendance-summary' && currentModule !== 'admin-reports' && currentModule !== 'manage-staff' && currentModule !== 'daily-attendance' && currentModule !== 'register-student' && currentModule !== 'students' && renderFilters()}
 
-          <ScrollView contentContainerStyle={styles.scrollContent}>
+          {['register-student', 'students'].includes(currentModule) ? (
             <ModuleRenderer
               currentModule={currentModule}
               teacherPrn={teacherPrn}
@@ -539,7 +539,35 @@ export default function TeacherDashboard() {
               batchConfig={batchConfig}
               router={router}
             />
-          </ScrollView>
+          ) : (
+            <ScrollView contentContainerStyle={styles.scrollContent}>
+              <ModuleRenderer
+                currentModule={currentModule}
+                teacherPrn={teacherPrn}
+                teacherDept={teacherDept}
+                students={students}
+                searchQuery={searchQuery}
+                gfmFilters={{ dept: gfmDeptFilter, year: gfmYearFilter, div: gfmDivFilter }}
+                attFilters={{ dept: attDeptFilter, year: attYearFilter, div: attDivFilter }}
+                courses={courses}
+                semFilter={semFilter}
+                activityTypeFilter={activityTypeFilter}
+                onViewStudentDetails={setSelectedStudentForDetails}
+                onViewAcademicRecord={setSelectedStudentForAcademicView}
+                onPrintStudent={(s: Student) => {
+                  setStudentForPrint(s);
+                  setPrintOptionsVisible(true);
+                }}
+                onQuickEdit={openQuickEdit}
+                onRefresh={loadData}
+                onViewDocument={handleViewDocument}
+                handleVerify={handleVerify}
+                yearsOfStudy={yearsOfStudy}
+                batchConfig={batchConfig}
+                router={router}
+              />
+            </ScrollView>
+          )}
         </View>
       </View>
 
