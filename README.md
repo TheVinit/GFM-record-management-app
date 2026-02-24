@@ -1,92 +1,51 @@
-# Welcome to your Expo app 👋
+# 🎓 GFM Record Management System
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+A premium, state-of-the-art record management application designed for Guardian Faculty Members (GFM) to track student progress, attendance, and financial status with ease and precision.
 
-## Get started
+## 🚀 Key Features
 
-1. Install dependencies
+### 📊 Dashboard & Analytics
+- **Admin Dashboard**: High-level overview of students, faculty, and system health.
+- **Teacher Dashboard**: Personalized view for GFMs to manage their assigned batches.
+- **Real-time Stats**: Track attendance, fee payments, and academic performance.
 
-   ```bash
-   npm install
-   ```
+### 👥 User Management
+- **Role-Based Access**: Secure login for Admins, Teachers, Students, and Attendance Takers.
+- **Profile Management**: Complete student profiling including academic history, achievements, and document uploads.
+- **Admin Control**: Bulk import staff and students via CSV templates.
 
-2. Start the app
+### 💰 Financial Tracking (Fees)
+- **Status Monitoring**: Instantly identify 'Paid', 'Pending', and 'Not Paid' students.
+- **Visual Alerts**: Financial defaulters are highlighted in red for immediate attention.
+- **Report Generation**: Export detailed fee reports and defaulter lists in CSV format.
 
-   ```bash
-   npx expo start
-   ```
+### 📅 Attendance & Academics
+- **Daily Attendance**: Easy-to-use interface for marking and tracking student presence.
+- **Course Management**: Configure semesters, credits, and evaluation schemes.
+- **Academic Records**: Centralized storage for ISE, MSE, and ESE marks.
 
-In the output, you'll find options to open the app in a
+## 🛠️ Technology Stack
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+- **Framework**: [Expo](https://expo.dev/) (React Native)
+- **Database (Cloud)**: [Supabase](https://supabase.com/) (PostgreSQL & Auth)
+- **Database (Local)**: [SQLite](https://docs.expo.dev/versions/latest/sdk/sqlite/) (Caching Layer)
+- **Styling**: Vanilla CSS for premium, high-performance UI components.
+- **Icons**: [Ionicons](https://ionic.io/ionicons)
+- **PDF Generation**: [jsPDF](https://github.com/parallax/jsPDF)
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+## 📁 Project Structure
 
-## Get a fresh project
+- `app/`: Expo Router pages (Admin, Teacher, Student screens).
+- `components/`: Reusable UI components (Modals, Headers, Tables).
+- `constants/`: Global variables, color tokens, and mappings.
+- `services/`: API integration with Supabase Auth and Session management.
+- `storage/`: SQLite caching logic and database initialization.
+- `utils/`: Common helper functions (Date formatting, Validation).
+- `csv-templates/`: Reference files for bulk data imports.
 
-When you're ready, run:
+## 📥 Setup for Teammates
 
-```bash
-npm run reset-project
-```
+For detailed instructions on how to run this project on your machine, please refer to the **[TEAM_SETUP.txt](./TEAM_SETUP.txt)** file.
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
-
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
-
-## 🔄 Auto-Sync Feature
-
-This project uses an **Auto-Sync** workflow to ensure your development journey is smooth and secure. Every time I (the AI assistant) help you implement a feature or fix a bug, the changes are automatically backed up to your GitHub repository.
-
-### Why Auto-Sync?
-- **Logical Security**: It acts as an automatic "Save" button, ensuring no work is ever lost.
-- **Humanized History**: You can see exactly how the project evolved step-by-step in your commit history.
-- **Consistency**: It keeps your local workspace and remote repository in perfect harmony without any manual effort.
-
-## 📝 Recent Development Log
-
-To provide more logical context than the automated commit messages, here is a summary of the actual work completed in the recent updates:
-
-### **PDF Generation Engine**
-- **File**: `services/pdf-template.service.ts`
-- **Actions**: 
-    - Fixed "Blank Screen" issue in PDF preview.
-    - Restructured the HTML template for better visual consistency.
-    - Updated category labels (e.g., changed "Technical Skills" to "Academic Achievements").
-    - Optimized CSS for print layout.
-
-### **Dashboard Enhancements**
-- **Files**: `app/student/dashboard.tsx`, `app/teacher/dashboard.tsx`
-- **Actions**:
-    - Improved dashboard UI with modern card designs.
-    - Integrated real-time achievement counts from SQLite.
-    - Added "Quick Action" buttons for faster navigation.
-    - Enhanced data fetching logic to ensure offline persistence.
-
-### **Data Storage & Migrations**
-- **File**: `storage/sqlite.ts`
-- **Actions**:
-    - Implemented database migrations to support new achievement types.
-    - Added utility functions for counting records by category.
-    - Optimized query performance for dashboard loading.
-
-### **Student Records**
-- **File**: `app/student/achievements.tsx`
-- **Actions**:
-    - Fixed list rendering issues.
-    - Added better empty state handling.
+---
+**GFM Record Management System** - *Efficiency in Education.*
