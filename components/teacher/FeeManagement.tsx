@@ -37,9 +37,12 @@ export const FeeManagement = ({ students, filters, handleVerify }: any) => {
         let totalRemainingAmount = 0;
 
         filtered.forEach(f => {
-            if ((f.lastBalance || 0) > 0) {
+            const hasNoPayment = (f.paidAmount || 0) === 0;
+            const hasBalance = (f.lastBalance || 0) > 0;
+
+            if (hasBalance || hasNoPayment) {
                 studentsWithRemaining++;
-                totalRemainingAmount += f.lastBalance;
+                totalRemainingAmount += (f.lastBalance || 0);
             }
         });
 
@@ -51,18 +54,19 @@ export const FeeManagement = ({ students, filters, handleVerify }: any) => {
     };
 
     const filteredFeeData = feeData.filter(f => {
-        // Year filter is handled by API/loadFeeData via filters.year
-        // Just handle Status tab
+        const isPaid = (f.paidAmount || 0) > 0 && (f.lastBalance || 0) <= 0;
+        const isPending = (f.lastBalance || 0) > 0 || (f.paidAmount || 0) === 0;
+
         if (activeTab === 'All') return true;
-        if (activeTab === 'Paid') return (f.lastBalance || 0) <= 0;
-        if (activeTab === 'Pending') return (f.lastBalance || 0) > 0;
+        if (activeTab === 'Paid') return isPaid;
+        if (activeTab === 'Pending') return isPending;
         return true;
     });
 
     const exportFeeCSV = (onlyDefaulters = false) => {
         let csv = 'Roll No,PRN,Name,Year,Total Fee,Paid,Balance,Receipt Link\n';
         const dataToExport = onlyDefaulters
-            ? feeData.filter(f => (f.lastBalance || 0) > 0)
+            ? feeData.filter(f => (f.lastBalance || 0) > 0 || (f.paidAmount || 0) === 0)
             : filteredFeeData;
 
         dataToExport.forEach(f => {
@@ -160,10 +164,10 @@ export const FeeManagement = ({ students, filters, handleVerify }: any) => {
                                     <Text style={[styles.tableCell, { width: 150 }]}>{f.fullName}</Text>
                                     <Text style={[styles.tableCell, { width: 80 }]}>{getFullYearName(f.yearOfStudy)}</Text>
                                     <Text style={[styles.tableCell, { width: 80 }]}>₹{f.totalFee || 0}</Text>
-                                    <Text style={[styles.tableCell, { width: 80, color: COLORS.success }]}>₹{f.paidAmount || 0}</Text>
-                                    <Text style={[styles.tableCell, { width: 80, color: (f.lastBalance || 0) > 0 ? COLORS.error : COLORS.success }]}>₹{f.lastBalance || 0}</Text>
-                                    <Text style={[styles.tableCell, { width: 80, color: (f.lastBalance || 0) > 0 ? COLORS.warning : COLORS.success }]}>
-                                        {(f.lastBalance || 0) > 0 ? (f.paidAmount > 0 ? 'Remaining' : 'Not Paid') : (f.totalFee > 0 ? 'Paid' : 'Not Paid')}
+                                    <Text style={[styles.tableCell, { width: 80, color: (f.paidAmount || 0) > 0 ? COLORS.success : COLORS.error }]}>₹{f.paidAmount || 0}</Text>
+                                    <Text style={[styles.tableCell, { width: 80, color: (f.lastBalance || 0) > 0 || (f.paidAmount || 0) === 0 ? COLORS.error : COLORS.success }]}>₹{f.lastBalance || 0}</Text>
+                                    <Text style={[styles.tableCell, { width: 80, color: (f.lastBalance || 0) > 0 || (f.paidAmount || 0) === 0 ? COLORS.error : COLORS.success }]}>
+                                        {(f.lastBalance || 0) > 0 ? (f.paidAmount > 0 ? 'Remaining' : 'Not Paid') : (f.paidAmount > 0 ? 'Paid' : 'Not Paid')}
                                     </Text>
                                     <View style={{ width: 120, flexDirection: 'row', gap: 5, alignItems: 'center' }}>
                                         {f.receiptUri && (
