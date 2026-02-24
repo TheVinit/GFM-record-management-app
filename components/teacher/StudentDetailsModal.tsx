@@ -12,6 +12,7 @@ import {
     getStudentActivities,
     Student
 } from '../../storage/sqlite';
+import { safeCurrency, safeNum, safeStr } from '../../utils/validation';
 import { styles } from './dashboard.styles';
 import { getBase64Image } from './dashboard.utils';
 import { DetailItem } from './DetailItem';
@@ -64,14 +65,14 @@ export const StudentDetailsModal = ({ student, visible, onClose, onExportPDF, on
             let totalPaid = 0;
             let lastBalance = 0;
             feeList.forEach(f => {
-                totalPaid += (f.amountPaid || 0);
-                lastBalance = f.remainingBalance || 0;
+                totalPaid += safeNum(f.amountPaid);
+                lastBalance = safeNum(f.remainingBalance);
             });
 
             let academicTable = '<table><thead><tr><th>Sem</th><th>Course</th><th>MSE</th><th>ESE</th><th>Grade</th></tr></thead><tbody>';
             if (academicRecords.length > 0) {
                 academicRecords.forEach(r => {
-                    academicTable += `<tr><td>${r.semester}</td><td>${r.courseName}</td><td>${r.mseMarks || 0}</td><td>${r.eseMarks || 0}</td><td>${r.grade}</td></tr>`;
+                    academicTable += `<tr><td>${safeNum(r.semester)}</td><td>${safeStr(r.courseName)}</td><td>${safeNum(r.mseMarks)}</td><td>${safeNum(r.eseMarks)}</td><td>${safeStr(r.grade, 'N/A')}</td></tr>`;
                 });
             } else {
                 academicTable += '<tr><td colspan="5">No academic records</td></tr>';
@@ -79,9 +80,9 @@ export const StudentDetailsModal = ({ student, visible, onClose, onExportPDF, on
             academicTable += '</tbody></table>';
 
             let feeTable = '<table><thead><tr><th>Year</th><th>Inst.</th><th>Paid</th><th>Balance</th><th>Status</th></tr></thead><tbody>';
-            if (fees.length > 0) {
-                fees.forEach(f => {
-                    feeTable += `<tr><td>${f.academicYear}</td><td>${f.installmentNumber}</td><td>₹${f.amountPaid}</td><td>₹${f.remainingBalance}</td><td>${f.verificationStatus}</td></tr>`;
+            if (feeList.length > 0) {
+                feeList.forEach(f => {
+                    feeTable += `<tr><td>${safeStr(f.academicYear)}</td><td>${safeNum(f.installmentNumber)}</td><td>${safeCurrency(f.amountPaid)}</td><td>${safeCurrency(f.remainingBalance)}</td><td>${safeStr(f.verificationStatus, 'Pending')}</td></tr>`;
                 });
             } else {
                 feeTable += '<tr><td colspan="5">No fee records</td></tr>';
@@ -89,17 +90,17 @@ export const StudentDetailsModal = ({ student, visible, onClose, onExportPDF, on
             feeTable += '</tbody></table>';
 
             const combined = [
-                ...activities.map(a => ({
-                    date: a.activityDate,
-                    type: a.type === 'Co-curricular' ? 'Technical' : (a.type === 'Extra-curricular' ? 'Non-Technical' : a.type),
-                    name: a.activityName,
-                    status: a.verificationStatus
+                ...activityList.map((a: any) => ({
+                    date: safeStr(a.activityDate),
+                    type: a.type === 'Co-curricular' ? 'Technical' : (a.type === 'Extra-curricular' ? 'Non-Technical' : safeStr(a.type)),
+                    name: safeStr(a.activityName),
+                    status: safeStr(a.verificationStatus, 'Pending')
                 })),
-                ...achievements.map(ach => ({
-                    date: ach.achievementDate,
-                    type: ach.type || 'Technical',
-                    name: ach.achievementName,
-                    status: ach.verificationStatus
+                ...achievementList.map((ach: any) => ({
+                    date: safeStr(ach.achievementDate),
+                    type: safeStr(ach.type, 'Technical'),
+                    name: safeStr(ach.achievementName),
+                    status: safeStr(ach.verificationStatus, 'Pending')
                 }))
             ];
 
@@ -126,7 +127,7 @@ export const StudentDetailsModal = ({ student, visible, onClose, onExportPDF, on
               </table>
             `;
 
-            const internshipsTable = `<table><thead><tr><th>Company</th><th>Role</th><th>Status</th></tr></thead><tbody>${internships.length > 0 ? internships.map(i => `<tr><td>${i.companyName}</td><td>${i.role}</td><td>${i.verificationStatus}</td></tr>`).join('') : '<tr><td colspan="3">No records</td></tr>'}</tbody></table>`;
+            const internshipsTable = `<table><thead><tr><th>Company</th><th>Role</th><th>Status</th></tr></thead><tbody>${internshipList.length > 0 ? internshipList.map((i: any) => `<tr><td>${safeStr(i.companyName)}</td><td>${safeStr(i.role)}</td><td>${safeStr(i.verificationStatus, 'Pending')}</td></tr>`).join('') : '<tr><td colspan="3">No records</td></tr>'}</tbody></table>`;
 
             const b64LogoLeft = await getBase64Image(LOGO_LEFT_IMG);
             const b64LogoRight = await getBase64Image(LOGO_RIGHT_IMG);
@@ -137,37 +138,37 @@ export const StudentDetailsModal = ({ student, visible, onClose, onExportPDF, on
                 college_logo_right: b64LogoRight,
                 report_title: "Full Student Academic Record",
                 gen_date: new Date().toLocaleDateString(),
-                filters_used: `${getFullBranchName(currentStudent.branch)} | ${getFullYearName(currentStudent.yearOfStudy)} | Div: ${currentStudent.division}`,
+                filters_used: `${getFullBranchName(safeStr(currentStudent.branch))} | ${getFullYearName(safeStr(currentStudent.yearOfStudy))} | Div: ${safeStr(currentStudent.division)}`,
                 student_photo: b64StudentPhoto,
-                full_name: (currentStudent.fullName || '').toUpperCase(),
-                prn: currentStudent.prn || '',
-                branch: getFullBranchName(currentStudent.branch) || '',
-                year: getFullYearName(currentStudent.yearOfStudy) || '',
-                division: currentStudent.division || '',
-                dob: currentStudent.dob || '',
-                gender: currentStudent.gender || '',
-                email: currentStudent.email || '',
-                phone: currentStudent.phone || '',
-                aadhar: currentStudent.aadhar || '',
-                category: currentStudent.category || '',
-                permanent_addr: currentStudent.permanentAddress || '',
-                temp_addr: currentStudent.temporaryAddress || currentStudent.permanentAddress || '',
-                father_name: currentStudent.fatherName || '',
-                mother_name: currentStudent.motherName || '',
-                father_phone: currentStudent.fatherPhone || 'N/A',
-                annual_income: `₹${currentStudent.annualIncome || '0'}`,
-                ssc_school: currentStudent.sscSchool || 'N/A',
-                ssc_total: currentStudent.sscMaxMarks ? currentStudent.sscMaxMarks.toString() : 'N/A',
-                ssc_obtained: currentStudent.sscMarks ? currentStudent.sscMarks.toString() : 'N/A',
-                ssc_perc: currentStudent.sscPercentage ? currentStudent.sscPercentage.toString() : '0',
+                full_name: safeStr(currentStudent.fullName).toUpperCase(),
+                prn: safeStr(currentStudent.prn),
+                branch: getFullBranchName(safeStr(currentStudent.branch)),
+                year: getFullYearName(safeStr(currentStudent.yearOfStudy)),
+                division: safeStr(currentStudent.division),
+                dob: safeStr(currentStudent.dob),
+                gender: safeStr(currentStudent.gender),
+                email: safeStr(currentStudent.email),
+                phone: safeStr(currentStudent.phone),
+                aadhar: safeStr(currentStudent.aadhar),
+                category: safeStr(currentStudent.category),
+                permanent_addr: safeStr(currentStudent.permanentAddress),
+                temp_addr: safeStr(currentStudent.temporaryAddress || currentStudent.permanentAddress),
+                father_name: safeStr(currentStudent.fatherName),
+                mother_name: safeStr(currentStudent.motherName),
+                father_phone: safeStr(currentStudent.fatherPhone, 'N/A'),
+                annual_income: safeCurrency(currentStudent.annualIncome),
+                ssc_school: safeStr(currentStudent.sscSchool, 'N/A'),
+                ssc_total: safeStr(currentStudent.sscMaxMarks, 'N/A'),
+                ssc_obtained: safeStr(currentStudent.sscMarks, 'N/A'),
+                ssc_perc: safeStr(currentStudent.sscPercentage, '0'),
                 hsc_diploma_label: (currentStudent.admissionType === 'DSE' || !!currentStudent.diplomaCollege) ? 'Diploma' : 'HSC (12th)',
-                hsc_diploma_college: (currentStudent.admissionType === 'DSE' || !!currentStudent.diplomaCollege) ? (currentStudent.diplomaCollege || 'N/A') : (currentStudent.hscCollege || 'N/A'),
-                hsc_diploma_total: (currentStudent.admissionType === 'DSE' || !!currentStudent.diplomaCollege) ? (currentStudent.diplomaMaxMarks || 'N/A') : (currentStudent.hscMaxMarks || 'N/A'),
-                hsc_diploma_obtained: (currentStudent.admissionType === 'DSE' || !!currentStudent.diplomaCollege) ? (currentStudent.diplomaMarks || 'N/A') : (currentStudent.hscMarks || 'N/A'),
-                hsc_diploma_perc: (currentStudent.admissionType === 'DSE' || !!currentStudent.diplomaCollege) ? (currentStudent.diplomaPercentage || '0') : (currentStudent.hscPercentage || '0'),
-                sgpa: academicRecords.length > 0 ? academicRecords[academicRecords.length - 1].sgpa?.toString() || 'N/A' : 'N/A',
-                cgpa: academicRecords.length > 0 ? academicRecords[academicRecords.length - 1].cgpa?.toString() || 'N/A' : 'N/A',
-                total_fee: fees.length > 0 ? (fees[0].totalFee || 0).toString() : '0',
+                hsc_diploma_college: (currentStudent.admissionType === 'DSE' || !!currentStudent.diplomaCollege) ? safeStr(currentStudent.diplomaCollege, 'N/A') : safeStr(currentStudent.hscCollege, 'N/A'),
+                hsc_diploma_total: (currentStudent.admissionType === 'DSE' || !!currentStudent.diplomaCollege) ? safeStr(currentStudent.diplomaMaxMarks, 'N/A') : safeStr(currentStudent.hscMaxMarks, 'N/A'),
+                hsc_diploma_obtained: (currentStudent.admissionType === 'DSE' || !!currentStudent.diplomaCollege) ? safeStr(currentStudent.diplomaMarks, 'N/A') : safeStr(currentStudent.hscMarks, 'N/A'),
+                hsc_diploma_perc: (currentStudent.admissionType === 'DSE' || !!currentStudent.diplomaCollege) ? safeStr(currentStudent.diplomaPercentage, '0') : safeStr(currentStudent.hscPercentage, '0'),
+                sgpa: academicRecords.length > 0 ? safeStr(academicRecords[academicRecords.length - 1].sgpa, 'N/A') : 'N/A',
+                cgpa: academicRecords.length > 0 ? safeStr(academicRecords[academicRecords.length - 1].cgpa, 'N/A') : 'N/A',
+                total_fee: feeList.length > 0 ? safeStr(feeList[0].totalFee, '0') : '0',
                 paid_fee: totalPaid.toString(),
                 balance_fee: lastBalance.toString(),
                 academic_table: academicTable,
@@ -349,7 +350,7 @@ export const StudentDetailsModal = ({ student, visible, onClose, onExportPDF, on
                                         <Text style={styles.emptyText}>No activities or achievements recorded.</Text>
                                     ) : (
                                         <View style={{ gap: 10 }}>
-                                            {activities.map((a, i) => (
+                                            {activities.map((a: any, i: number) => (
                                                 <View key={`act-${i}`} style={{ backgroundColor: '#fff', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#eee' }}>
                                                     <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                                                         <Text style={{ fontWeight: 'bold', color: COLORS.text }}>{a.activityName}</Text>
@@ -358,7 +359,7 @@ export const StudentDetailsModal = ({ student, visible, onClose, onExportPDF, on
                                                     <Text style={{ fontSize: 12, color: COLORS.textLight, marginTop: 4 }}>{a.type} • {a.activityDate}</Text>
                                                 </View>
                                             ))}
-                                            {achievements.map((a, i) => (
+                                            {achievements.map((a: any, i: number) => (
                                                 <View key={`ach-${i}`} style={{ backgroundColor: '#fff', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#eee' }}>
                                                     <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                                                         <Text style={{ fontWeight: 'bold', color: COLORS.secondary }}>{a.achievementName}</Text>
@@ -377,7 +378,7 @@ export const StudentDetailsModal = ({ student, visible, onClose, onExportPDF, on
                                         <Text style={styles.emptyText}>No internships recorded.</Text>
                                     ) : (
                                         <View style={{ gap: 10 }}>
-                                            {internships.map((a, i) => (
+                                            {internships.map((a: any, i: number) => (
                                                 <View key={`int-${i}`} style={{ backgroundColor: '#fff', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#eee' }}>
                                                     <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                                                         <Text style={{ fontWeight: 'bold', color: COLORS.text }}>{a.companyName}</Text>
@@ -406,7 +407,7 @@ export const StudentDetailsModal = ({ student, visible, onClose, onExportPDF, on
                                                     <Text style={{ fontSize: 16, fontWeight: 'bold', color: COLORS.error }}>₹{fees[fees.length - 1].remainingBalance || 0}</Text>
                                                 </View>
                                             </View>
-                                            {fees.map((a, i) => (
+                                            {fees.map((a: any, i: number) => (
                                                 <View key={`fee-${i}`} style={{ backgroundColor: '#fff', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#eee', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                                                     <View>
                                                         <Text style={{ fontWeight: 'bold', color: COLORS.text }}>Installment {a.installmentNumber}</Text>

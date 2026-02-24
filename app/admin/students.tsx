@@ -166,7 +166,9 @@ export default function ManageStudents() {
           const parsedStudents = results.data.map((row: any) => ({
             fullName: row['Full Name'] || row['fullName'] || row['Name'] || row['name'] || '',
             email: row['Email'] || row['email'] || row['Email ID'] || row['EmailID'] || '',
-            prn: String(row['PRN'] || row['prn'] || row['Roll No'] || row['rollno'] || row['RollNo'] || ''),
+            prn: String(row['PRN'] || row['prn'] || ''),
+            phone: row['Phone'] || row['phone'] || row['Mobile'] || row['mobile'] || row['Mobile Number'] || '',
+            rollNo: row['Roll No'] || row['rollNo'] || row['Roll Number'] || row['RollNo'] || '',
             branch: row['Branch'] || row['branch'] || row['Department'] || row['department'] || 'Computer Engineering',
             yearOfStudy: row['Year'] || row['year'] || row['Year of Study'] || row['yearOfStudy'] || 'First Year',
             division: row['Division'] || row['division'] || row['Div'] || row['div'] || 'A'

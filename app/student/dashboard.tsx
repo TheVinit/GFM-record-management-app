@@ -879,8 +879,12 @@ export default function StudentDashboard() {
       <ChangePasswordModal
         visible={showPasswordModal}
         userEmail={userEmail}
+        userPrn={profile?.prn}
+        userId={profile?.prn}
+        userRole="student"
         currentPassword={userPassword}
         onSuccess={handlePasswordChangeSuccess}
+        onClose={() => setShowPasswordModal(false)}
       />
 
       <ProfileMenu

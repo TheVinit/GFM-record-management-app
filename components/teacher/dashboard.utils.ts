@@ -16,25 +16,36 @@ const FALLBACK_LOGO = require('../../assets/images/icon.png');
 const LOGO_LEFT_IMG = require('../../assets/images/left.png');
 const LOGO_RIGHT_IMG = require('../../assets/images/right.png');
 
+/** Safely resolve a require() asset to a URL string */
+const resolveAssetUrl = (asset: any): string => {
+    if (!asset) return '';
+    if (typeof asset === 'string') return asset;
+    try {
+        const resolved = Image.resolveAssetSource(asset);
+        return resolved?.uri || '';
+    } catch {
+        return '';
+    }
+};
+
 export const getBase64Image = (source: any, timeout = 5000): Promise<string> => {
+    const fallbackUrl = resolveAssetUrl(FALLBACK_LOGO);
+
     return new Promise((resolve) => {
         if (!source) {
             console.warn('[getBase64Image] No source provided');
-            return resolve(FALLBACK_LOGO);
+            return resolve(fallbackUrl);
         }
 
-        // On Native, we can't easily use canvas to get base64.
-        // For now, return the URI directly if it's already a string or resolve source.
+        // On Native, return the URI directly.
         if (!isWeb) {
             if (typeof source === 'string') return resolve(source);
             const resolved = Image.resolveAssetSource(source);
-            return resolve(resolved?.uri || FALLBACK_LOGO);
+            return resolve(resolved?.uri || fallbackUrl);
         }
 
         if (typeof source === 'string' && source.startsWith('data:')) return resolve(source);
-        if (typeof source === 'string' && source.startsWith('http')) {
-            return resolve(source);
-        }
+        if (typeof source === 'string' && source.startsWith('http')) return resolve(source);
 
         let url = '';
         try {
@@ -45,12 +56,12 @@ export const getBase64Image = (source: any, timeout = 5000): Promise<string> => 
             }
         } catch (e) {
             console.warn('[getBase64Image] Error resolving source:', e);
-            return resolve(FALLBACK_LOGO);
+            return resolve(fallbackUrl);
         }
 
         if (!url) {
             console.warn('[getBase64Image] No URL resolved');
-            return resolve(FALLBACK_LOGO);
+            return resolve(fallbackUrl);
         }
 
         console.log('[getBase64Image] Loading image from:', url);
@@ -60,8 +71,8 @@ export const getBase64Image = (source: any, timeout = 5000): Promise<string> => 
 
         const timer = setTimeout(() => {
             console.warn('[getBase64Image] Timeout loading image:', url);
-            img.src = "";
-            resolve(FALLBACK_LOGO);
+            img.src = '';
+            resolve(fallbackUrl);
         }, timeout);
 
         img.onload = () => {
@@ -77,13 +88,13 @@ export const getBase64Image = (source: any, timeout = 5000): Promise<string> => 
                 resolve(dataUrl);
             } catch (e) {
                 console.error('[getBase64Image] Canvas conversion error:', e);
-                resolve(FALLBACK_LOGO);
+                resolve(fallbackUrl);
             }
         };
         img.onerror = (err) => {
             clearTimeout(timer);
             console.error('[getBase64Image] Image load error:', err, 'URL:', url);
-            resolve(FALLBACK_LOGO);
+            resolve(fallbackUrl);
         };
         img.src = url;
     });

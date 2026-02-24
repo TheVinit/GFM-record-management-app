@@ -15,6 +15,9 @@ import { supabase } from '../services/supabase';
 interface ChangePasswordModalProps {
   visible: boolean;
   userEmail: string;
+  userId?: string;
+  userPrn?: string;
+  userRole: 'student' | 'teacher' | 'admin' | 'attendance_taker';
   currentPassword: string;
   onSuccess: () => void;
   onClose?: () => void;
@@ -24,6 +27,9 @@ interface ChangePasswordModalProps {
 export function ChangePasswordModal({
   visible,
   userEmail,
+  userId,
+  userPrn,
+  userRole,
   currentPassword,
   onSuccess,
   onClose,
@@ -40,14 +46,22 @@ export function ChangePasswordModal({
   const handleChangePassword = async () => {
     setError('');
 
-    if (!oldPassword.trim()) {
-      setError('Please enter your current password');
-      return;
-    }
+    // ONLY VALIDATE OLD PASSWORD IF NOT FIRST LOGIN
+    if (!isFirstLogin) {
+      if (!oldPassword.trim()) {
+        setError('Please enter your current password');
+        return;
+      }
 
-    if (oldPassword !== currentPassword) {
-      setError('Current password is incorrect');
-      return;
+      if (oldPassword !== currentPassword) {
+        setError('Current password is incorrect');
+        return;
+      }
+
+      if (newPassword === oldPassword) {
+        setError('New password must be different from current password');
+        return;
+      }
     }
 
     if (!newPassword.trim()) {
@@ -65,23 +79,52 @@ export function ChangePasswordModal({
       return;
     }
 
-    if (newPassword === oldPassword) {
-      setError('New password must be different from current password');
-      return;
-    }
-
     setLoading(true);
 
     try {
-      const { error: updateError } = await supabase
+      let attempts = [];
+      let data: any[] | null = null;
+      let updateError: any = null;
+
+      // ULTIMATE STRATEGY: Use UPSERT on PRN. 
+      // This is the most robust method because:
+      // 1. It's exactly how saveStudent works (which currently succeeds).
+      // 2. It doesn't rely on volatile internal UUIDs.
+      // 3. It targets the "Business Key" (PRN) which we know is correct.
+
+      const identifier = userPrn?.trim() || userId || userEmail;
+      attempts.push(`Identifier: ${identifier}`);
+
+      if (!userPrn?.trim()) {
+        console.warn('⚠️ No userPrn available in modal. Falling back to ID/Email.');
+      }
+
+      // We perform an upsert that onConflict:prn will just update the provided fields.
+      const { data: upsertData, error: upsertError } = await supabase
         .from('profiles')
-        .update({
+        .upsert({
+          prn: userPrn?.trim() || undefined,
+          id: userId || undefined,
+          role: userRole,
+          email: userEmail?.toLowerCase().trim() || undefined,
           password: newPassword,
           first_login: false
-        })
-        .eq('email', userEmail.toLowerCase().trim());
+        }, { onConflict: 'prn' })
+        .select();
 
-      if (updateError) throw updateError;
+      data = upsertData;
+      updateError = upsertError;
+
+      if (updateError) {
+        console.error('❌ Profile upsert error:', JSON.stringify(updateError, null, 2));
+        throw updateError;
+      }
+
+      if (!data || data.length === 0) {
+        throw new Error(`Profile not found or update blocked. Tried identifying by: ${attempts.join(', ')}.`);
+      }
+
+      console.log('✅ Password updated in DB for profile:', data[0].id);
 
       // Update Supabase Auth if applicable
       const { error: authError } = await supabase.auth.updateUser({ password: newPassword });
@@ -89,10 +132,11 @@ export function ChangePasswordModal({
 
       // Sync session
       const session = await getSession();
-      if (session && session.email.toLowerCase() === userEmail.toLowerCase()) {
+      if (session) {
         session.password = newPassword;
         session.firstLogin = false;
         await saveSession(session);
+        console.log('📦 Local session synced with new password');
       }
 
       if (Platform.OS === 'web') {
@@ -104,6 +148,7 @@ export function ChangePasswordModal({
       setConfirmPassword('');
       onSuccess();
     } catch (err: any) {
+      console.error('❌ ChangePassword Error:', err.message);
       setError(err.message || 'Failed to change password');
     } finally {
       setLoading(false);
@@ -132,21 +177,25 @@ export function ChangePasswordModal({
           </View>
 
           <View style={styles.form}>
-            <Text style={styles.label}>Current Password</Text>
-            <View style={styles.inputContainer}>
-              <TextInput
-                style={styles.input}
-                placeholder="Enter current password"
-                value={oldPassword}
-                onChangeText={setOldPassword}
-                secureTextEntry={!showOld}
-              />
-              <TouchableOpacity onPress={() => setShowOld(!showOld)} style={styles.eye}>
-                <Text>{showOld ? '👁️' : '👁️‍🗨️'}</Text>
-              </TouchableOpacity>
-            </View>
+            {!isFirstLogin && (
+              <>
+                <Text style={styles.label}>Current Password</Text>
+                <View style={styles.inputContainer}>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Enter current password"
+                    value={oldPassword}
+                    onChangeText={setOldPassword}
+                    secureTextEntry={!showOld}
+                  />
+                  <TouchableOpacity onPress={() => setShowOld(!showOld)} style={styles.eye}>
+                    <Text>{showOld ? '👁️' : '👁️‍🗨️'}</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
 
-            <Text style={styles.label}>New Password</Text>
+            <Text style={styles.label}>{isFirstLogin ? 'Set New Password' : 'New Password'}</Text>
             <View style={styles.inputContainer}>
               <TextInput
                 style={styles.input}
