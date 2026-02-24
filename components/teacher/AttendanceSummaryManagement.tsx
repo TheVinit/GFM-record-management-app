@@ -15,6 +15,7 @@ import {
     TeacherBatchConfig,
     toCamelCase
 } from '../../storage/sqlite';
+import { getLocalDateString } from '../../utils/date';
 import { EnhancedAttendanceSummary } from '../EnhancedAttendanceSummary';
 import { styles } from './dashboard.styles';
 
@@ -24,7 +25,7 @@ export const AttendanceSummaryManagement = ({ filters }: any) => {
     const [records, setRecords] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
-    const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+    const [selectedDate, setSelectedDate] = useState(getLocalDateString());
     const [showNativeDatePicker, setShowNativeDatePicker] = useState(false);
 
     // Follow-up Modal State
@@ -43,83 +44,95 @@ export const AttendanceSummaryManagement = ({ filters }: any) => {
 
     const loadGfmDashboard = async () => {
         setLoading(true);
-        const s = await getSession();
-        if (!s) return;
+        try {
+            const s = await getSession();
+            if (!s) return;
 
-        const batchConfig = await getTeacherBatchConfig(s.id);
-        if (!batchConfig) {
-            setLoading(false);
-            return;
-        }
-        setConfig(batchConfig);
+            const batchConfig = await getTeacherBatchConfig(s.id);
+            if (!batchConfig) {
+                setLoading(false);
+                return;
+            }
+            setConfig(batchConfig);
 
-        // Normalize division: 'A2' -> 'A'
-        const mainDivision = batchConfig.division ? batchConfig.division[0].toUpperCase() : '';
+            const mainDivision = batchConfig.division ? batchConfig.division[0].toUpperCase() : '';
+            const academicMatch = batchConfig.class || batchConfig.academicYear;
+            const fullYearName = YEAR_MAPPINGS[academicMatch] || academicMatch;
 
-        // Match session's academic_year with batchConfig's class (e.g. 'SE') if academicYear is a session year (2024-25)
-        const academicMatch = batchConfig.class || batchConfig.academicYear;
-        const fullYearName = YEAR_MAPPINGS[academicMatch] || academicMatch;
+            console.log(`[AttendanceSummary] Loading Dashboard - Date: ${selectedDate}, Dept: ${batchConfig.department}, Academic: ${academicMatch}, Div: ${mainDivision}`);
 
-        console.log(`[AttendanceSummary] Loading for Date: ${selectedDate}, Dept: ${batchConfig.department}, Academic: ${academicMatch}/${fullYearName}, MainDiv: ${mainDivision}`);
+            // Robust session lookup
+            const { data: sessions, error: sessionError } = await supabase
+                .from('attendance_sessions')
+                .select('*')
+                .eq('date', selectedDate)
+                .eq('department', batchConfig.department)
+                .ilike('division', `${mainDivision}%`)
+                .order('created_at', { ascending: false });
 
-        const { data: sessions, error: sessionError } = await supabase
-            .from('attendance_sessions')
-            .select('*')
-            .eq('date', selectedDate)
-            .eq('department', batchConfig.department || s.department)
-            .or(`academic_year.eq."${academicMatch}",academic_year.eq."${fullYearName}",academic_year.eq."${batchConfig.academicYear}"`)
-            .ilike('division', `${mainDivision}%`)
-            .order('created_at', { ascending: false });
+            if (sessionError) throw sessionError;
 
-        if (sessionError) {
-            console.error('[AttendanceSummary] Session Error:', sessionError);
-        }
+            // Find the best academic match in code to avoid complex SQL or logic
+            const divSession = (sessions || []).find(sess => {
+                const sYear = sess.academic_year || '';
+                return sYear === academicMatch ||
+                    sYear === fullYearName ||
+                    sYear === batchConfig.academicYear ||
+                    (academicMatch === 'Second Year' && (sYear === 'SE' || sYear === '2nd')) ||
+                    (academicMatch === 'Third Year' && (sYear === 'TE' || sYear === '3rd')) ||
+                    (academicMatch === 'Final Year' && (sYear === 'BE' || sYear === '4th')) ||
+                    (academicMatch === 'First Year' && (sYear === 'FE' || sYear === '1st'));
+            });
 
-        console.log(`[AttendanceSummary] Found ${sessions?.length || 0} sessions`);
+            console.log(`[AttendanceSummary] Found session: ${divSession ? divSession.id : 'None'}`);
 
-        const divSession = sessions && sessions.length > 0 ? sessions[0] : null;
+            if (divSession) {
+                setSession(toCamelCase(divSession));
+                const attRecords = await getAttendanceRecords(divSession.id);
 
-        if (divSession) {
-            setSession(toCamelCase(divSession));
-            const attRecords = await getAttendanceRecords(divSession.id);
-            const filtered = attRecords.filter(r => {
-                const fromVal = batchConfig.rbtFrom.toUpperCase();
-                const toVal = batchConfig.rbtTo.toUpperCase();
+                const fromVal = (batchConfig.rbtFrom || '').trim().toUpperCase();
+                const toVal = (batchConfig.rbtTo || '').trim().toUpperCase();
 
-                // Always extract trailing numeric sequence for comparison
-                // This handles PRN formats like "CS2401", "RBT24CS001", "001", etc.
                 const extractTailNum = (str: string) => {
-                    const match = String(str).match(/\d+$/);
+                    const match = String(str || '').match(/\d+$/);
                     return match ? parseInt(match[0]) : NaN;
                 };
 
-                const studentSeqRaw = extractTailNum(r.studentPrn || r.rollNo || '');
-                const fromSeqRaw = extractTailNum(fromVal);
-                const toSeqRaw = extractTailNum(toVal);
+                const fromSeq = extractTailNum(fromVal);
+                const toSeq = extractTailNum(toVal);
 
-                if (!isNaN(studentSeqRaw) && !isNaN(fromSeqRaw) && !isNaN(toSeqRaw)) {
-                    // Normalize: if the number is > 2 digits, use only the last 2 digits
-                    // e.g., "2401" -> 01, "001" -> 01, "1" -> 1
-                    const normalize = (n: number) => {
-                        const s = n.toString();
-                        return s.length > 2 ? parseInt(s.slice(-2)) : n;
-                    };
-                    const studentSeq = normalize(studentSeqRaw);
-                    const fromSeq = normalize(fromSeqRaw);
-                    const toSeq = normalize(toSeqRaw);
-                    return studentSeq >= fromSeq && studentSeq <= toSeq;
-                }
+                console.log(`[AttendanceSummary] Filter Range: [${fromVal}](${fromSeq}) to [${toVal}](${toSeq})`);
 
-                // Fallback: pure string comparison (only when no digits found)
-                const prnVal = (r.studentPrn || '').toUpperCase();
-                return prnVal >= fromVal && prnVal <= toVal;
-            });
-            setRecords(filtered);
-        } else {
-            setSession(null);
-            setRecords([]);
+                const filtered = attRecords.filter((r, idx) => {
+                    // Try to extract sequence from all possible fields
+                    const prnSeq = extractTailNum(r.prn || r.studentPrn);
+                    const rollSeq = extractTailNum(r.rollNo || r.studentRollNo);
+
+                    // Use the most likely sequence (prioritize roll sequence if available and matches range format)
+                    const studentSeq = !isNaN(rollSeq) ? rollSeq : prnSeq;
+
+                    const isMatch = (!isNaN(studentSeq) && !isNaN(fromSeq) && !isNaN(toSeq))
+                        ? (studentSeq >= fromSeq && studentSeq <= toSeq)
+                        : (String(r.prn || '').toUpperCase() >= fromVal && String(r.prn || '').toUpperCase() <= toVal);
+
+                    if (idx < 5) {
+                        console.log(`[AttendanceSummary] Check #${idx}: PRN=${r.prn}, Roll=${r.rollNo}, Seq=${studentSeq}, Match=${isMatch}`);
+                    }
+                    return isMatch;
+                });
+
+                console.log(`[AttendanceSummary] Total=${attRecords.length}, Filtered=${filtered.length}`);
+                setRecords(filtered);
+            } else {
+                setSession(null);
+                setRecords([]);
+            }
+        } catch (e) {
+            console.error('[AttendanceSummary] Error:', e);
+            Alert.alert('Error', 'Failed to load GFM dashboard');
+        } finally {
+            setLoading(false);
         }
-        setLoading(false);
     };
 
     const openCallFollowup = (record: any) => {
@@ -141,7 +154,7 @@ export const AttendanceSummaryManagement = ({ filters }: any) => {
             // 1. Log Communication
             await logCommunication(
                 s?.id,
-                selectedStudent.studentPrn,
+                selectedStudent.prn || selectedStudent.studentPrn,
                 'call',
                 `Follow-up: ${callForm.reason}. ${callForm.customDescription}`,
                 'Parent',
@@ -206,7 +219,6 @@ export const AttendanceSummaryManagement = ({ filters }: any) => {
     return (
         <View style={{ flex: 1 }}>
             <View style={[styles.moduleCard, { marginBottom: 15, padding: 0, overflow: 'hidden' }]}>
-                {/* Header/Date Picker Row */}
                 <View style={{
                     flexDirection: 'row',
                     alignItems: 'center',
@@ -248,7 +260,7 @@ export const AttendanceSummaryManagement = ({ filters }: any) => {
                                     onChange={(event: any, date?: Date) => {
                                         setShowNativeDatePicker(false);
                                         if (date) {
-                                            setSelectedDate(date.toISOString().split('T')[0]);
+                                            setSelectedDate(getLocalDateString(date));
                                         }
                                     }}
                                 />
@@ -278,42 +290,41 @@ export const AttendanceSummaryManagement = ({ filters }: any) => {
                     </TouchableOpacity>
                 </View>
 
-                {/* Quick Selection Chips */}
                 <View style={{ flexDirection: 'row', padding: 12, backgroundColor: '#F8FAFC', gap: 10 }}>
                     <TouchableOpacity
                         onPress={() => {
-                            const today = new Date().toISOString().split('T')[0];
+                            const today = getLocalDateString();
                             setSelectedDate(today);
                         }}
                         style={{
                             paddingHorizontal: 16,
                             paddingVertical: 8,
                             borderRadius: 20,
-                            backgroundColor: selectedDate === new Date().toISOString().split('T')[0] ? COLORS.primary : '#E2E8F0',
+                            backgroundColor: selectedDate === getLocalDateString() ? COLORS.primary : '#E2E8F0',
                             flexDirection: 'row',
                             alignItems: 'center',
                             gap: 6
                         }}
                     >
-                        <Text style={{ fontSize: 13, fontWeight: '700', color: selectedDate === new Date().toISOString().split('T')[0] ? '#fff' : COLORS.textSecondary }}>Today</Text>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: selectedDate === getLocalDateString() ? '#fff' : COLORS.textSecondary }}>Today</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                         onPress={() => {
                             const d = new Date();
                             d.setDate(d.getDate() - 1);
-                            setSelectedDate(d.toISOString().split('T')[0]);
+                            setSelectedDate(getLocalDateString(d));
                         }}
                         style={{
                             paddingHorizontal: 16,
                             paddingVertical: 8,
                             borderRadius: 20,
-                            backgroundColor: '#E2E8F0',
+                            backgroundColor: selectedDate === getLocalDateString(new Date(Date.now() - 86400000)) ? COLORS.primary : '#E2E8F0',
                             flexDirection: 'row',
                             alignItems: 'center',
                             gap: 6
                         }}
                     >
-                        <Text style={{ fontSize: 13, fontWeight: '700', color: COLORS.textSecondary }}>Yesterday</Text>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: selectedDate === getLocalDateString(new Date(Date.now() - 86400000)) ? '#fff' : COLORS.textSecondary }}>Yesterday</Text>
                     </TouchableOpacity>
                 </View>
             </View>
@@ -323,7 +334,7 @@ export const AttendanceSummaryManagement = ({ filters }: any) => {
                     students={records}
                     batchConfig={config}
                     onRefresh={loadGfmDashboard}
-                    isPastDate={selectedDate < new Date().toISOString().split('T')[0]}
+                    isPastDate={selectedDate < getLocalDateString()}
                 />
             ) : (
                 <View style={styles.moduleCard}>
@@ -333,7 +344,6 @@ export const AttendanceSummaryManagement = ({ filters }: any) => {
                 </View>
             )}
 
-            {/* Follow Up Modal */}
             <Modal visible={callModalVisible} transparent animationType="slide">
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
@@ -345,13 +355,6 @@ export const AttendanceSummaryManagement = ({ filters }: any) => {
                         <ScrollView>
                             <Text style={styles.label}>Reason for Absence (Parent info)</Text>
                             <View style={styles.pickerWrapper}>
-                                {/* Simplified picker using Views for now as we removed Picker import/usage or need native picker */}
-                                {/* Re-using the TextInput for simplicity as logic above was truncated in view. 
-                    Actually, let's use TextInput or we need to import Picker.
-                    The styles has pickerWrapper, so likely Picker is used.
-                    Let's assume TextInput for reason for now to save imports or add Picker import.
-                    The original code likely used Picker.
-                 */}
                                 <TextInput
                                     style={styles.picker}
                                     value={callForm.reason}

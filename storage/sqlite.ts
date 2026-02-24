@@ -1,6 +1,7 @@
 import * as SQLite from 'expo-sqlite';
 import { Platform } from 'react-native';
 import { supabase } from '../services/supabase';
+import { getLocalDateString } from '../utils/date';
 
 const generateUUID = (): string => {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
@@ -245,6 +246,21 @@ export const toCamelCase = (obj: any) => {
     newObj[camelKey] = obj[key];
   }
   return newObj;
+};
+
+export const toCamelCaseDeep = (obj: any): any => {
+  if (Array.isArray(obj)) {
+    return obj.map(v => toCamelCaseDeep(v));
+  } else if (obj !== null && obj.constructor === Object) {
+    return Object.keys(obj).reduce((result, key) => {
+      const camelKey = key.replace(/([-_][a-z])/g, group =>
+        group.toUpperCase().replace('-', '').replace('_', '')
+      );
+      (result as any)[camelKey] = toCamelCaseDeep(obj[key]);
+      return result;
+    }, {});
+  }
+  return obj;
 };
 
 let dbInitDone = false;
@@ -1403,36 +1419,39 @@ export const deleteAttendanceSession = async (sessionId: string) => {
 };
 
 export const getAttendanceRecords = async (sessionId: string) => {
-  const { data, error } = await supabase
-    .from('attendance_records')
-    .select(`
-        *,
-        students!student_prn(
-          full_name,
-          phone,
-          roll_no,
-          father_phone,
-          mother_phone
-        )
-      `)
-    .eq('session_id', sessionId);
+  try {
+    const { data, error } = await supabase
+      .from('attendance_report_view')
+      .select('*')
+      .eq('session_id', sessionId);
 
-  if (error) {
-    console.error('Error fetching attendance records:', error);
+    if (error) throw error;
+
+    console.log(`[sqlite.ts] Fetched ${data?.length || 0} records from view for session ${sessionId}`);
+    if (data && data.length > 0) {
+      console.log(`[sqlite.ts] Sample raw record:`, JSON.stringify(data[0]).slice(0, 150));
+    }
+
+    return (data || []).map(item => {
+      const camel = toCamelCase(item);
+      return {
+        ...camel,
+        id: camel.recordId,
+        // Ensure all possible naming variations are covered for stability
+        prn: camel.studentPrn,
+        fullName: camel.studentFullName,
+        rollNo: camel.studentRollNo,
+        // Keep original camel-cased names too
+      };
+    });
+  } catch (error) {
+    console.error('Error fetching attendance records from view:', error);
     return [];
   }
-  return data.map(item => ({
-    ...toCamelCase(item),
-    fullName: (item as any).students?.full_name,
-    phone: (item as any).students?.phone,
-    rollNo: (item as any).students?.roll_no,
-    fatherPhone: (item as any).students?.father_phone,
-    motherPhone: (item as any).students?.mother_phone
-  }));
 };
 
 export const getTodayAttendanceSession = async (teacherId: string, batchName: string, division: string): Promise<AttendanceSession | null> => {
-  const today = new Date().toISOString().split('T')[0];
+  const today = getLocalDateString();
   const { data, error } = await supabase
     .from('attendance_sessions')
     .select('*')
@@ -1498,27 +1517,11 @@ export const getStudentsByRbtRange = async (dept: string, year: string, div: str
       return match ? parseInt(match[0]) : NaN;
     };
 
-    const fromNum = extractNum(fromVal);
-    const toNum = extractNum(toVal);
-    const studentRollNum = extractNum(s.rollNo || s.prn);
+    const fromSeq = extractNum(fromVal);
+    const toSeq = extractNum(toVal);
+    const studentSeq = extractNum(s.rollNo || s.prn);
 
-    if (!isNaN(fromNum) && !isNaN(toNum) && !isNaN(studentRollNum)) {
-      // For Roll Numbers like CS2415, we only want the sequence part (last 2 or 3 digits)
-      // but if the user enters "15", we should compare correctly.
-      // If studentRollNum is 2415 and fromNum is 15, we need to decide.
-      // Usually the user enters the sequence part.
-      // For Roll Numbers like CS2415, we want the sequence part.
-      // Since roll_no is CS[YY][XX], extractNum gives YY[XX].
-      // We assume the first 2 digits of the numeric part are the year.
-      const sStr = studentRollNum.toString();
-      const studentSeq = sStr.length > 2 ? parseInt(sStr.slice(2)) : studentRollNum;
-
-      const fStr = fromNum.toString();
-      const fromSeq = fStr.length > 2 ? parseInt(fStr.slice(2)) : fromNum;
-
-      const tStr = toNum.toString();
-      const toSeq = tStr.length > 2 ? parseInt(tStr.slice(2)) : toNum;
-
+    if (!isNaN(fromSeq) && !isNaN(toSeq) && !isNaN(studentSeq)) {
       return studentSeq >= fromSeq && studentSeq <= toSeq;
     }
 
@@ -1623,6 +1626,8 @@ export const getGfmAttendanceSummary = async (dept: string, year: string, div: s
   return data.map(toCamelCase);
 };
 export const getTodayAttendanceSummary = async (date: string) => {
+  // Use provided date or today's local date
+  const targetDate = date || getLocalDateString();
   // 1. Fetch sessions for the specific date
   const { data: sessions, error: sessionError } = await supabase
     .from('attendance_sessions')
@@ -1630,7 +1635,7 @@ export const getTodayAttendanceSummary = async (date: string) => {
         *,
         profiles: teacher_id(full_name)
           `)
-    .eq('date', date);
+    .eq('date', targetDate);
 
   if (sessionError) throw sessionError;
 
@@ -1673,83 +1678,102 @@ export const getTodayAttendanceSummary = async (date: string) => {
 };
 
 export const getAdminAnalytics = async () => {
-  // 1. Fetch sessions
-  const { data: sessions, error: sessionError } = await supabase
-    .from('attendance_sessions')
-    .select(`
-            *,
-            profiles: teacher_id(full_name)
-              `)
-    .order('created_at', { ascending: false });
-
-  if (sessionError) throw sessionError;
-
-  // 2. Fetch all batch configs
-  const { data: batchConfigs, error: batchError } = await supabase
-    .from('teacher_batch_configs')
-    .select(`
+  try {
+    // 1. Fetch sessions using the view for fully hydrated data
+    const { data: sessions, error: sessionError } = await supabase
+      .from('attendance_sessions')
+      .select(`
               *,
               profiles: teacher_id(full_name)
-                `);
+                `)
+      .order('created_at', { ascending: false });
 
-  if (batchError) throw batchError;
+    if (sessionError) throw sessionError;
 
-  // 3. Fetch absent records
-  const { data: absents, error: absentError } = await supabase
-    .from('attendance_records')
-    .select('id, student_prn, session_id, created_at')
-    .eq('status', 'Absent');
-
-  if (absentError) throw absentError;
-
-  // 4. Fetch communication logs (calls)
-  const { data: calls, error: callError } = await supabase
-    .from('communication_logs')
-    .select(`
+    // 2. Fetch all batch configs
+    const { data: batchConfigs, error: batchError } = await supabase
+      .from('teacher_batch_configs')
+      .select(`
                 *,
-                profiles: gfm_id(full_name)
-                  `)
-    .order('created_at', { ascending: false });
+                profiles: teacher_id(full_name)
+                  `);
 
-  if (callError) throw callError;
+    if (batchError) throw batchError;
 
-  // 5. Fetch all students (for names)
-  const { data: studentsRecords, error: studentError } = await supabase
-    .from('students')
-    .select('prn, full_name, roll_no');
+    // 3. Fetch absent records using the view - this ensures student data is present
+    const { data: absents, error: absentError } = await supabase
+      .from('attendance_report_view')
+      .select('*')
+      .eq('status', 'Absent');
 
-  if (studentError) console.warn('Student names fetch error:', studentError);
+    if (absentError) throw absentError;
 
-  const sortedStudents = (studentsRecords || []).sort((a: any, b: any) => {
-    const aSeq = parseInt(a.prn.slice(-3)) || 0;
-    const bSeq = parseInt(b.prn.slice(-3)) || 0;
-    return aSeq - bSeq;
-  });
+    // 4. Fetch communication logs using the logic-heavy view
+    const { data: calls, error: callError } = await supabase
+      .from('communication_audit_view')
+      .select('*')
+      .order('created_at', { ascending: false });
 
-  // 6. Fetch leave notes
-  const { data: leaveNotes, error: leaveError } = await supabase
-    .from('pre_informed_absences')
-    .select('*');
+    if (callError) throw callError;
 
-  if (leaveError) console.warn('Leave notes fetch error:', leaveError);
+    // 5. Fetch all students (still needed for some summary counts/defaults)
+    const { data: studentsRecords, error: studentError } = await supabase
+      .from('students')
+      .select('prn, full_name, roll_no, branch, division, year_of_study');
 
-  return {
-    sessions: sessions.map(s => ({
-      ...toCamelCase(s),
-      teacherName: (s as any).profiles?.full_name
-    })),
-    batchConfigs: batchConfigs.map(b => ({
-      ...toCamelCase(b),
-      teacherName: (b as any).profiles?.full_name
-    })),
-    absentRecords: absents.map(toCamelCase),
-    calls: calls.map(c => ({
-      ...toCamelCase(c),
-      teacherName: (c as any).profiles?.full_name
-    })),
-    students: sortedStudents,
-    leaveNotes: (leaveNotes || []).map(toCamelCase)
-  };
+    if (studentError) console.warn('Student names fetch error:', studentError);
+
+    const sortedStudents = (studentsRecords || []).sort((a: any, b: any) => {
+      const aSeq = parseInt(a.prn.slice(-3)) || 0;
+      const bSeq = parseInt(b.prn.slice(-3)) || 0;
+      return aSeq - bSeq;
+    });
+
+    // 6. Fetch leave notes using the view
+    const { data: leaveNotes, error: leaveError } = await supabase
+      .from('leave_audit_view')
+      .select('*');
+
+    if (leaveError) console.warn('Leave notes fetch error:', leaveError);
+
+    return {
+      sessions: sessions.map(s => ({
+        ...toCamelCase(s),
+        teacherName: (s as any).profiles?.full_name
+      })),
+      batchConfigs: batchConfigs.map(b => ({
+        ...toCamelCase(b),
+        teacherName: (b as any).profiles?.full_name
+      })),
+      absentRecords: (absents || []).map(item => {
+        const camel = toCamelCase(item);
+        return {
+          ...camel,
+          id: camel.recordId,
+          fullName: camel.studentFullName,
+          rollNo: camel.studentRollNo,
+          academicYear: camel.sessionYear // Map for consistency in AdminReports
+        };
+      }),
+      calls: (calls || []).map(c => ({
+        ...toCamelCase(c),
+        id: c.log_id,
+        teacherName: c.gfm_name,
+        studentName: c.student_name,
+        studentPrn: c.student_prn,
+        studentRollNo: c.student_roll_no
+      })),
+      students: sortedStudents.map(toCamelCase),
+      leaveNotes: (leaveNotes || []).map(l => ({
+        ...toCamelCase(l),
+        id: l.leave_id,
+        studentName: l.student_name
+      }))
+    };
+  } catch (error) {
+    console.error('Error in getAdminAnalytics:', error);
+    throw error;
+  }
 };
 
 export const updateLocalVerificationStatus = async (table: string, idOrPrn: string, status: string, verifiedBy: string) => {

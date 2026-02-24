@@ -29,6 +29,7 @@ import {
   getTotalFeeForYear,
   saveFeePayment
 } from '../../storage/sqlite';
+import { getLocalDateString } from '../../utils/date';
 
 export default function FeePaymentsScreen() {
   const router = useRouter();
@@ -44,7 +45,7 @@ export default function FeePaymentsScreen() {
   const [totalFee, setTotalFee] = useState('');
   const [totalFeeLocked, setTotalFeeLocked] = useState(false);
   const [amountPaid, setAmountPaid] = useState('');
-  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
+  const [paymentDate, setPaymentDate] = useState(getLocalDateString());
   const [paymentMode, setPaymentMode] = useState('UPI');
   const [category, setCategory] = useState('Open');
   const [receiptUri, setReceiptUri] = useState('');
@@ -240,7 +241,7 @@ export default function FeePaymentsScreen() {
     setShowForm(false);
     setAmountPaid('');
     setReceiptUri('');
-    setPaymentDate(new Date().toISOString().split('T')[0]);
+    setPaymentDate(getLocalDateString());
   };
 
   const getPaymentStatus = (payment: FeePayment): string => {

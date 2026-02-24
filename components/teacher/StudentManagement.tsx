@@ -1,7 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-// @ts-ignore
 import * as FileSystem from 'expo-file-system';
-// @ts-ignore
 import * as Sharing from 'expo-sharing';
 import { Alert, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { COLORS } from '../../constants/colors';
@@ -30,8 +28,8 @@ export const StudentManagement = ({ students, filters, onViewDetails, onPrint, h
         } else {
             try {
                 const fileName = `Student_Report_${new Date().getTime()}.csv`;
-                const fileUri = FileSystem.documentDirectory + fileName;
-                await FileSystem.writeAsStringAsync(fileUri, csv, { encoding: FileSystem.EncodingType.UTF8 });
+                const fileUri = (FileSystem as any).documentDirectory + fileName;
+                await FileSystem.writeAsStringAsync(fileUri, csv, { encoding: (FileSystem as any).EncodingType.UTF8 });
                 await Sharing.shareAsync(fileUri);
             } catch (error) {
                 console.error('Error sharing CSV:', error);

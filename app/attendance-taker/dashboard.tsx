@@ -33,6 +33,7 @@ import {
   saveAttendanceRecords,
   toCamelCase
 } from '../../storage/sqlite';
+import { getLocalDateString } from '../../utils/date';
 
 const isWeb = Platform.OS === 'web';
 
@@ -283,7 +284,7 @@ export default function AttendanceTakerDashboard() {
       const batchLabel = subBatchFilter ? `${divFilter}${subBatchFilter}` : `Division ${divFilter}`;
       const newSession = await createAttendanceSession({
         teacherId: s.id,
-        date: new Date().toISOString().split('T')[0],
+        date: getLocalDateString(),
         academicYear: yearFilter,
         department: deptFilter,
         class: yearFilter,
@@ -339,7 +340,7 @@ export default function AttendanceTakerDashboard() {
   const loadHistory = async (date: Date) => {
     setLoadingHistory(true);
     try {
-      const dateStr = date.toISOString().split('T')[0];
+      const dateStr = getLocalDateString(date);
       const { data, error } = await supabase
         .from('attendance_sessions')
         .select('*')
@@ -362,9 +363,18 @@ export default function AttendanceTakerDashboard() {
     setSelectedSession(session);
     setLoadingHistory(true);
     try {
-      // 1. Fetch records
+      // 1. Fetch records using the robust view-based fetcher
+      console.log(`[AttendanceTaker] Viewing details for session: ${session.id}`);
       const records = await getAttendanceRecords(session.id);
-      setSessionRecords(records);
+      const normalizedRecords = records.map(r => ({
+        ...r,
+        id: r.id || r.recordId,
+        prn: r.prn || r.studentPrn,
+        fullName: r.fullName || r.studentFullName,
+        rollNo: r.rollNo || r.studentRollNo
+      }));
+      console.log(`[AttendanceTaker] Found ${normalizedRecords.length} records for session`);
+      setSessionRecords(normalizedRecords);
 
       // 2. Fetch GFM Allocations for this session's context
       const { data: allocs, error } = await supabase
@@ -767,13 +777,14 @@ export default function AttendanceTakerDashboard() {
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Student Records</Text>
             {sessionRecords.map((item, index) => {
-              const student = students.find(s => s.prn === item.student_prn);
+              const studentName = item.fullName || item.studentFullName || 'Unknown';
+              const studentRoll = item.rollNo || item.studentRollNo || item.prn || 'N/A';
               const isAbsent = item.status === 'Absent';
               return (
                 <View key={index} style={styles.studentItem}>
                   <View style={styles.studentInfo}>
-                    <Text style={styles.studentName}>{student?.fullName || 'Unknown'}</Text>
-                    <Text style={styles.studentRoll}>{student?.rollNo || item.student_prn}</Text>
+                    <Text style={styles.studentName}>{studentName}</Text>
+                    <Text style={styles.studentRoll}>{studentRoll}</Text>
                   </View>
                   <View style={[styles.statusBadge, isAbsent ? styles.absentBadge : styles.presentBadge]}>
                     <Text style={[styles.statusText, { color: isAbsent ? COLORS.error : COLORS.success }]}>
@@ -805,9 +816,7 @@ export default function AttendanceTakerDashboard() {
 
                   absentees = sessionRecords.filter(r => {
                     if (r.status !== 'Absent') return false;
-                    const student = students.find(s => s.prn === r.student_prn);
-                    if (!student) return false;
-                    const roll = extractNum(student.rollNo || student.prn);
+                    const roll = extractNum(r.rollNo || r.prn);
                     const seq = roll % 1000;
                     const fSeq = fromNum % 1000;
                     const tSeq = toNum % 1000;
@@ -830,10 +839,7 @@ export default function AttendanceTakerDashboard() {
                     </View>
                     {absentees.length > 0 && (
                       <Text style={[styles.helperText, { marginTop: 4, color: COLORS.text }]}>
-                        {absentees.map(r => {
-                          const s = students.find(st => st.prn === r.student_prn);
-                          return s?.rollNo || r.student_prn;
-                        }).join(', ')}
+                        {absentees.map(r => r.rollNo || r.prn).join(', ')}
                       </Text>
                     )}
                   </View>

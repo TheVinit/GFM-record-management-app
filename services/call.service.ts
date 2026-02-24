@@ -1,4 +1,5 @@
 import { Alert, Linking } from 'react-native';
+import { getLocalDateString } from '../utils/date';
 import { logCommunication } from './student.service';
 import { supabase } from './supabase';
 
@@ -66,8 +67,8 @@ export const savePreInformedAbsence = async (
             .insert({
                 student_prn: studentPrn,
                 gfm_id: gfmId,
-                start_date: startDate.toISOString().split('T')[0],
-                end_date: endDate.toISOString().split('T')[0],
+                start_date: getLocalDateString(startDate),
+                end_date: getLocalDateString(endDate),
                 reason: reason,
                 proof_url: proofUrl,
                 informed_by: informedBy,
@@ -96,7 +97,7 @@ export const checkIfPreInformed = async (
     date: Date
 ): Promise<any | null> => {
     try {
-        const dateStr = date.toISOString().split('T')[0];
+        const dateStr = getLocalDateString(date);
 
         const { data, error } = await supabase
             .from('pre_informed_absences')
@@ -126,7 +127,7 @@ export const getPreInformedAbsences = async (gfmId: string) => {
             .from('pre_informed_absences')
             .select('*, students(full_name)')
             .eq('gfm_id', gfmId)
-            .gte('end_date', new Date().toISOString().split('T')[0])
+            .gte('end_date', getLocalDateString())
             .order('start_date', { ascending: false });
 
         if (error) throw error;

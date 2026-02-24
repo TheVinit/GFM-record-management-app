@@ -7,6 +7,7 @@ import { COLORS } from '../../constants/colors';
 import { YEAR_MAPPINGS } from '../../constants/Mappings';
 import { supabase } from '../../services/supabase';
 import { toCamelCase } from '../../storage/sqlite';
+import { getLocalDateString } from '../../utils/date';
 
 const YEARS = ['First Year', 'Second Year', 'Third Year', 'Final Year'];
 const DIVISIONS = ['A', 'B', 'C'];
@@ -25,7 +26,7 @@ export const DailyAttendanceTracking = () => {
 
     const [loading, setLoading] = useState(true);
     const [data, setData] = useState<TrackingData | null>(null);
-    const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+    const [selectedDate, setSelectedDate] = useState(getLocalDateString());
     const [selectedYear, setSelectedYear] = useState<string | null>(null);
     const [selectedDiv, setSelectedDiv] = useState<string | null>(null);
     const [historyType, setHistoryType] = useState<'daily' | 'weekly' | 'monthly'>('daily');
@@ -46,11 +47,11 @@ export const DailyAttendanceTracking = () => {
             if (historyType === 'weekly') {
                 const d = new Date(selectedDate);
                 d.setDate(d.getDate() - 7);
-                startDate = d.toISOString().split('T')[0];
+                startDate = getLocalDateString(d);
             } else if (historyType === 'monthly') {
                 const d = new Date(selectedDate);
                 d.setMonth(d.getMonth() - 1);
-                startDate = d.toISOString().split('T')[0];
+                startDate = getLocalDateString(d);
             }
 
             const { data: sessions, error: sessionError } = await supabase
@@ -533,7 +534,7 @@ export const DailyAttendanceTracking = () => {
                                             onChange={(event: any, date?: Date) => {
                                                 setShowDatePicker(false);
                                                 if (date) {
-                                                    setSelectedDate(date.toISOString().split('T')[0]);
+                                                    setSelectedDate(getLocalDateString(date));
                                                 }
                                             }}
                                         />
