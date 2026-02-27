@@ -29,8 +29,22 @@ const getEnvVar = (key: string): string => {
   return '';
 };
 
-const supabaseUrl = getEnvVar('EXPO_PUBLIC_SUPABASE_URL').trim();
-const supabaseAnonKey = getEnvVar('EXPO_PUBLIC_SUPABASE_ANON_KEY').trim();
+// 🎯 CRITICAL FOR WEB DEPLOYMENT:
+// Expo's static web export ONLY inlines variables if they are accessed 
+// via literal property access (e.g. process.env.EXPO_PUBLIC_URL).
+// Dynamic access like process.env[key] will FAIL in production builds.
+
+const supabaseUrl = (
+  process.env.EXPO_PUBLIC_SUPABASE_URL ||
+  process.env.VITE_SUPABASE_URL ||
+  ''
+).trim();
+
+const supabaseAnonKey = (
+  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ||
+  process.env.VITE_SUPABASE_ANON_KEY ||
+  ''
+).trim();
 
 if (!supabaseUrl || !supabaseAnonKey) {
   console.error("❌ Supabase URL or Anon Key is missing!");
