@@ -46,22 +46,20 @@ export function ChangePasswordModal({
   const handleChangePassword = async () => {
     setError('');
 
-    // ONLY VALIDATE OLD PASSWORD IF NOT FIRST LOGIN
-    if (!isFirstLogin) {
-      if (!oldPassword.trim()) {
-        setError('Please enter your current password');
-        return;
-      }
+    // ALWAYS VALIDATE OLD PASSWORD
+    if (!oldPassword.trim()) {
+      setError('Please enter your current password');
+      return;
+    }
 
-      if (oldPassword !== currentPassword) {
-        setError('Current password is incorrect');
-        return;
-      }
+    if (oldPassword !== currentPassword) {
+      setError('Current password is incorrect');
+      return;
+    }
 
-      if (newPassword === oldPassword) {
-        setError('New password must be different from current password');
-        return;
-      }
+    if (newPassword === oldPassword) {
+      setError('New password must be different from current password');
+      return;
     }
 
     if (!newPassword.trim()) {
@@ -89,10 +87,8 @@ export function ChangePasswordModal({
       // 3. It works even if Supabase Auth (UUID) and Profiles (Local ID) are drifted.
       const cleanEmail = userEmail.trim().toLowerCase();
 
-      // CRITICAL FIX: If first login, the "Current Password" field is hidden.
-      // We must use the currentPassword prop as the verification credential.
-      const rawOld = isFirstLogin ? currentPassword : oldPassword;
-      const cleanOld = rawOld.trim();
+      // Use the entered old password for verification
+      const cleanOld = oldPassword.trim();
       const cleanNew = newPassword.trim();
 
       console.log('🔄 [VerifiedRPC] Attempting secure password update for:', cleanEmail);
@@ -162,23 +158,19 @@ export function ChangePasswordModal({
           </View>
 
           <View style={styles.form}>
-            {!isFirstLogin && (
-              <>
-                <Text style={styles.label}>Current Password</Text>
-                <View style={styles.inputContainer}>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Enter current password"
-                    value={oldPassword}
-                    onChangeText={setOldPassword}
-                    secureTextEntry={!showOld}
-                  />
-                  <TouchableOpacity onPress={() => setShowOld(!showOld)} style={styles.eye}>
-                    <Text>{showOld ? '👁️' : '👁️‍🗨️'}</Text>
-                  </TouchableOpacity>
-                </View>
-              </>
-            )}
+            <Text style={styles.label}>Current Password</Text>
+            <View style={styles.inputContainer}>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter current password"
+                value={oldPassword}
+                onChangeText={setOldPassword}
+                secureTextEntry={!showOld}
+              />
+              <TouchableOpacity onPress={() => setShowOld(!showOld)} style={styles.eye}>
+                <Text>{showOld ? '👁️' : '👁️‍🗨️'}</Text>
+              </TouchableOpacity>
+            </View>
 
             <Text style={styles.label}>{isFirstLogin ? 'Set New Password' : 'New Password'}</Text>
             <View style={styles.inputContainer}>
