@@ -112,7 +112,6 @@ export default function TeacherDashboard() {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [userEmail, setUserEmail] = useState('');
-  const [userPassword, setUserPassword] = useState('');
   const [attYearFilter, setAttYearFilter] = useState('All');
   const [attDivFilter, setAttDivFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
@@ -141,7 +140,6 @@ export default function TeacherDashboard() {
     setTeacherDept(session.department ?? '');
     setUserRole(session.role ?? '');
     setUserEmail(session.email ?? '');
-    setUserPassword(session.password ?? '');
 
     // CHECK FOR FIRST LOGIN
     if (session.firstLogin) {
@@ -605,24 +603,10 @@ export default function TeacherDashboard() {
         visible={showProfileMenu}
         onClose={() => setShowProfileMenu(false)}
         userName={teacherName}
-        userEmail={teacherDept + ' Department'}
+        userEmail={userEmail}
         menuItems={[
-          {
-            icon: 'person-circle-outline',
-            label: 'My Profile',
-            onPress: () => { } // Placeholder for future profile edit
-          },
-          {
-            icon: 'lock-closed-outline',
-            label: 'Change Password',
-            onPress: () => { /* Add logic to open change password modal if needed */ }
-          },
-          {
-            icon: 'log-out-outline',
-            label: 'Logout',
-            onPress: handleLogout,
-            color: COLORS.error
-          }
+          { icon: 'key-outline', label: 'Change Password', onPress: () => setShowChangePassword(true) },
+          { icon: 'log-out-outline', label: 'Logout', onPress: handleLogout, color: COLORS.error }
         ]}
       />
 
@@ -663,24 +647,12 @@ export default function TeacherDashboard() {
           }
         }}
       />
-      <ProfileMenu
-        visible={showProfileMenu}
-        onClose={() => setShowProfileMenu(false)}
-        userName={teacherName}
-        userEmail={userEmail}
-        menuItems={[
-          { icon: 'key-outline', label: 'Change Password', onPress: () => setShowChangePassword(true) },
-          { icon: 'log-out-outline', label: 'Logout', onPress: handleLogout, color: COLORS.error }
-        ]}
-      />
-
       <ChangePasswordModal
         visible={showChangePassword}
         userEmail={userEmail}
         userId={teacherId}
         userPrn={teacherPrn}
         userRole="teacher"
-        currentPassword={userPassword}
         onSuccess={() => {
           setShowChangePassword(false);
           setIsFirstLoginSession(false);

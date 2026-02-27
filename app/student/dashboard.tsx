@@ -460,7 +460,6 @@ export default function StudentDashboard() {
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [userEmail, setUserEmail] = useState('');
-  const [userPassword, setUserPassword] = useState('');
   const [viewMode, setViewMode] = useState<'details' | 'template'>('details');
 
   const checkAuth = async () => {
@@ -470,7 +469,6 @@ export default function StudentDashboard() {
       return null;
     }
     setUserEmail(session.email || '');
-    setUserPassword(session.password || '');
     return session;
   };
 
@@ -584,7 +582,6 @@ export default function StudentDashboard() {
       const session = await checkAuth();
       if (session) {
         setUserEmail(session.email || '');
-        setUserPassword(session.password || '');
         if (session.firstLogin && session.role === 'student') setShowPasswordModal(true);
         const data = await getStudentInfo(session.prn as string, forceRefresh);
         setProfile(data);
@@ -928,7 +925,6 @@ export default function StudentDashboard() {
         userPrn={profile?.prn}
         userId={profile?.prn}
         userRole="student"
-        currentPassword={userPassword}
         onSuccess={handlePasswordChangeSuccess}
         onClose={() => setShowPasswordModal(false)}
       />

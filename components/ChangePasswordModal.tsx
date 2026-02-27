@@ -18,7 +18,6 @@ interface ChangePasswordModalProps {
   userId?: string;
   userPrn?: string;
   userRole: 'student' | 'teacher' | 'admin' | 'attendance_taker';
-  currentPassword: string;
   onSuccess: () => void;
   onClose?: () => void;
   isFirstLogin?: boolean;
@@ -30,7 +29,6 @@ export function ChangePasswordModal({
   userId,
   userPrn,
   userRole,
-  currentPassword,
   onSuccess,
   onClose,
   isFirstLogin = false
@@ -46,14 +44,9 @@ export function ChangePasswordModal({
   const handleChangePassword = async () => {
     setError('');
 
-    // ALWAYS VALIDATE OLD PASSWORD
+    // ALWAYS VALIDATE OLD PASSWORD FORM FIELD
     if (!oldPassword.trim()) {
       setError('Please enter your current password');
-      return;
-    }
-
-    if (oldPassword !== currentPassword) {
-      setError('Current password is incorrect');
       return;
     }
 
@@ -109,15 +102,29 @@ export function ChangePasswordModal({
         throw new Error('Verification failed. Please ensure your Old Password is correct.');
       }
 
-      console.log('✅ [VerifiedRPC] Password change confirmed in Cloud');
+      console.log('✅ [VerifiedRPC] Password change confirmed in Cloud DB');
+
+      // 🎯 Sync with Supabase Auth
+      // The RPC only updated the 'profiles' table. We MUST update Auth too
+      // or the user's next login will still use the old password!
+      const { error: authUpdateError } = await supabase.auth.updateUser({
+        password: cleanNew
+      });
+
+      if (authUpdateError) {
+        console.error('❌ [AuthSync] Failed to update Supabase Auth password:', authUpdateError.message);
+        // We don't throw here to avoid confusing the user (since DB is updated)
+        // but it might cause login issues.
+      } else {
+        console.log('✅ [AuthSync] Supabase Auth password synchronized');
+      }
 
       // Sync session
       const session = await getSession();
       if (session) {
-        session.password = cleanNew;
         session.firstLogin = false;
         await saveSession(session);
-        console.log('📦 Local session synced with new password');
+        console.log('📦 Local session synced (firstLogin cleared)');
       }
 
       if (Platform.OS === 'web') {

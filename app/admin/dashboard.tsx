@@ -258,7 +258,6 @@ export default function AdminDashboard() {
           userPrn={currentUser.prn}
           userRole={currentUser.role}
           userEmail={currentUser.email}
-          currentPassword={currentUser.password || ''}
           isFirstLogin={currentUser.firstLogin}
         />
       )}
