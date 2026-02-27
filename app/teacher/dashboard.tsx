@@ -6,6 +6,7 @@ import {
   Alert,
   Animated,
   Easing,
+  Image,
   Platform,
   ScrollView,
   Text,
@@ -23,7 +24,8 @@ import {
   getTeacherBatchConfig,
   saveStudentInfo,
   Student,
-  updateLocalVerificationStatus
+  updateLocalVerificationStatus,
+  validateName
 } from '../../storage/sqlite';
 
 import { COLORS } from '../../constants/colors';
@@ -296,6 +298,28 @@ export default function TeacherDashboard() {
   };
 
   const handleQuickSave = async () => {
+    // Validation before saving
+    if (editingSection === 'Personal Information') {
+      if (!validateName(editData.fullName)) {
+        Alert.alert('Invalid Name', 'Full Name must only contain alphabets, dots, or hyphens (2-50 chars).');
+        return;
+      }
+    } else if (editingSection === 'Family Details') {
+      if (editData.fatherName && !validateName(editData.fatherName)) {
+        Alert.alert('Invalid Name', "Father's Name must be alphabetic.");
+        return;
+      }
+      if (editData.motherName && !validateName(editData.motherName)) {
+        Alert.alert('Invalid Name', "Mother's Name must be alphabetic.");
+        return;
+      }
+    } else if (editingSection === 'Contact & Address') {
+      if (editData.phone && editData.phone.length !== 10) {
+        Alert.alert('Invalid Phone', 'Phone number must be 10 digits.');
+        return;
+      }
+    }
+
     setIsSaving(true);
     try {
       await saveStudentInfo(editData);
@@ -450,8 +474,8 @@ export default function TeacherDashboard() {
           >
             <Ionicons name={isSidebarCollapsed ? "grid-outline" : "close-outline"} size={22} color="#fff" />
           </TouchableOpacity>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.collegeName, { letterSpacing: 0.5, textTransform: 'uppercase' }]}>GFM Record Management</Text>
+          <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <Image source={require('../../assets/images/icon.png')} style={{ width: 32, height: 32 }} resizeMode="contain" />
             <Text style={styles.tagline}>{teacherName} • Department of Computer Science</Text>
           </View>
         </View>
@@ -517,10 +541,13 @@ export default function TeacherDashboard() {
         </Animated.View>
 
         {/* Content Area */}
-        <View style={styles.contentArea}>
+        <View style={styles.contentArea} role="main" aria-label="Teacher Dashboard Content">
           {currentModule !== 'analytics' && currentModule !== 'attendance' && currentModule !== 'attendance-summary' && currentModule !== 'admin-reports' && currentModule !== 'manage-staff' && currentModule !== 'daily-attendance' && currentModule !== 'register-student' && currentModule !== 'students' && renderFilters()}
 
-          {['register-student', 'students'].includes(currentModule) ? (
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
             <ModuleRenderer
               currentModule={currentModule}
               teacherPrn={teacherPrn}
@@ -546,35 +573,7 @@ export default function TeacherDashboard() {
               batchConfig={batchConfig}
               router={router}
             />
-          ) : (
-            <ScrollView contentContainerStyle={styles.scrollContent}>
-              <ModuleRenderer
-                currentModule={currentModule}
-                teacherPrn={teacherPrn}
-                teacherDept={teacherDept}
-                students={students}
-                searchQuery={searchQuery}
-                gfmFilters={{ dept: gfmDeptFilter, year: gfmYearFilter, div: gfmDivFilter }}
-                attFilters={{ dept: attDeptFilter, year: attYearFilter, div: attDivFilter }}
-                courses={courses}
-                semFilter={semFilter}
-                activityTypeFilter={activityTypeFilter}
-                onViewStudentDetails={setSelectedStudentForDetails}
-                onViewAcademicRecord={setSelectedStudentForAcademicView}
-                onPrintStudent={(s: Student) => {
-                  setStudentForPrint(s);
-                  setPrintOptionsVisible(true);
-                }}
-                onQuickEdit={openQuickEdit}
-                onRefresh={loadData}
-                onViewDocument={handleViewDocument}
-                handleVerify={handleVerify}
-                yearsOfStudy={yearsOfStudy}
-                batchConfig={batchConfig}
-                router={router}
-              />
-            </ScrollView>
-          )}
+          </ScrollView>
         </View>
       </View>
 

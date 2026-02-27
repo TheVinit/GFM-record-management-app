@@ -28,75 +28,96 @@ const resolveAssetUrl = (asset: any): string => {
     }
 };
 
-export const getBase64Image = (source: any, timeout = 5000): Promise<string> => {
+export const getBase64Image = (source: any, timeout = 10000): Promise<string> => {
     const fallbackUrl = resolveAssetUrl(FALLBACK_LOGO);
 
     return new Promise((resolve) => {
-        if (!source) {
-            console.warn('[getBase64Image] No source provided');
-            return resolve(fallbackUrl);
-        }
-
-        // On Native, return the URI directly.
-        if (!isWeb) {
-            if (typeof source === 'string') return resolve(source);
-            const resolved = Image.resolveAssetSource(source);
-            return resolve(resolved?.uri || fallbackUrl);
-        }
-
-        if (typeof source === 'string' && source.startsWith('data:')) return resolve(source);
-        if (typeof source === 'string' && source.startsWith('http')) return resolve(source);
+        if (!source) return resolve(fallbackUrl || '');
 
         let url = '';
         try {
             if (typeof source === 'string') {
                 url = source;
-            } else if (Image.resolveAssetSource) {
-                url = Image.resolveAssetSource(source)?.uri || '';
+            } else {
+                const resolved = Image.resolveAssetSource(source);
+                url = resolved?.uri || '';
             }
         } catch (e) {
-            console.warn('[getBase64Image] Error resolving source:', e);
-            return resolve(fallbackUrl);
+            console.warn('[getBase64Image] Resolution error:', e);
+            return resolve(fallbackUrl || '');
         }
 
-        if (!url) {
-            console.warn('[getBase64Image] No URL resolved');
-            return resolve(fallbackUrl);
-        }
+        if (!url) return resolve(fallbackUrl || '');
 
-        console.log('[getBase64Image] Loading image from:', url);
+        // Native doesn't need base64 conversion for most PDF generators
+        if (!isWeb) return resolve(url);
+        if (url.startsWith('data:')) return resolve(url);
 
-        const img = document.createElement('img');
-        img.setAttribute('crossOrigin', 'anonymous');
-
-        const timer = setTimeout(() => {
-            console.warn('[getBase64Image] Timeout loading image:', url);
-            img.src = '';
-            resolve(fallbackUrl);
-        }, timeout);
-
-        img.onload = () => {
-            clearTimeout(timer);
-            const canvas = document.createElement('canvas');
-            canvas.width = img.width;
-            canvas.height = img.height;
-            const ctx = canvas.getContext('2d');
-            ctx?.drawImage(img, 0, 0);
+        // Robust Web Fetching
+        const convertToB64 = async (imgUrl: string) => {
             try {
-                const dataUrl = canvas.toDataURL('image/png');
-                console.log('[getBase64Image] Successfully converted to base64');
-                resolve(dataUrl);
-            } catch (e) {
-                console.error('[getBase64Image] Canvas conversion error:', e);
-                resolve(fallbackUrl);
+                const fetchUrl = imgUrl.startsWith('/') && typeof window !== 'undefined'
+                    ? window.location.origin + imgUrl
+                    : imgUrl;
+
+                const response = await fetch(fetchUrl);
+                const blob = await response.blob();
+                return new Promise<string>((res, rej) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => res(reader.result as string);
+                    reader.onerror = rej;
+                    reader.readAsDataURL(blob);
+                });
+            } catch (err) {
+                console.warn('[getBase64Image] Fetch failed, falling back to canvas:', imgUrl);
+                throw err;
             }
         };
-        img.onerror = (err) => {
-            clearTimeout(timer);
-            console.error('[getBase64Image] Image load error:', err, 'URL:', url);
-            resolve(fallbackUrl);
-        };
-        img.src = url;
+
+        const timer = setTimeout(() => {
+            console.warn('[getBase64Image] Final Timeout:', url);
+            resolve(fallbackUrl || '');
+        }, timeout + 2000);
+
+        convertToB64(url)
+            .then(res => {
+                clearTimeout(timer);
+                resolve(res);
+            })
+            .catch(() => {
+                // Fallback to Canvas method if fetch fails (e.g. CORS or local resource issues)
+                const img = new (window as any).Image();
+                img.setAttribute('crossOrigin', 'anonymous');
+
+                const canvasTimer = setTimeout(() => {
+                    img.src = '';
+                    resolve(fallbackUrl || '');
+                }, timeout);
+
+                img.onload = () => {
+                    clearTimeout(canvasTimer);
+                    clearTimeout(timer);
+                    try {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = img.width;
+                        canvas.height = img.height;
+                        const ctx = canvas.getContext('2d');
+                        ctx?.drawImage(img, 0, 0);
+                        resolve(canvas.toDataURL('image/png'));
+                    } catch (e) {
+                        resolve(fallbackUrl || '');
+                    }
+                };
+
+                img.onerror = () => {
+                    clearTimeout(canvasTimer);
+                    resolve(fallbackUrl || '');
+                };
+
+                img.src = url.startsWith('/') && typeof window !== 'undefined'
+                    ? window.location.origin + url
+                    : url;
+            });
     });
 };
 
@@ -218,9 +239,19 @@ export const exportStudentPDF = async (student: Student, options: any, setLoadin
         const lastCertificate = [...technical, ...internships].find(x => x.certificateUri);
         const viewCertBtn = lastCertificate ? `<a href="${lastCertificate.certificateUri}" class="action-link" target="_blank">View Certificates →</a>` : '';
 
-        const b64LogoLeft = await getBase64Image(LOGO_LEFT_IMG);
-        const b64LogoRight = await getBase64Image(LOGO_RIGHT_IMG);
-        const b64StudentPhoto = await getBase64Image(student.photoUri || require('../../assets/images/icon.png'));
+        let b64LogoLeft = '';
+        let b64LogoRight = '';
+
+        if (isWeb) {
+            const origin = typeof window !== 'undefined' ? window.location.origin : '';
+            b64LogoLeft = `${origin}/images/left.png`;
+            b64LogoRight = `${origin}/images/right.png`;
+        } else {
+            b64LogoLeft = await getBase64Image(LOGO_LEFT_IMG);
+            b64LogoRight = await getBase64Image(LOGO_RIGHT_IMG);
+        }
+
+        const b64Photo = await getBase64Image(student.photoUri || require('../../assets/images/icon.png'));
 
         const dataMap = {
             college_logo_left: b64LogoLeft,
@@ -228,7 +259,7 @@ export const exportStudentPDF = async (student: Student, options: any, setLoadin
             report_title: options.all ? "Comprehensive Student Profile" : "Student Academic Report",
             gen_date: new Date().toLocaleString(),
             filters_used: `Dept: ${student.branch} | Year: ${student.yearOfStudy} | Div: ${student.division}`,
-            student_photo: b64StudentPhoto,
+            student_photo: b64Photo,
             full_name: (student.fullName || '').toUpperCase(),
             prn: student.prn || '',
             branch: student.branch || '',

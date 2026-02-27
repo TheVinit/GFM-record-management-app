@@ -135,7 +135,6 @@ export const FilterModal: React.FC<FilterModalProps> = ({
                                             key={div.value}
                                             label={isDisabled ? `${div.label} (Done)` : div.label}
                                             value={div.value}
-                                            enabled={!isDisabled}
                                             color={isDisabled ? COLORS.textMuted : COLORS.text}
                                         />
                                     );

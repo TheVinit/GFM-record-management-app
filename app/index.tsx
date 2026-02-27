@@ -82,10 +82,8 @@ export default function Index() {
               <Image source={require('../assets/images/left.png')} style={styles.sideImage} resizeMode="contain" />
               <View style={styles.centerContent}>
                 <View style={styles.logoContainer}>
-                  <Ionicons name="shield-checkmark" size={60} color="#fff" />
+                  <Image source={require('../assets/images/icon.png')} style={styles.mainLogo} resizeMode="contain" />
                 </View>
-                <Text style={styles.logo}>GFM Record</Text>
-                <Text style={styles.subtitle}>Management System</Text>
               </View>
               <Image source={require('../assets/images/right.png')} style={styles.sideImage} resizeMode="contain" />
             </View>
@@ -212,7 +210,7 @@ export default function Index() {
 
           {/* Footer */}
           <View style={styles.footer}>
-            <Text style={styles.footerText}>© 2026 @ GFM Record Management</Text>
+            <Text style={styles.footerText}>© 2026 Admin Control Portal</Text>
             <Text style={styles.footerSubtext}>Secure • Reliable • Efficient</Text>
           </View>
         </ScrollView>
@@ -258,26 +256,24 @@ const styles = StyleSheet.create({
     opacity: 0.9,
   },
   logoContainer: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: '#ffffff',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+    marginBottom: 20,
+    borderWidth: 3,
+    borderColor: 'rgba(255, 255, 255, 0.4)',
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
   },
-  logo: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#fff',
-    letterSpacing: 1,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.9)',
-    fontWeight: '500',
+  mainLogo: {
+    width: 80,
+    height: 80,
   },
   divider: {
     width: 60,

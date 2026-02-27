@@ -347,6 +347,14 @@ export const initDB = async () => {
   return dbInitPromise;
 };
 
+export const validateName = (name: string) => {
+  return /^[a-zA-Z\s\.\-]{2,50}$/.test(name);
+};
+
+export const validateEmail = (email: string) => {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+};
+
 export const clearSQLite = async () => {
   try {
     const db = await dbPromise;
@@ -366,7 +374,7 @@ export const clearSQLite = async () => {
 
 // ============= STUDENT OPERATIONS (SUPABASE ONLY) =============
 
-export const getStudentInfo = async (prn: string): Promise<Student | null> => {
+export const getStudentInfo = async (prn: string, forceRefresh: boolean = false): Promise<Student | null> => {
   const db = await dbPromise;
 
   // 1. Try Cache
@@ -376,8 +384,8 @@ export const getStudentInfo = async (prn: string): Promise<Student | null> => {
       [prn]
     ) as { data: string, updatedAt: number } | null;
 
-    // Return cache if fresh (e.g., less than 5 minutes old)
-    if (cached && (Date.now() - cached.updatedAt < 5 * 60 * 1000)) {
+    // Return cache if fresh (e.g., less than 5 minutes old) and no forceRefresh
+    if (!forceRefresh && cached && (Date.now() - cached.updatedAt < 5 * 60 * 1000)) {
       return JSON.parse(cached.data);
     }
   } catch (e) { console.warn('Cache read failed:', e); }
@@ -404,20 +412,39 @@ export const getStudentInfo = async (prn: string): Promise<Student | null> => {
 };
 
 export const saveStudentInfo = async (s: Student) => {
+  const session = await dbPromise?.then((db: any) => db?.getFirstAsync('SELECT access_token, role FROM session LIMIT 1') as Promise<{ access_token: string, role: string } | null>);
+
+  if (!session || session.role !== 'admin') {
+    throw new Error('Only admins can create students directly');
+  }
+
   const snakeData = toSnakeCase(s);
   snakeData.last_updated = new Date().toISOString();
 
-  console.log('📝 Saving student info:', JSON.stringify(snakeData, null, 2));
+  console.log('📝 Saving student via Edge Function:', JSON.stringify(snakeData, null, 2));
 
-  const { data, error } = await supabase
-    .from('students')
-    .upsert(snakeData, { onConflict: 'prn' })
-    .select();
+  // Call the Edge Function to create Auth User + Profiles + Students
+  const { data, error } = await supabase.functions.invoke('admin-create-user', {
+    headers: {
+      Authorization: `Bearer ${session.access_token}`
+    },
+    body: {
+      email: s.email,
+      password: s.prn, // PRN as default password
+      role: 'student',
+      profileData: {
+        prn: s.prn,
+        full_name: s.fullName,
+        department: s.branch
+      },
+      studentData: snakeData
+    }
+  });
 
-  if (error) {
-    console.error('❌ Supabase error in saveStudentInfo:');
-    console.error(JSON.stringify(error, null, 2));
-    throw error;
+  if (error || data?.error) {
+    console.error('❌ Supabase Edge Function error:');
+    console.error(error || data?.error);
+    throw new Error(error?.message || data?.error || 'Failed to create student via Admin API');
   }
 
   // 2. Update Local Cache immediately
@@ -1099,36 +1126,30 @@ export const getAttendanceTakers = async (): Promise<FacultyMember[]> => {
   })) as FacultyMember[];
 };
 
-export const saveFacultyMember = async (prn: string, password: string, fullName?: string, department?: string, email?: string) => {
-  const id = generateUUID();
-  const { error } = await supabase
-    .from('profiles')
-    .upsert({
-      prn,
-      role: 'teacher',
-      email: email || `${prn.toLowerCase()}@gfm.com`,
-      full_name: fullName || `Faculty ${prn}`,
-      department: department || null,
-      password: password
-    }, { onConflict: 'prn' });
-
-  if (error) throw error;
-};
-
 export const saveAttendanceTaker = async (prn: string, password: string, fullName?: string, department?: string, email?: string) => {
-  const id = generateUUID();
-  const { error } = await supabase
-    .from('profiles')
-    .upsert({
-      prn,
-      role: 'attendance_taker',
-      email: email || `${prn.toLowerCase()}@at.com`,
-      full_name: fullName || `Taker ${prn}`,
-      department: department || null,
-      password: password
-    }, { onConflict: 'prn' });
+  const session = await dbPromise?.then((db: any) => db?.getFirstAsync('SELECT access_token, role FROM session LIMIT 1') as Promise<{ access_token: string, role: string } | null>);
 
-  if (error) throw error;
+  if (!session || session.role !== 'admin') {
+    throw new Error('Only admins can create attendance takers directly');
+  }
+
+  const { data, error } = await supabase.functions.invoke('admin-create-user', {
+    headers: {
+      Authorization: `Bearer ${session.access_token}`
+    },
+    body: {
+      email: email || `${prn.toLowerCase()}@at.com`,
+      password: password,
+      role: 'attendance_taker',
+      profileData: {
+        prn: prn,
+        full_name: fullName || `Taker ${prn}`,
+        department: department || null
+      }
+    }
+  });
+
+  if (error || data?.error) throw new Error(error?.message || data?.error || 'Failed to add attendance taker');
 };
 
 export const deleteFacultyMember = async (prn: string) => {
@@ -1239,75 +1260,37 @@ export const getAllTeachers = async (): Promise<TeacherProfile[]> => {
   })) as TeacherProfile[];
 };
 
-export const saveStudent = async (student: Partial<Student>) => {
-  console.log('💾 [SQLite] saving student:', student.prn);
-  const snakeData = toSnakeCase(student);
+export const saveStudent = async (studentData: any) => {
+  const session = await dbPromise?.then((db: any) => db?.getFirstAsync('SELECT access_token, role FROM session LIMIT 1') as Promise<{ access_token: string, role: string } | null>);
 
-  // Sanitize data: Empty strings should be null for the database
-  Object.keys(snakeData).forEach(key => {
-    if (snakeData[key] === '') {
-      snakeData[key] = null;
+  if (!session || session.role !== 'admin') {
+    throw new Error('Only admins can create students directly');
+  }
+
+  const { data, error } = await supabase.functions.invoke('admin-create-user', {
+    headers: {
+      Authorization: `Bearer ${session.access_token}`
+    },
+    body: {
+      email: studentData.email,
+      password: studentData.prn, // PRN as default password
+      role: 'student',
+      profileData: {
+        prn: studentData.prn,
+        full_name: studentData.fullName,
+        department: studentData.branch
+      },
+      studentData: {
+        phone: studentData.phone,
+        roll_no: studentData.rollNo,
+        branch: studentData.branch,
+        year_of_study: studentData.yearOfStudy,
+        division: studentData.division
+      }
     }
   });
 
-  // 1. Upsert into students table
-  const { error: studentError } = await supabase
-    .from('students')
-    .upsert(snakeData, { onConflict: 'prn' });
-
-  if (studentError) {
-    console.error('❌ Supabase error in saveStudent (students table):');
-    console.error(JSON.stringify(studentError, null, 2));
-    throw studentError;
-  }
-
-  // 2. Manage profile for login
-  try {
-    console.log('DEBUG: Managing profile for student...');
-    // Check if profile exists by PRN
-    const { data: existingProfile } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('prn', student.prn)
-      .maybeSingle();
-
-    const profileData = {
-      email: student.email,
-      prn: student.prn,
-      full_name: student.fullName,
-      role: 'student',
-      password: student.prn,
-      first_login: true
-    };
-
-    if (existingProfile) {
-      console.log('DEBUG: Updating existing profile:', existingProfile.id);
-      const { error: updateError } = await supabase
-        .from('profiles')
-        .update(profileData)
-        .eq('id', existingProfile.id);
-
-      if (updateError) {
-        console.error('❌ Error updating student profile:');
-        console.error(JSON.stringify(updateError, null, 2));
-      }
-    } else {
-      console.log('DEBUG: Creating new profile...');
-      const { error: insertError } = await supabase
-        .from('profiles')
-        .insert({
-          id: generateUUID(),
-          ...profileData
-        });
-
-      if (insertError) {
-        console.error('❌ Error inserting student profile:');
-        console.error(JSON.stringify(insertError, null, 2));
-      }
-    }
-  } catch (profileErr) {
-    console.warn('⚠️ Profile sync encountered an issue (non-fatal for student record):', profileErr);
-  }
+  if (error || data?.error) throw new Error(error?.message || data?.error || 'Failed to add student record');
 };
 
 // ============= UTILITY FUNCTIONS =============

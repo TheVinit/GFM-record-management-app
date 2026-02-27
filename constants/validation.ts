@@ -93,8 +93,8 @@ export const validatePRN = (prn: string): boolean => {
 };
 
 export const validateName = (name: string): boolean => {
-  const nameRegex = /^[a-zA-Z\s]{2,50}$/;
-  return nameRegex.test(name.trim());
+  const nameRegex = /^[a-zA-Z\s\.\-]{2,50}$/;
+  return nameRegex.test(name);
 };
 
 export const validateYear = (year: string): boolean => {

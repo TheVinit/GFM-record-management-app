@@ -22,7 +22,7 @@ export default function RootLayout() {
     dbBooted.current = true
 
     initDB()
-      .then(() => console.log('✅ SQLite ready'))
+      .then(() => { if (__DEV__) console.log('✅ SQLite ready'); })
       .catch(err => console.error('DB init error', err))
   }, [])
 
@@ -34,20 +34,19 @@ export default function RootLayout() {
 
     const boot = async () => {
       try {
-        console.log('🚀 [Root] Bootstrapping app...');
+        if (__DEV__) console.log('🚀 [Root] Bootstrapping app...');
 
-        // 1. Ensure SQLite is ready FIRST (but don't crash if it fails on web)
+        // 1. Ensure SQLite is ready FIRST
         try {
           await initDB();
         } catch (dbErr) {
-          console.warn('⚠️ [Root] SQLite Init failed, proceeding with cloud-only mode:', dbErr);
+          if (__DEV__) console.warn('⚠️ [Root] SQLite Init failed, cloud-only mode:', dbErr);
         }
 
         const session = await getSession()
 
-
         if (session) {
-          console.log('✅ Restored session:', session.role)
+          if (__DEV__) console.log('✅ Restored session:', session.role)
 
           const first = segments[0]
           const isAuth = !first
@@ -58,22 +57,19 @@ export default function RootLayout() {
                 ? '/admin/dashboard'
                 : session.role === 'teacher'
                   ? '/teacher/dashboard'
-                  : '/student/dashboard'
+                  : session.role === 'attendance_taker'
+                    ? '/attendance-taker/dashboard'
+                    : '/student/dashboard'
 
-            // ⚠️ Set ready before navigating
             if (mounted) setIsReady(true)
-
-            // Wait a tick for Slot to mount
-            setTimeout(() => {
-              router.replace(dest as any)
-            }, 0)
+            setTimeout(() => { router.replace(dest as any) }, 0)
             return;
           }
 
-          // Validate with Supabase (background)
+          // Validate JWT with Supabase (background refresh)
           const { data } = await supabase.auth.getSession()
-          if (!data.session && !session) {
-            console.warn('⚠️ Supabase session invalid and no local session — clearing cache')
+          if (!data.session) {
+            if (__DEV__) console.warn('⚠️ Supabase session expired — clearing cache')
             await clearSQLite()
             await clearSession()
             router.replace('/')

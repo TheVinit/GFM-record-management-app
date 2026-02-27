@@ -38,52 +38,91 @@ const LOGO_LEFT_IMG = require('../../assets/images/left.png');
 const LOGO_RIGHT_IMG = require('../../assets/images/right.png');
 const FALLBACK_LOGO = require('../../assets/images/icon.png');
 
-const getBase64Image = (source: any, timeout = 5000): Promise<string> => {
+const getBase64Image = (source: any, timeout = 10000): Promise<string> => {
   return new Promise((resolve) => {
-    try {
-      if (!source) return resolve('');
+    if (!source) return resolve('');
 
-      let url = '';
+    let url = '';
+    try {
       if (typeof source === 'string') {
         url = source;
       } else {
-        // Robust asset resolution
-        try {
-          const resolved = Image.resolveAssetSource ? Image.resolveAssetSource(source) : null;
-          url = resolved?.uri || '';
-          if (!url && typeof source === 'object' && source?.uri) {
-            url = source.uri;
-          }
-        } catch (e) {
-          url = '';
-        }
+        const resolved = Image.resolveAssetSource(source);
+        url = resolved?.uri || '';
       }
-
-      if (!url) return resolve('');
-      if (typeof url === 'string' && url.startsWith('data:')) return resolve(url);
-
-      if (!isWeb || typeof window === 'undefined') {
-        return resolve(url);
-      }
-
-      const img = document.createElement('img');
-      img.setAttribute('crossOrigin', 'anonymous');
-      const timer = setTimeout(() => { img.src = ""; resolve(url || ''); }, timeout);
-      img.onload = () => {
-        clearTimeout(timer);
-        const canvas = document.createElement('canvas');
-        canvas.width = img.width;
-        canvas.height = img.height;
-        const ctx = canvas.getContext('2d');
-        ctx?.drawImage(img, 0, 0);
-        try { resolve(canvas.toDataURL('image/png')); } catch (e) { resolve(url || ''); }
-      };
-      img.onerror = () => { clearTimeout(timer); resolve(url?.includes('supabase.co') ? FALLBACK_LOGO : (url || '')); };
-      img.src = url;
     } catch (e) {
-      console.warn('getBase64Image error:', e);
-      resolve('');
+      console.warn('[getBase64Image] Resolution error:', e);
+      return resolve('');
     }
+
+    if (!url) return resolve('');
+
+    // Native returns URL directly
+    if (!isWeb) return resolve(url);
+    if (url.startsWith('data:')) return resolve(url);
+
+    // Robust Web Fetching
+    const convertToB64 = async (imgUrl: string) => {
+      try {
+        const fetchUrl = imgUrl.startsWith('/') && typeof window !== 'undefined'
+          ? window.location.origin + imgUrl
+          : imgUrl;
+
+        const response = await fetch(fetchUrl);
+        const blob = await response.blob();
+        return new Promise<string>((res, rej) => {
+          const reader = new FileReader();
+          reader.onloadend = () => res(reader.result as string);
+          reader.onerror = rej;
+          reader.readAsDataURL(blob);
+        });
+      } catch (err) {
+        throw err;
+      }
+    };
+
+    const timer = setTimeout(() => {
+      resolve('');
+    }, timeout + 2000);
+
+    convertToB64(url)
+      .then(res => {
+        clearTimeout(timer);
+        resolve(res);
+      })
+      .catch(() => {
+        const img = new (window as any).Image();
+        img.setAttribute('crossOrigin', 'anonymous');
+
+        const canvasTimer = setTimeout(() => {
+          img.src = '';
+          resolve('');
+        }, timeout);
+
+        img.onload = () => {
+          clearTimeout(canvasTimer);
+          clearTimeout(timer);
+          try {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            ctx?.drawImage(img, 0, 0);
+            resolve(canvas.toDataURL('image/png'));
+          } catch (e) {
+            resolve('');
+          }
+        };
+
+        img.onerror = () => {
+          clearTimeout(canvasTimer);
+          resolve('');
+        };
+
+        img.src = url.startsWith('/') && typeof window !== 'undefined'
+          ? window.location.origin + url
+          : url;
+      });
   });
 };
 
@@ -473,8 +512,17 @@ export default function StudentDashboard() {
         ...achievements.map(a => ({ date: a.achievementDate, type: a.type || 'Technical', name: a.achievementName, status: a.verificationStatus }))
       ];
 
-      const b64LogoLeft = await getBase64Image(LOGO_LEFT_IMG);
-      const b64LogoRight = await getBase64Image(LOGO_RIGHT_IMG);
+      let b64LogoLeft = '';
+      let b64LogoRight = '';
+
+      if (isWeb) {
+        const origin = typeof window !== 'undefined' ? window.location.origin : '';
+        b64LogoLeft = `${origin}/images/left.png`;
+        b64LogoRight = `${origin}/images/right.png`;
+      } else {
+        b64LogoLeft = await getBase64Image(LOGO_LEFT_IMG);
+        b64LogoRight = await getBase64Image(LOGO_RIGHT_IMG);
+      }
       const b64Photo = await getBase64Image(studentData.photoUri || require('../../assets/images/icon.png'));
 
       const dataMap = {
@@ -531,14 +579,14 @@ export default function StudentDashboard() {
     }
   };
 
-  const fetchProfile = async () => {
+  const fetchProfile = async (forceRefresh: boolean = false) => {
     try {
       const session = await checkAuth();
       if (session) {
         setUserEmail(session.email || '');
         setUserPassword(session.password || '');
         if (session.firstLogin && session.role === 'student') setShowPasswordModal(true);
-        const data = await getStudentInfo(session.prn as string);
+        const data = await getStudentInfo(session.prn as string, forceRefresh);
         setProfile(data);
         if (data) await prepareTemplateHtml(data);
         if (data && !session.firstLogin) {
@@ -594,7 +642,7 @@ export default function StudentDashboard() {
   };
 
   useEffect(() => { fetchProfile(); }, []);
-  const onRefresh = () => { setRefreshing(true); fetchProfile(); };
+  const onRefresh = () => { setRefreshing(true); fetchProfile(true); };
 
   const handleLogout = () => {
     if (Platform.OS === 'web') { if (confirm('Are you sure you want to logout?')) performLogout(); }
@@ -653,10 +701,6 @@ export default function StudentDashboard() {
             <View style={styles.logoCircle}>
               <Image source={LOGO_LEFT_IMG} style={styles.headerLogo} resizeMode="contain" />
             </View>
-            <View>
-              <Text style={styles.brandTitle}>GFM</Text>
-              <Text style={styles.brandSub}>Record Management</Text>
-            </View>
           </View>
           <TouchableOpacity
             style={styles.profileIconBtn}
@@ -689,6 +733,8 @@ export default function StudentDashboard() {
       <ScrollView
         style={styles.content}
         showsVerticalScrollIndicator={false}
+        aria-label="Student Dashboard Content"
+        role="main"
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primary} />
         }

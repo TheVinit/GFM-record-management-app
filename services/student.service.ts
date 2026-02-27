@@ -7,19 +7,19 @@ import {
 } from '../storage/sqlite';
 import { supabase } from './supabase';
 
-export const getStudentsForGFM = async (gfmId: string): Promise<Student[]> => {
-    console.log('Fetching students for GFM:', gfmId);
+const log = (...args: any[]) => { if (__DEV__) console.log(...args); };
 
-    // 1. Get Batch Config
+export const getStudentsForGFM = async (gfmId: string): Promise<Student[]> => {
+    log('Fetching students for GFM:', gfmId);
+
     const config = await getTeacherBatchConfig(gfmId);
 
     if (!config || config.status !== 'Approved') {
-        console.log('No approved batch config found for GFM, returning empty list.');
+        log('No approved batch config found for GFM, returning empty list.');
         return [];
     }
 
     const { department, division, rbtFrom, rbtTo } = config;
-    // Mappings for Class -> Year of Study
     let yearOfStudy = config.class;
     if (YEAR_MAPPINGS[yearOfStudy]) {
         yearOfStudy = YEAR_MAPPINGS[yearOfStudy];
@@ -28,11 +28,9 @@ export const getStudentsForGFM = async (gfmId: string): Promise<Student[]> => {
     else if (yearOfStudy === 'BE') yearOfStudy = 'Final Year';
     else if (yearOfStudy === 'FE') yearOfStudy = 'First Year';
 
-    console.log(`Filter criteria: Dept=${department}, Year=${yearOfStudy}, Div=${division}, Range=${rbtFrom}-${rbtTo}`);
+    log(`Filter criteria: Dept=${department}, Year=${yearOfStudy}, Div=${division}, Range=${rbtFrom}-${rbtTo}`);
 
-    // 2. Fetch based on config
     let students: Student[] = [];
-
     if (rbtFrom && rbtTo) {
         students = await getStudentsByRbtRange(department, yearOfStudy, division, rbtFrom, rbtTo);
     } else {
@@ -89,7 +87,5 @@ export const logCommunication = async (
 
     if (error) {
         console.error('Error logging communication:', error);
-    } else {
-        console.log(`Logged ${type} to ${studentPrn}`);
     }
 };

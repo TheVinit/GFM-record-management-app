@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { COLORS } from '../../constants/colors';
 import { BRANCH_MAPPINGS, getFullYearName, YEAR_MAPPINGS } from '../../constants/Mappings';
-import { getAllStudents, getDistinctYearsOfStudy, saveStudent, Student } from '../../storage/sqlite';
+import { getAllStudents, getDistinctYearsOfStudy, saveStudent, Student, validateEmail, validateName } from '../../storage/sqlite';
 
 const isWeb = Platform.OS === 'web';
 
@@ -66,7 +66,15 @@ export const RegistrationModule = () => {
 
     const handleAddStudent = async () => {
         if (!newStudent.prn || !newStudent.fullName || !newStudent.email || !newStudent.rollNo || !newStudent.phone) {
-            Alert.alert('Error', 'Please enter all required fields (Roll No, PRN, Name, Email, Phone)');
+            Alert.alert('Error', 'Please enter all required fields');
+            return;
+        }
+        if (!validateName(newStudent.fullName)) {
+            Alert.alert('Invalid Name', 'Student name must only contain alphabets, dots, or hyphens (2-50 chars).');
+            return;
+        }
+        if (!validateEmail(newStudent.email)) {
+            Alert.alert('Invalid Email', 'Please enter a valid email address.');
             return;
         }
         if (newStudent.phone.length !== 10) {
@@ -115,7 +123,7 @@ export const RegistrationModule = () => {
                         branch: row['Branch'] || row['branch'] || row['Department'] || row['department'] || 'Computer Engineering',
                         yearOfStudy: row['Year'] || row['year'] || row['Year of Study'] || row['yearOfStudy'] || 'FE',
                         division: row['Division'] || row['division'] || row['Div'] || row['div'] || 'A'
-                    })).filter((s: any) => s.fullName && s.prn);
+                    })).filter((s: any) => s.fullName && s.prn && validateName(s.fullName));
 
                     setImportPreview(parsedStudents);
                     setImportModalVisible(true);

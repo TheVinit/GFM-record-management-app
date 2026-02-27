@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Platform,
   RefreshControl,
   ScrollView,
@@ -93,9 +94,10 @@ export default function AdminDashboard() {
     { id: 'today', title: "Today's Status", subtitle: 'Real-time attendance', icon: 'calendar-outline', color: COLORS.primary, route: '/teacher/dashboard?module=daily-attendance' },
     { id: 'reports', title: 'Attendance History', subtitle: 'View detailed logs', icon: 'stats-chart-outline', color: COLORS.accent, route: '/teacher/dashboard?module=admin-reports' },
     { id: 'add-students', title: 'Add Students', subtitle: 'Register & Import CSV', icon: 'person-add-outline', color: COLORS.secondary, route: '/teacher/dashboard?module=register-student' },
-    { id: 'students', title: 'Student Database', subtitle: 'View & verify all', icon: 'people-outline', color: COLORS.secondary, route: '/teacher/dashboard?module=students' },
-    { id: 'fees', title: 'Fee Monitoring', subtitle: 'Track fee status', icon: 'card-outline', color: COLORS.accent, route: '/teacher/dashboard?module=fees' },
-    { id: 'allocation', title: 'Batch Allocation', subtitle: 'Assign GFMs', icon: 'git-network-outline', color: COLORS.primary, route: '/admin/manage-allocations' },
+    { id: 'allocate', title: 'Manage Allocations', subtitle: 'Assign GFM to Batches', icon: 'git-network-outline', color: COLORS.primary, route: '/admin/manage-allocations' },
+    { id: 'admins', title: 'Manage Admins', subtitle: 'Add/Remove Admins', icon: 'shield-half-outline', color: COLORS.error, route: '/admin/manage-admins' },
+    { id: 'students', title: 'Manage Students', subtitle: 'View & Edit Records', icon: 'school-outline', color: '#ff9800', route: '/admin/students' },
+    { id: 'faculty', title: 'Manage Faculty', subtitle: 'View & Edit Faculty', icon: 'people-outline', color: '#9c27b0', route: '/admin/faculty' },
     { id: 'staff', title: 'Manage Staff', subtitle: 'Faculty & Takers', icon: 'people-circle-outline', color: COLORS.success, route: '/teacher/dashboard?module=manage-staff' },
     { id: 'courses', title: 'Course Config', subtitle: 'Setup semesters', icon: 'book-outline', color: COLORS.accent, route: '/teacher/dashboard?module=courses' },
     { id: 'refresh', title: 'Refresh Stats', subtitle: 'Update dashboard data', icon: 'refresh-outline', color: COLORS.success, action: 'refresh' }
@@ -130,9 +132,10 @@ export default function AdminDashboard() {
       <View style={styles.header}>
         <View style={styles.headerTop}>
           <View style={styles.headerBrand}>
-            <View style={styles.logoIcon}><Ionicons name="shield-checkmark" size={isLargeScreen ? 28 : 24} color={COLORS.white} /></View>
+            <View style={styles.logoIcon}>
+              <Image source={require('../../assets/images/icon.png')} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
+            </View>
             <View>
-              <Text style={styles.brandName}>GFM Record</Text>
               <Text style={styles.brandSubtitle}>Admin Control Panel</Text>
             </View>
           </View>
@@ -276,12 +279,18 @@ const createStyles = (width: number, isLargeScreen: boolean, isXLargeScreen: boo
   headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: isLargeScreen ? 32 : 24 },
   headerBrand: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   logoIcon: {
-    width: isLargeScreen ? 52 : 44,
-    height: isLargeScreen ? 52 : 44,
+    width: isLargeScreen ? 56 : 48,
+    height: isLargeScreen ? 56 : 48,
     borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: '#ffffff',
     justifyContent: 'center',
-    alignItems: 'center'
+    alignItems: 'center',
+    padding: 4,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
   },
   brandName: { fontSize: isLargeScreen ? 24 : 20, fontWeight: 'bold', color: COLORS.white },
   brandSubtitle: { fontSize: isLargeScreen ? 14 : 12, color: 'rgba(255,255,255,0.7)' },

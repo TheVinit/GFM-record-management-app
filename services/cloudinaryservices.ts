@@ -10,7 +10,7 @@ export const uploadToCloudinary = async (fileUri: string, fileType: string = 'im
     return null;
   }
 
-  console.log("Starting Cloudinary Upload:", { cloudName: CLOUD_NAME, preset: UPLOAD_PRESET, folder });
+  if (__DEV__) console.log("Starting Cloudinary Upload:", { cloudName: CLOUD_NAME, preset: UPLOAD_PRESET, folder });
 
   const apiUrl = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/auto/upload`;
 

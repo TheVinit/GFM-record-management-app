@@ -32,13 +32,8 @@ const getEnvVar = (key: string): string => {
 const supabaseUrl = getEnvVar('EXPO_PUBLIC_SUPABASE_URL').trim();
 const supabaseAnonKey = getEnvVar('EXPO_PUBLIC_SUPABASE_ANON_KEY').trim();
 
-if (typeof window !== 'undefined') {
-  console.log('🔌 [Supabase] Connection Host:', supabaseUrl.split('//')[1]?.split('.')[0] || 'none');
-}
-
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.error("❌ Supabase URL or Anon Key is missing in environment variables!");
-  console.log("Please check your .env file and ensure EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY are set.");
+  console.error("❌ Supabase URL or Anon Key is missing!");
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);

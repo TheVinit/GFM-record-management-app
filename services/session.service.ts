@@ -12,15 +12,16 @@ export type SessionUser = {
   isProfileComplete: boolean;
   fullName?: string;
   department?: string;
-  password?: string;
   firstLogin?: boolean;
   access_token?: string;
   refresh_token?: string;
 };
 
 // SAVE SESSION
+const log = (...args: any[]) => { if (__DEV__) console.log(...args); };
+
 export const saveSession = async (user: SessionUser) => {
-  console.log(`💾 [SessionService] Saving session for: ${user.email} (${user.role})`);
+  log(`💾 [SessionService] Saving session for: ${user.email} (${user.role})`);
 
   if (Platform.OS === 'web') {
     try {
@@ -28,7 +29,7 @@ export const saveSession = async (user: SessionUser) => {
         ...user,
         updatedAt: Date.now()
       }));
-      console.log("✅ [SessionService] Session saved to AsyncStorage (Web)");
+      log("✅ [SessionService] Session saved to AsyncStorage (Web)");
     } catch (e) {
       console.error("❌ [SessionService] Failed to save session to Web Storage", e);
     }
@@ -42,11 +43,11 @@ export const saveSession = async (user: SessionUser) => {
 
   try {
     await db.runAsync(
-      `INSERT OR REPLACE INTO session (id, user_id, email, role, prn, isProfileComplete, password, first_login, access_token, refresh_token, updatedAt) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [SESSION_ID, user.id, user.email, user.role, user.prn || null, user.isProfileComplete ? 1 : 0, user.password || null, user.firstLogin ? 1 : 0, user.access_token || null, user.refresh_token || null, now]
+      `INSERT OR REPLACE INTO session (id, user_id, email, role, prn, isProfileComplete, first_login, access_token, refresh_token, updatedAt) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [SESSION_ID, user.id, user.email, user.role, user.prn || null, user.isProfileComplete ? 1 : 0, user.firstLogin ? 1 : 0, user.access_token || null, user.refresh_token || null, now]
     );
-    console.log("✅ [SessionService] Session saved to SQLite");
+    log("✅ [SessionService] Session saved to SQLite");
   } catch (error) {
     console.error("❌ [SessionService] Failed to save session to SQLite:", error);
   }
@@ -115,7 +116,6 @@ export const getSession = async (): Promise<SessionUser | null> => {
       isProfileComplete: row.isProfileComplete === 1,
       fullName: extData.fullName,
       department: extData.department,
-      password: row.password || extData.password,
       firstLogin: (row.first_login !== null ? row.first_login === 1 : extData.firstLogin),
       access_token: row.access_token || undefined,
       refresh_token: row.refresh_token || undefined
@@ -163,7 +163,7 @@ export const clearSession = async () => {
   try {
     if (!db) return;
     await db.runAsync(`DELETE FROM session WHERE id = ?`, [SESSION_ID]);
-    console.log("🧹 [SessionService] Session cleared from SQLite");
+    log("🧹 [SessionService] Session cleared from SQLite");
   } catch (error) {
     console.error("❌ [SessionService] Failed to clear session:", error);
   }
