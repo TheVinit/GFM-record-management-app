@@ -1,3 +1,4 @@
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { Picker } from '@react-native-picker/picker';
 import React from 'react';
 import {
@@ -6,6 +7,7 @@ import {
   Text,
   TextInput,
   TextInputProps,
+  TouchableOpacity, // Added
   View,
   ViewStyle // Added for style support
 } from 'react-native';
@@ -94,7 +96,6 @@ export const FormPicker: React.FC<FormPickerProps> = ({
               key="__placeholder__"
               label={placeholder}
               value="__placeholder__"
-              enabled={false}
               color="#999"
             />
           )}
@@ -126,12 +127,15 @@ export const FormDatePicker: React.FC<FormDatePickerProps> = ({
   onChange,
   error,
   editable = true,
-  containerStyle // 👈 Added
+  containerStyle
 }) => {
+  const [show, setShow] = React.useState(false);
+
   const formatDate = (dateString: string): string => {
     if (!dateString) return 'Select Date';
     try {
       const date = new Date(dateString);
+      if (isNaN(date.getTime())) return dateString;
       return date.toLocaleDateString('en-GB', {
         day: '2-digit',
         month: '2-digit',
@@ -142,26 +146,64 @@ export const FormDatePicker: React.FC<FormDatePickerProps> = ({
     }
   };
 
-  const webId = Platform.OS === 'web'
-    ? (label.toLowerCase().replace(/[^a-z0-9]+/g, '-'))
-    : undefined;
+  const handleDateChange = (event: any, selectedDate?: Date) => {
+    setShow(Platform.OS === 'ios');
+    if (selectedDate) {
+      const year = selectedDate.getFullYear();
+      const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
+      const day = String(selectedDate.getDate()).padStart(2, '0');
+      onChange(`${year}-${month}-${day}`);
+    }
+  };
+
+  if (Platform.OS === 'web') {
+    return (
+      <View style={[styles.inputContainer, containerStyle]}>
+        <Text style={styles.label}>{label}</Text>
+        <input
+          type="date"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          disabled={!editable}
+          style={{
+            border: `1px solid ${error ? '#f44336' : '#ddd'}`,
+            borderRadius: '8px',
+            padding: '12px',
+            fontSize: '16px',
+            backgroundColor: '#fff',
+            color: '#333',
+            width: '100%',
+            boxSizing: 'border-box',
+            outline: 'none'
+          }}
+        />
+        {error && <Text style={styles.errorText}>{error}</Text>}
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.inputContainer, containerStyle]}>
       <Text style={styles.label}>{label}</Text>
-      <TextInput
-        style={[styles.input, error && styles.inputError]}
-        placeholder="YYYY-MM-DD"
-        value={value}
-        onChangeText={onChange}
-        maxLength={10}
-        keyboardType="default"
-        editable={editable}
-        accessibilityLabel={label}
-        nativeID={webId}
-      />
-      {typeof value === 'string' && value && value.length >= 10 && (
-        <Text style={styles.datePreview}>Preview: {formatDate(value)}</Text>
+      <TouchableOpacity
+        onPress={() => editable && setShow(true)}
+        style={[
+          styles.input,
+          error && styles.inputError,
+          !editable && styles.inputDisabled
+        ]}
+      >
+        <Text style={{ color: value ? '#333' : '#999' }}>
+          {value ? formatDate(value) : 'Select Date'}
+        </Text>
+      </TouchableOpacity>
+      {show && (
+        <DateTimePicker
+          value={value ? new Date(value) : new Date()}
+          mode="date"
+          display="default"
+          onChange={handleDateChange}
+        />
       )}
       {error && <Text style={styles.errorText}>{error}</Text>}
     </View>

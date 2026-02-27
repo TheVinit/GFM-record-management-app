@@ -25,8 +25,11 @@ export const initiateCall = async (
         // Log call attempt to database
         await logCommunication(gfmId, studentPrn, 'call', undefined, callType, phoneNumber);
 
+        // Sanitize phone number: keep only numbers and +
+        const sanitizedNumber = phoneNumber.replace(/[^0-9+]/g, '');
+
         // Open device dialer
-        const url = `tel:${phoneNumber}`;
+        const url = `tel:${sanitizedNumber}`;
         const canOpen = await Linking.canOpenURL(url);
 
         if (canOpen) {

@@ -29,7 +29,7 @@ export default function PersonalInfoForm() {
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
 
   const [formData, setFormData] = useState<Student>({
-    prn: '', fullName: '', rollNo: '', gender: 'Male', religion: '', category: 'Open', caste: '',
+    prn: '', fullName: '', rollNo: '', gender: 'Male', religion: '', caste: '',
     dob: '', branch: 'Computer Engineering', division: '', yearOfStudy: 'First Year', phone: '', email: '', aadhar: '', permanentAddress: '',
     pincode: '', temporaryAddress: '', fatherName: '', motherName: '', fatherOccupation: '',
     motherOccupation: '', annualIncome: '', fatherPhone: '', motherPhone: '',
@@ -257,11 +257,6 @@ export default function PersonalInfoForm() {
                 onChangeText={v => updateField('aadhar', v, 'number')}
                 placeholder="12-digit Aadhar number"
                 error={errors.aadhar}
-              />
-              <FormInput
-                label="Category (Admin Managed)"
-                value={formData.category}
-                editable={false}
               />
               <FormInput
                 label="Religion (Optional)"

@@ -262,7 +262,6 @@ export const StudentDetailsModal = ({ student, visible, onClose, onExportPDF, on
                                         <DetailItem label="Full Name" value={student.fullName} />
                                         <DetailItem label="Gender" value={student.gender} />
                                         <DetailItem label="Religion" value={student.religion} />
-                                        <DetailItem label="Category" value={student.category} />
                                         <DetailItem label="Caste" value={student.caste} />
                                         <DetailItem label="DOB" value={student.dob} />
                                         <DetailItem label="Aadhar" value={student.aadhar} />

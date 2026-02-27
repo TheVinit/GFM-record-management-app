@@ -51,7 +51,7 @@ export interface Student {
   rollNo: string;
   gender: string;
   religion: string;
-  category: string;
+  category?: string;
   caste: string;
   dob: string;
   branch: string;

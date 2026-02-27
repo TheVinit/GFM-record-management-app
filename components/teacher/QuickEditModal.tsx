@@ -23,7 +23,6 @@ export const QuickEditModal = ({ visible, onClose, section, editData, setEditDat
                         <TextInput style={styles.input} placeholder="Full Name" value={editData.fullName} onChangeText={t => setEditData({ ...editData, fullName: t })} />
                         <TextInput style={styles.input} placeholder="Gender" value={editData.gender} onChangeText={t => setEditData({ ...editData, gender: t })} />
                         <TextInput style={styles.input} placeholder="Religion" value={editData.religion} onChangeText={t => setEditData({ ...editData, religion: t })} />
-                        <TextInput style={styles.input} placeholder="Category" value={editData.category} onChangeText={t => setEditData({ ...editData, category: t })} />
                         <TextInput style={styles.input} placeholder="Caste" value={editData.caste} onChangeText={t => setEditData({ ...editData, caste: t })} />
                         <TextInput style={styles.input} placeholder="DOB (YYYY-MM-DD)" value={editData.dob} onChangeText={t => setEditData({ ...editData, dob: t })} />
                         <TextInput style={styles.input} placeholder="Aadhar Number" value={editData.aadhar} onChangeText={t => setEditData({ ...editData, aadhar: t })} />

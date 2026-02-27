@@ -92,7 +92,7 @@ export function safeStudent(raw: Record<string, any>): Record<string, any> {
         yearOfStudy: safeStr(raw.yearOfStudy || raw.year_of_study, 'First Year'),
         gender: safeStr(raw.gender),
         dob: safeStr(raw.dob),
-        category: safeStr(raw.category),
+        // category: safeStr(raw.category), // Removed as per user request
         photoUri: safeStr(raw.photoUri || raw.photo_uri),
         permanentAddress: safeStr(raw.permanentAddress || raw.permanent_address),
         temporaryAddress: safeStr(raw.temporaryAddress || raw.temporary_address),
