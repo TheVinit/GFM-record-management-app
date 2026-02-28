@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { useRouter } from 'expo-router';
 import Papa from 'papaparse';
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -17,6 +17,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import * as XLSX from 'xlsx';
 import { COLORS } from '../../constants/colors';
 import { BRANCH_MAPPINGS, getFullBranchName } from '../../constants/Mappings';
 import { getSession } from '../../services/session.service';
@@ -34,6 +35,7 @@ export default function ManageFaculty() {
   const [modalVisible, setModalVisible] = useState(false);
   const [importModalVisible, setImportModalVisible] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
   const [importPreview, setImportPreview] = useState<any[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [newFaculty, setNewFaculty] = useState({
@@ -79,8 +81,12 @@ export default function ManageFaculty() {
       setNewFaculty({ prn: '', fullName: '', email: '', department: 'CSE' });
       loadFaculty();
       Alert.alert('Success', 'Faculty member added successfully');
-    } catch (error) {
-      Alert.alert('Error', 'Failed to add faculty member');
+    } catch (error: any) {
+      if (error?.message?.includes('already exists') || error?.message?.includes('duplicate')) {
+        Alert.alert('Error', 'This email address or PRN already exists. Please use unique details.');
+      } else {
+        Alert.alert('Error', 'Failed to add faculty member');
+      }
     }
   };
 
@@ -89,29 +95,59 @@ export default function ManageFaculty() {
     if (!file) return;
 
     setImporting(true);
-    try {
-      Papa.parse(file, {
-        header: true,
-        skipEmptyLines: true,
-        complete: (results) => {
-          const parsedFaculty = results.data.map((row: any) => ({
-            fullName: row['Full Name'] || row['fullName'] || row['Name'] || row['name'] || '',
-            email: row['Email'] || row['email'] || row['Email ID'] || row['EmailID'] || '',
-            prn: String(row['PRN'] || row['prn'] || row['ID'] || row['id'] || row['Faculty ID'] || ''),
-            department: row['Department'] || row['department'] || row['Dept'] || row['dept'] || 'CSE'
-          })).filter((f: any) => f.fullName && f.prn);
+    setImportProgress(0);
+    const fileExtension = file.name.split('.').pop()?.toLowerCase();
 
-          setImportPreview(parsedFaculty);
-          setImportModalVisible(true);
+    const processData = (data: any[]) => {
+      const parsedFaculty = data.map((row: any) => ({
+        fullName: row['Full Name'] || row['fullName'] || row['Name'] || row['name'] || '',
+        email: row['Email'] || row['email'] || row['Email ID'] || row['EmailID'] || '',
+        prn: String(row['PRN'] || row['prn'] || row['ID'] || row['id'] || row['Faculty ID'] || ''),
+        department: row['Department'] || row['department'] || row['Dept'] || row['dept'] || 'CSE'
+      })).filter((f: any) => f.fullName && f.prn);
+
+      setImportPreview(parsedFaculty);
+      setImportModalVisible(true);
+      setImporting(false);
+    };
+
+    try {
+      if (fileExtension === 'csv') {
+        Papa.parse(file, {
+          header: true,
+          skipEmptyLines: true,
+          complete: (results) => processData(results.data),
+          error: () => {
+            Alert.alert('Error', 'Failed to read CSV file');
+            setImporting(false);
+          }
+        });
+      } else if (fileExtension === 'xlsx' || fileExtension === 'xls') {
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+          try {
+            const bstr = evt.target?.result;
+            const wb = XLSX.read(bstr, { type: 'binary' });
+            const wsname = wb.SheetNames[0];
+            const ws = wb.Sheets[wsname];
+            const data = XLSX.utils.sheet_to_json(ws);
+            processData(data);
+          } catch (err) {
+            Alert.alert('Error', 'Failed to read Excel file');
+            setImporting(false);
+          }
+        };
+        reader.onerror = () => {
+          Alert.alert('Error', 'Failed to read Excel file');
           setImporting(false);
-        },
-        error: () => {
-          Alert.alert('Error', 'Failed to read CSV file');
-          setImporting(false);
-        }
-      });
+        };
+        reader.readAsBinaryString(file);
+      } else {
+        Alert.alert('Error', 'Unsupported file format');
+        setImporting(false);
+      }
     } catch (error) {
-      Alert.alert('Error', 'Failed to read CSV file');
+      Alert.alert('Error', 'Failed to process file');
       setImporting(false);
     }
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -124,23 +160,36 @@ export default function ManageFaculty() {
     }
 
     setImporting(true);
+    setImportProgress(0);
     let successCount = 0;
     let failCount = 0;
 
-    for (const fac of importPreview) {
+    for (let i = 0; i < importPreview.length; i++) {
+      const fac = importPreview[i];
       try {
         await saveFacultyMember(fac.prn, fac.prn, fac.fullName, fac.department, fac.email);
         successCount++;
       } catch (e) {
         failCount++;
       }
+      setImportProgress(Math.round(((i + 1) / importPreview.length) * 100));
     }
 
     setImporting(false);
     setImportModalVisible(false);
     setImportPreview([]);
     loadFaculty();
-    Alert.alert('Import Complete', `Successfully added ${successCount} faculty. ${failCount > 0 ? `${failCount} failed (duplicate PRN).` : ''}`);
+    Alert.alert('Import Complete', `Successfully added ${successCount} faculty. ${failCount > 0 ? `${failCount} failed (duplicate PRN/Email).` : ''}`);
+  };
+
+  const downloadTemplate = () => {
+    const templatePath = '/csv-templates/faculty_import_template.csv';
+    const link = document.createElement('a');
+    link.href = templatePath;
+    link.download = 'faculty_import_template.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const handleDeleteFaculty = (prn: string) => {
@@ -206,7 +255,7 @@ export default function ManageFaculty() {
         <input
           type="file"
           ref={fileInputRef as any}
-          accept=".csv"
+          accept=".csv,.xlsx,.xls"
           style={{ display: 'none' }}
           onChange={handleFileSelect}
         />
@@ -298,7 +347,14 @@ export default function ManageFaculty() {
               </TouchableOpacity>
             </View>
 
-            <Text style={styles.helperText}>CSV should have columns: Full Name, Email, PRN, Department</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={styles.helperText}>CSV/Excel should have columns: Full Name, Email, PRN, Dept</Text>
+              {isWeb && (
+                <TouchableOpacity onPress={downloadTemplate} style={{ marginBottom: 15 }}>
+                  <Text style={{ color: COLORS.primary, fontWeight: 'bold' }}>Download Template</Text>
+                </TouchableOpacity>
+              )}
+            </View>
 
             <ScrollView style={{ maxHeight: 400 }}>
               <View style={styles.previewTable}>
@@ -325,7 +381,10 @@ export default function ManageFaculty() {
               </TouchableOpacity>
               <TouchableOpacity onPress={handleImportFaculty} disabled={importing} style={[styles.modalBtn, styles.saveBtn]}>
                 {importing ? (
-                  <ActivityIndicator size="small" color="#fff" />
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <ActivityIndicator size="small" color="#fff" />
+                    <Text style={[styles.modalBtnText, { color: '#fff' }]}>{importProgress}%</Text>
+                  </View>
                 ) : (
                   <Text style={[styles.modalBtnText, { color: '#fff' }]}>Import All</Text>
                 )}

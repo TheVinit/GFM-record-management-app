@@ -62,7 +62,11 @@ export default function ManageAdmins() {
             await loadAdmins();
             Alert.alert('Success', 'Admin added successfully');
         } catch (error: any) {
-            Alert.alert('Error', error.message || 'Failed to add admin');
+            if (error?.message?.includes('already exists') || error?.message?.includes('duplicate')) {
+                Alert.alert('Error', 'This email address already exists. Please use a different email.');
+            } else {
+                Alert.alert('Error', error.message || 'Failed to add admin');
+            }
             setLoading(false);
         }
     };

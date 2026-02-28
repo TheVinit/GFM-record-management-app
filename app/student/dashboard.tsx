@@ -23,6 +23,7 @@ import { getFullYearName } from '../../constants/Mappings';
 import { logout } from '../../services/auth.service';
 import { populateTemplate } from '../../services/pdf-template.service';
 import { getSession, saveSession } from '../../services/session.service';
+import { supabase } from '../../services/supabase';
 import {
   getAcademicRecordsByStudent,
   getAchievements,
@@ -491,7 +492,7 @@ export default function StudentDashboard() {
       const session = await checkAuth();
       if (session) {
         setUserEmail(session.email || '');
-        if (session.firstLogin && session.role === 'student') setShowPasswordModal(true);
+        if (session.firstLogin === true && session.role === 'student') setShowPasswordModal(true);
         const data = await getStudentInfo(session.prn as string, forceRefresh);
         setProfile(data);
         if (data) await prepareTemplateHtml(data);
@@ -515,6 +516,14 @@ export default function StudentDashboard() {
     if (session) {
       session.firstLogin = false;
       await saveSession(session);
+
+      // Also update the backend profiling state if needed
+      try {
+        await supabase.from('profiles').update({ first_login: false }).eq('id', session.id);
+      } catch (e) {
+        console.error('Error updating first_login in DB:', e);
+      }
+
       if (profile) {
         const missing = checkProfileCompletion(profile);
         if (missing.length > 0) { setMissingFields(missing); setIncompleteModalVisible(true); }

@@ -124,6 +124,7 @@ export interface Student {
   annualIncome: string;
   fatherPhone: string;
   motherPhone: string;
+  parentMobile?: string;
   sscSchool: string;
   sscMarks: string;
   sscMaxMarks: string;
@@ -1650,28 +1651,49 @@ export const deleteAttendanceSession = async (sessionId: string) => {
 
 export const getAttendanceRecords = async (sessionId: string) => {
   try {
-    const { data, error } = await supabase
+    // Fetch attendance records from view
+    const { data: recordsData, error: recordsError } = await supabase
       .from('attendance_report_view')
       .select('*')
       .eq('session_id', sessionId);
 
-    if (error) throw error;
+    if (recordsError) throw recordsError;
 
-    console.log(`[sqlite.ts] Fetched ${data?.length || 0} records from view for session ${sessionId}`);
-    if (data && data.length > 0) {
-      console.log(`[sqlite.ts] Sample raw record:`, JSON.stringify(data[0]).slice(0, 150));
+    if (!recordsData || recordsData.length === 0) return [];
+
+    // Fetch student phone numbers to support Calling features
+    const prns = recordsData.map(r => r.student_prn);
+    const { data: studentsData, error: studentsError } = await supabase
+      .from('students')
+      .select('prn, phone, father_phone, mother_phone, parent_mobile')
+      .in('prn', prns);
+
+    if (studentsError) {
+      console.warn('Could not fetch student phones:', studentsError);
     }
 
-    return (data || []).map((item: any) => {
+    const studentMap = new Map();
+    (studentsData || []).forEach(s => {
+      studentMap.set(String(s.prn), s);
+    });
+
+    console.log(`[sqlite.ts] Fetched ${recordsData.length} records for session ${sessionId}`);
+
+    return recordsData.map((item: any) => {
       const camel = toCamelCase(item);
+      const studentInfo = studentMap.get(String(item.student_prn || item.prn));
+
       return {
         ...camel,
         id: camel.recordId,
-        // Ensure all possible naming variations are covered for stability
         prn: camel.studentPrn,
         fullName: camel.studentFullName,
         rollNo: camel.studentRollNo,
-        // Keep original camel-cased names too
+        // Add phone information for Calling features
+        phone: studentInfo?.phone || '',
+        fatherPhone: studentInfo?.father_phone || '',
+        motherPhone: studentInfo?.mother_phone || '',
+        parentMobile: studentInfo?.parent_mobile || '',
       };
     });
   } catch (error) {

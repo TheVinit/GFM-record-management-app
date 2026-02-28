@@ -454,10 +454,12 @@ export default function TeacherDashboard() {
       {/* Header */}
       <DashboardHeader
         title={teacherName}
-        subtitle="Teacher Dashboard • GFM"
+        subtitle={userRole === 'admin' ? "GFM APP" : "Teacher Dashboard • GFM"}
         onProfilePress={() => setShowProfileMenu(true)}
         leftIcon={isSidebarCollapsed ? "grid-outline" : "close-outline"}
         onLeftPress={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+        showBack={userRole === 'admin'}
+        onBackPress={() => router.replace('/admin/dashboard')}
         photoUri={undefined} // Add photoUri if available in session
       />
 

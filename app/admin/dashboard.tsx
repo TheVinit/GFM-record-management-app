@@ -12,10 +12,11 @@ import {
   useWindowDimensions,
   View
 } from 'react-native';
+import { ChangePasswordModal } from '../../components/ChangePasswordModal';
 import { DashboardHeader } from '../../components/common/DashboardHeader';
 import { ProfileMenu } from '../../components/common/ProfileMenu';
 import { COLORS } from '../../constants/colors';
-import { clearSession, getSession, SessionUser } from '../../services/session.service';
+import { clearSession, getSession, saveSession, SessionUser } from '../../services/session.service';
 import { supabase } from '../../services/supabase';
 
 export default function AdminDashboard() {
@@ -54,6 +55,23 @@ export default function AdminDashboard() {
     } else {
       setAdminName(session.fullName || 'Admin');
       setCurrentUser(session);
+      if (session.firstLogin === true) {
+        setShowPasswordModal(true);
+      }
+    }
+  };
+
+  const handlePasswordChangeSuccess = async () => {
+    setShowPasswordModal(false);
+    const session = await getSession();
+    if (session) {
+      session.firstLogin = false;
+      await saveSession(session);
+      try {
+        await supabase.from('profiles').update({ first_login: false }).eq('id', session.id);
+      } catch (e) {
+        console.error('Error updating first_login in DB:', e);
+      }
     }
   };
 
@@ -236,6 +254,14 @@ export default function AdminDashboard() {
             color: COLORS.error
           }
         ]}
+      />
+
+      <ChangePasswordModal
+        visible={showPasswordModal}
+        onClose={() => setShowPasswordModal(false)}
+        onSuccess={handlePasswordChangeSuccess}
+        userEmail={currentUser?.email || ''}
+        userRole="admin"
       />
     </View>
   );

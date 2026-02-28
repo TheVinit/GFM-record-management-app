@@ -3,7 +3,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Dimensions, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
-import { PieChart } from 'react-native-chart-kit';
+// Removed react-native-chart-kit import
 import { COLORS } from '../../constants/colors';
 import { generateDetailedGFMReportCSV, generateTodayAttendanceCSV, saveAndShareCSV } from '../../services/csv.service';
 import { getAdminAnalytics } from '../../storage/sqlite';
@@ -83,108 +83,30 @@ export const AdminReportsManagement = ({ filters }: any) => {
         }
     };
 
-    const getPieChartData = () => {
+    const getBatchSummary = () => {
         if (!stats) return [];
 
-        const relevantBatches = stats.batchConfigs.filter((b: any) => {
-            const batchYear = b.class || '';
-            const filterYear = localFilters.year || 'All';
-            const yearMatch = filterYear === 'All' ||
-                batchYear === filterYear ||
-                (filterYear === 'First Year' && (batchYear === 'FE' || batchYear === '1st')) ||
-                (filterYear === 'Second Year' && (batchYear === 'SE' || batchYear === '2nd')) ||
-                (filterYear === 'Third Year' && (batchYear === 'TE' || batchYear === '3rd')) ||
-                (filterYear === 'Final Year' && (batchYear === 'BE' || batchYear === '4th'));
+        const auditItems = getAuditData();
+        const batchMap: Record<string, { total: number; compliant: number; pending: number }> = {};
 
-            return (localFilters.dept === 'All' || b.department === localFilters.dept) && yearMatch;
-        });
-
-        // Filter absents by the selected date context
-        const targetDate = localFilters.startDate || localFilters.date;
-        const absentsForPie = stats.absentRecords.filter((r: any) => {
-            const rDate = r.sessionDate || new Date(r.createdAt).toISOString().split('T')[0];
-            if (localFilters.startDate && localFilters.endDate && localFilters.endDate !== localFilters.startDate) {
-                return rDate >= localFilters.startDate && rDate <= localFilters.endDate;
+        auditItems.forEach((item: any) => {
+            const key = `${item.year} ${item.div} - ${item.batch}`;
+            if (!batchMap[key]) {
+                batchMap[key] = { total: 0, compliant: 0, pending: 0 };
             }
-            return rDate === targetDate;
+            batchMap[key].total++;
+            if (item.isCompliant) {
+                batchMap[key].compliant++;
+            } else {
+                batchMap[key].pending++;
+            }
         });
 
-        if (localFilters.div !== 'All') {
-            const subBatchStats: Record<string, number> = {};
-            relevantBatches
-                .filter((b: any) => b.division && (b.division[0].toUpperCase() === localFilters.div.toUpperCase()))
-                .forEach((batch: any) => {
-                    const batchKey = batch.batchName || 'Default';
-                    if (!subBatchStats[batchKey]) subBatchStats[batchKey] = 0;
-
-                    const extractTailNum = (str: string) => {
-                        const match = String(str).match(/\d+$/);
-                        return match ? parseInt(match[0]) : NaN;
-                    };
-
-                    const batchAbsents = absentsForPie.filter((r: any) => {
-                        const rollNo = extractTailNum(r.rollNo || r.studentPrn);
-                        const fromVal = extractTailNum(batch.rbtFrom);
-                        const toVal = extractTailNum(batch.rbtTo);
-
-                        if (isNaN(rollNo) || isNaN(fromVal) || isNaN(toVal)) return false;
-
-                        const seq = rollNo % 1000;
-                        const fSeq = fromVal % 1000;
-                        const tSeq = toVal % 1000;
-
-                        return r.sessionDept === batch.department &&
-                            r.sessionDiv === batch.division &&
-                            seq >= fSeq && seq <= tSeq;
-                    });
-                    subBatchStats[batchKey] += batchAbsents.length;
-                });
-
-            const colors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40'];
-            return Object.entries(subBatchStats)
-                .map(([name, count], idx) => ({
-                    name: `Batch ${name}`,
-                    population: count,
-                    color: colors[idx % colors.length],
-                    legendFontColor: '#7F7F7F',
-                    legendFontSize: 12
-                }))
-                .filter(d => d.population > 0);
-        }
-
-        const divisionStats: any = { 'A': 0, 'B': 0, 'C': 0 };
-        relevantBatches.forEach((batch: any) => {
-            const mainDiv = batch.division ? batch.division[0].toUpperCase() : 'Unknown';
-            if (!divisionStats[mainDiv]) divisionStats[mainDiv] = 0;
-
-            const extractTailNum = (str: string) => {
-                const match = String(str).match(/\d+$/);
-                return match ? parseInt(match[0]) : NaN;
-            };
-
-            const batchAbsents = absentsForPie.filter((r: any) => {
-                const rollNo = extractTailNum(r.rollNo || r.studentPrn);
-                const fromVal = extractTailNum(batch.rbtFrom);
-                const toVal = extractTailNum(batch.rbtTo);
-
-                if (isNaN(rollNo) || isNaN(fromVal) || isNaN(toVal)) return false;
-
-                const seq = rollNo % 1000;
-                const fSeq = fromVal % 1000;
-                const tSeq = toVal % 1000;
-
-                return r.sessionDept === batch.department &&
-                    r.sessionDiv?.startsWith(mainDiv) &&
-                    seq >= fSeq && seq <= tSeq;
-            });
-            divisionStats[mainDiv] += batchAbsents.length;
-        });
-
-        return [
-            { name: 'Div A', population: divisionStats['A'] || 0, color: '#FF6384', legendFontColor: '#7F7F7F', legendFontSize: 12 },
-            { name: 'Div B', population: divisionStats['B'] || 0, color: '#36A2EB', legendFontColor: '#7F7F7F', legendFontSize: 12 },
-            { name: 'Div C', population: divisionStats['C'] || 0, color: '#FFCE56', legendFontColor: '#7F7F7F', legendFontSize: 12 },
-        ].filter(d => d.population > 0);
+        return Object.entries(batchMap).map(([batch, counts]) => ({
+            batch,
+            ...counts,
+            complianceRate: counts.total > 0 ? Math.round((counts.compliant / counts.total) * 100) : 0
+        })).sort((a, b) => b.total - a.total);
     };
 
     const getAuditData = () => {
@@ -266,7 +188,7 @@ export const AdminReportsManagement = ({ filters }: any) => {
     };
 
 
-    const pieData = getPieChartData();
+    const batchSummary = getBatchSummary();
     const auditData: AuditItem[] = getAuditData();
 
     if (loading) return (
@@ -302,11 +224,11 @@ export const AdminReportsManagement = ({ filters }: any) => {
 
                 <TouchableOpacity style={[styles.actionButton, { backgroundColor: COLORS.secondary }]} onPress={async () => {
                     if (reportType === 'attendance') {
-                        const csv = generateTodayAttendanceCSV(pieData.map(p => ({
-                            division: p.name.replace('Div ', ''),
-                            present: 0,
-                            absent: p.population,
-                            total: 0
+                        const csv = generateTodayAttendanceCSV(batchSummary.map(b => ({
+                            division: b.batch,
+                            present: b.compliant,
+                            absent: b.pending,
+                            total: b.total
                         })));
                         await saveAndShareCSV(csv, 'attendance_report.csv');
                     } else {
@@ -322,28 +244,38 @@ export const AdminReportsManagement = ({ filters }: any) => {
             {reportType === 'attendance' && (
                 <View style={styles.chartCard}>
                     <View style={styles.chartHeader}>
-                        <Text style={styles.cardTitle}>Absentees Distribution</Text>
+                        <Text style={styles.cardTitle}>Batch-wise Summary</Text>
                         <View style={styles.activeFilterBadge}>
                             <Text style={styles.activeFilterText}>
-                                {localFilters.div === 'All' ? 'By Division' : `By Batch (${localFilters.div})`}
+                                {localFilters.date}
                             </Text>
                         </View>
                     </View>
-                    {pieData.length > 0 ? (
-                        <PieChart
-                            data={pieData}
-                            width={screenWidth > 600 ? 500 : screenWidth - 60}
-                            height={220}
-                            chartConfig={{
-                                color: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
-                            }}
-                            accessor="population"
-                            backgroundColor="transparent"
-                            paddingLeft="15"
-                            absolute
-                        />
+                    {batchSummary.length > 0 ? (
+                        <View style={styles.summaryTable}>
+                            <View style={styles.summaryHeader}>
+                                <Text style={[styles.summaryCell, { flex: 2 }]}>Batch</Text>
+                                <Text style={[styles.summaryCell, { flex: 1, textAlign: 'center' }]}>Absents</Text>
+                                <Text style={[styles.summaryCell, { flex: 1, textAlign: 'center' }]}>Calls Done</Text>
+                                <Text style={[styles.summaryCell, { flex: 1, textAlign: 'center' }]}>Compliance</Text>
+                            </View>
+                            {batchSummary.map((b, idx) => (
+                                <View key={idx} style={styles.summaryRow}>
+                                    <Text style={[styles.summaryCell, { flex: 2, fontWeight: 'bold' }]}>{b.batch}</Text>
+                                    <Text style={[styles.summaryCell, { flex: 1, textAlign: 'center', color: COLORS.error, fontWeight: 'bold' }]}>{b.total}</Text>
+                                    <Text style={[styles.summaryCell, { flex: 1, textAlign: 'center', color: COLORS.success }]}>{b.compliant}</Text>
+                                    <View style={[styles.summaryCell, { flex: 1, alignItems: 'center' }]}>
+                                        <View style={[styles.complianceBadge, { backgroundColor: b.complianceRate >= 90 ? COLORS.success + '20' : b.complianceRate >= 50 ? COLORS.warning + '20' : COLORS.error + '20' }]}>
+                                            <Text style={{ fontSize: 10, fontWeight: 'bold', color: b.complianceRate >= 90 ? COLORS.success : b.complianceRate >= 50 ? COLORS.warning : COLORS.error }}>
+                                                {b.complianceRate}%
+                                            </Text>
+                                        </View>
+                                    </View>
+                                </View>
+                            ))}
+                        </View>
                     ) : (
-                        <View style={styles.noData}><Text style={styles.noDataText}>No absenteeism data found.</Text></View>
+                        <View style={styles.noData}><Text style={styles.noDataText}>No records found for summary.</Text></View>
                     )}
                 </View>
             )}
@@ -637,7 +569,12 @@ const styles = StyleSheet.create({
     chipText: { fontSize: 13, fontWeight: '600', color: COLORS.textSecondary },
     chipTextActive: { color: 'white', fontWeight: 'bold' },
     applyBtn: { backgroundColor: COLORS.primary, paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
-    applyBtnText: { color: 'white', fontWeight: 'bold' }
+    applyBtnText: { color: 'white', fontWeight: 'bold' },
+    summaryTable: { width: '100%', marginTop: 5 },
+    summaryHeader: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#eee', paddingBottom: 10, marginBottom: 5 },
+    summaryRow: { flexDirection: 'row', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#f9f9f9', alignItems: 'center' },
+    summaryCell: { fontSize: 12, color: COLORS.textSecondary },
+    complianceBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }
 });
 
 export default AdminReportsManagement;

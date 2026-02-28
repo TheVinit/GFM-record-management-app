@@ -17,6 +17,8 @@ interface DashboardHeaderProps {
     onProfilePress?: () => void;
     leftIcon?: keyof typeof Ionicons.glyphMap;
     onLeftPress?: () => void;
+    showBack?: boolean;
+    onBackPress?: () => void;
     rightElement?: React.ReactNode;
     photoUri?: string;
 }
@@ -28,6 +30,8 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
     onProfilePress,
     leftIcon,
     onLeftPress,
+    showBack,
+    onBackPress,
     rightElement,
     photoUri,
 }) => {
@@ -35,6 +39,15 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
         <View style={styles.container}>
             <View style={styles.headerTop}>
                 <View style={styles.leftSection}>
+                    {showBack && (
+                        <TouchableOpacity
+                            onPress={onBackPress}
+                            style={[styles.iconBtn, { marginRight: 10 }]}
+                            activeOpacity={0.7}
+                        >
+                            <Ionicons name="arrow-back" size={24} color={COLORS.white} />
+                        </TouchableOpacity>
+                    )}
                     {leftIcon ? (
                         <TouchableOpacity
                             onPress={onLeftPress}

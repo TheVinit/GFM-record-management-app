@@ -17,6 +17,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import * as XLSX from 'xlsx';
 import { FilterModal } from '../../components/common/FilterModal';
 import { COLORS } from '../../constants/colors';
 import { DISPLAY_BRANCHES, DISPLAY_YEARS, getFullBranchName, getFullYearName } from '../../constants/Mappings';
@@ -35,12 +36,14 @@ export default function ManageStudents() {
   const [importing, setImporting] = useState(false);
   const [importPreview, setImportPreview] = useState<any[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importProgress, setImportProgress] = useState(0);
   const [newStudent, setNewStudent] = useState({
     prn: '',
     fullName: '',
     email: '',
     phone: '',
     rollNo: '',
+    parentMobile: '',
     branch: 'Computer Engineering',
     yearOfStudy: 'First Year',
     division: 'A'
@@ -141,6 +144,7 @@ export default function ManageStudents() {
         fullName: '',
         email: '',
         phone: '',
+        parentMobile: '',
         rollNo: '',
         branch: 'Computer Engineering',
         yearOfStudy: 'First Year',
@@ -148,8 +152,12 @@ export default function ManageStudents() {
       });
       loadData();
       Alert.alert('Success', 'Student added successfully');
-    } catch (error) {
-      Alert.alert('Error', 'Failed to add student. Ensure PRN is unique.');
+    } catch (error: any) {
+      if (error?.message?.includes('already exists') || error?.message?.includes('duplicate')) {
+        Alert.alert('Error', 'This Email or PRN already exists. Please use unique details.');
+      } else {
+        Alert.alert('Error', 'Failed to add student. Ensure PRN is unique.');
+      }
     }
   };
 
@@ -158,33 +166,64 @@ export default function ManageStudents() {
     if (!file) return;
 
     setImporting(true);
-    try {
-      Papa.parse(file, {
-        header: true,
-        skipEmptyLines: true,
-        complete: (results) => {
-          const parsedStudents = results.data.map((row: any) => ({
-            fullName: row['Full Name'] || row['fullName'] || row['Name'] || row['name'] || '',
-            email: row['Email'] || row['email'] || row['Email ID'] || row['EmailID'] || '',
-            prn: String(row['PRN'] || row['prn'] || ''),
-            phone: row['Phone'] || row['phone'] || row['Mobile'] || row['mobile'] || row['Mobile Number'] || '',
-            rollNo: row['Roll No'] || row['rollNo'] || row['Roll Number'] || row['RollNo'] || '',
-            branch: row['Branch'] || row['branch'] || row['Department'] || row['department'] || 'Computer Engineering',
-            yearOfStudy: row['Year'] || row['year'] || row['Year of Study'] || row['yearOfStudy'] || 'First Year',
-            division: row['Division'] || row['division'] || row['Div'] || row['div'] || 'A'
-          })).filter((s: any) => s.fullName && s.prn);
+    setImportProgress(0);
+    const fileExtension = file.name.split('.').pop()?.toLowerCase();
 
-          setImportPreview(parsedStudents);
-          setImportModalVisible(true);
+    const processData = (data: any[]) => {
+      const parsedStudents = data.map((row: any) => ({
+        fullName: row['Full Name'] || row['fullName'] || row['Name'] || row['name'] || '',
+        email: row['Email'] || row['email'] || row['Email ID'] || row['EmailID'] || '',
+        prn: String(row['PRN'] || row['prn'] || ''),
+        phone: row['Phone'] || row['phone'] || row['Mobile'] || row['mobile'] || row['Mobile Number'] || '',
+        parentMobile: row['Parent Mobile'] || row['parentMobile'] || row['Father Mobile'] || row['Mother Mobile'] || '',
+        rollNo: row['Roll No'] || row['rollNo'] || row['Roll Number'] || row['RollNo'] || '',
+        branch: row['Branch'] || row['branch'] || row['Department'] || row['department'] || 'Computer Engineering',
+        yearOfStudy: row['Year'] || row['year'] || row['Year of Study'] || row['yearOfStudy'] || 'First Year',
+        division: row['Division'] || row['division'] || row['Div'] || row['div'] || 'A'
+      })).filter((s: any) => s.fullName && s.prn);
+
+      setImportPreview(parsedStudents);
+      setImportModalVisible(true);
+      setImporting(false);
+    };
+
+    try {
+      if (fileExtension === 'csv') {
+        Papa.parse(file, {
+          header: true,
+          skipEmptyLines: true,
+          complete: (results) => processData(results.data),
+          error: () => {
+            Alert.alert('Error', 'Failed to read CSV file');
+            setImporting(false);
+          }
+        });
+      } else if (fileExtension === 'xlsx' || fileExtension === 'xls') {
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+          try {
+            const bstr = evt.target?.result;
+            const wb = XLSX.read(bstr, { type: 'binary' });
+            const wsname = wb.SheetNames[0];
+            const ws = wb.Sheets[wsname];
+            const data = XLSX.utils.sheet_to_json(ws);
+            processData(data);
+          } catch (err) {
+            Alert.alert('Error', 'Failed to read Excel file');
+            setImporting(false);
+          }
+        };
+        reader.onerror = () => {
+          Alert.alert('Error', 'Failed to read Excel file');
           setImporting(false);
-        },
-        error: () => {
-          Alert.alert('Error', 'Failed to read CSV file');
-          setImporting(false);
-        }
-      });
+        };
+        reader.readAsBinaryString(file);
+      } else {
+        Alert.alert('Error', 'Unsupported file format');
+        setImporting(false);
+      }
     } catch (error) {
-      Alert.alert('Error', 'Failed to read CSV file');
+      Alert.alert('Error', 'Failed to process file');
       setImporting(false);
     }
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -197,10 +236,12 @@ export default function ManageStudents() {
     }
 
     setImporting(true);
+    setImportProgress(0);
     let successCount = 0;
     let failCount = 0;
 
-    for (const student of importPreview) {
+    for (let i = 0; i < importPreview.length; i++) {
+      const student = importPreview[i];
       try {
         await saveStudent({
           ...student,
@@ -211,13 +252,24 @@ export default function ManageStudents() {
       } catch (e) {
         failCount++;
       }
+      setImportProgress(Math.round(((i + 1) / importPreview.length) * 100));
     }
 
     setImporting(false);
     setImportModalVisible(false);
     setImportPreview([]);
     loadData();
-    Alert.alert('Import Complete', `Successfully added ${successCount} students. ${failCount > 0 ? `${failCount} failed (duplicate PRN).` : ''}`);
+    Alert.alert('Import Complete', `Successfully added ${successCount} students. ${failCount > 0 ? `${failCount} failed (duplicate PRN/Email).` : ''}`);
+  };
+
+  const downloadTemplate = () => {
+    const templatePath = '/csv-templates/students_import_template.csv';
+    const link = document.createElement('a');
+    link.href = templatePath;
+    link.download = 'students_import_template.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const handleDeleteStudent = (prn: string) => {
@@ -287,7 +339,7 @@ export default function ManageStudents() {
         <input
           type="file"
           ref={fileInputRef as any}
-          accept=".csv"
+          accept=".csv,.xlsx,.xls"
           style={{ display: 'none' }}
           onChange={handleFileSelect}
         />
@@ -395,6 +447,20 @@ export default function ManageStudents() {
                 />
               </View>
 
+              <Text style={styles.label}>Parent Mobile Number (Optional)</Text>
+              <View style={styles.inputContainer}>
+                <Ionicons name="call-outline" size={20} color={COLORS.textLight} style={styles.inputIcon} />
+                <TextInput
+                  style={styles.inputField}
+                  placeholder="10-digit mobile number"
+                  placeholderTextColor="#94A3B8"
+                  value={newStudent.parentMobile}
+                  onChangeText={t => setNewStudent({ ...newStudent, parentMobile: t.replace(/[^0-9]/g, '') })}
+                  keyboardType="phone-pad"
+                  maxLength={10}
+                />
+              </View>
+
               <View style={styles.row}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.label}>Roll No (Optional)</Text>
@@ -491,8 +557,14 @@ export default function ManageStudents() {
                 <Ionicons name="close" size={24} color={COLORS.text} />
               </TouchableOpacity>
             </View>
-
-            <Text style={styles.helperText}>CSV should have columns: Full Name, Email, PRN</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={styles.helperText}>CSV/Excel should have columns: Full Name, Email, PRN</Text>
+              {isWeb && (
+                <TouchableOpacity onPress={downloadTemplate} style={{ marginBottom: 15 }}>
+                  <Text style={{ color: COLORS.primary, fontWeight: 'bold' }}>Download Template</Text>
+                </TouchableOpacity>
+              )}
+            </View>
 
             <ScrollView style={{ maxHeight: 400 }}>
               <View style={styles.previewTable}>
@@ -517,7 +589,10 @@ export default function ManageStudents() {
               </TouchableOpacity>
               <TouchableOpacity onPress={handleImportStudents} disabled={importing} style={[styles.modalBtn, styles.saveBtn]}>
                 {importing ? (
-                  <ActivityIndicator size="small" color="#fff" />
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <ActivityIndicator size="small" color="#fff" />
+                    <Text style={[styles.modalBtnText, { color: '#fff' }]}>{importProgress}%</Text>
+                  </View>
                 ) : (
                   <Text style={[styles.modalBtnText, { color: '#fff' }]}>Import All</Text>
                 )}

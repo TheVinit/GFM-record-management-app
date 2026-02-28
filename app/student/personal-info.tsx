@@ -192,7 +192,7 @@ export default function PersonalInfoForm() {
                 label="Full Name (Admin Managed)"
                 value={formData.fullName}
                 editable={false}
-                placeholder="Name set by admin"
+                placeholder="Not provided"
                 error={errors.fullName}
               />
               <FormPicker
@@ -239,7 +239,7 @@ export default function PersonalInfoForm() {
                 maxLength={10}
                 value={formData.phone}
                 editable={false}
-                placeholder="Set by admin"
+                placeholder="Not provided"
                 error={errors.phone}
               />
               <FormInput
