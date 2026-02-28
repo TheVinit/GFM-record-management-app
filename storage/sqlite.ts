@@ -1109,6 +1109,15 @@ export const saveCourseDef = async (course: CourseDef) => {
   if (error) throw error;
 };
 
+export const deleteCourseDef = async (courseCode: string) => {
+  const { error } = await supabase
+    .from('courses_def')
+    .delete()
+    .eq('course_code', courseCode);
+
+  if (error) throw error;
+};
+
 export const getAllStudents = async (): Promise<Student[]> => {
   const { data, error } = await supabase
     .from('students')

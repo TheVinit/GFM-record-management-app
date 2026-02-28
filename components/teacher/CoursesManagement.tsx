@@ -1,10 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker'; // Original used Picker
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { COLORS } from '../../constants/colors';
 import { BRANCH_MAPPINGS, DISPLAY_YEARS } from '../../constants/Mappings';
-import { CourseDef, saveCourseDef } from '../../storage/sqlite';
+import { CourseDef, deleteCourseDef, saveCourseDef } from '../../storage/sqlite';
 import { styles } from './dashboard.styles';
 
 export const CoursesManagement = ({ courses, filters, loadData }: { courses: CourseDef[], filters: any, loadData: () => void }) => {
@@ -46,6 +46,30 @@ export const CoursesManagement = ({ courses, filters, loadData }: { courses: Cou
         }
     };
 
+    const handleDelete = async (courseCode: string) => {
+        Alert.alert(
+            'Delete Course',
+            'Are you sure you want to delete this course?',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Delete',
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            await deleteCourseDef(courseCode);
+                            await loadData();
+                            Alert.alert('Success', 'Course deleted successfully');
+                        } catch (e: any) {
+                            console.error(e);
+                            Alert.alert('Error', 'Failed to delete course');
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
     return (
         <View style={styles.moduleCard}>
             <View style={styles.moduleHeader}>
@@ -67,6 +91,7 @@ export const CoursesManagement = ({ courses, filters, loadData }: { courses: Cou
                     <Text style={[styles.tableCell, { flex: 0.4 }]}>ISE</Text>
                     <Text style={[styles.tableCell, { flex: 0.4 }]}>MSE</Text>
                     <Text style={[styles.tableCell, { flex: 0.4 }]}>ESE</Text>
+                    <Text style={[styles.tableCell, { flex: 0.4 }]}>Action</Text>
                 </View>
                 {courses.map(c => (
                     <View key={c.courseCode} style={styles.tableRow}>
@@ -78,6 +103,9 @@ export const CoursesManagement = ({ courses, filters, loadData }: { courses: Cou
                         <Text style={[styles.tableCell, { flex: 0.4 }]}>{c.iseMax}</Text>
                         <Text style={[styles.tableCell, { flex: 0.4 }]}>{c.mseMax}</Text>
                         <Text style={[styles.tableCell, { flex: 0.4 }]}>{c.eseMax}</Text>
+                        <TouchableOpacity style={[styles.tableCell, { flex: 0.4, alignItems: 'center' }]} onPress={() => handleDelete(c.courseCode)}>
+                            <Ionicons name="trash-outline" size={18} color={COLORS.error} />
+                        </TouchableOpacity>
                     </View>
                 ))}
             </View>
