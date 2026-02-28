@@ -46,6 +46,34 @@ export const dbPromise = openDatabaseSafely();
 
 // Platform-agnostic session helper to avoid circular dependency with session.service
 const getInternalSession = async () => {
+  // FIRST: try to get a live, auto-refreshed session from the Supabase SDK.
+  // This is the most reliable method and avoids expired token issues.
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.access_token) {
+      // Get role from app_metadata (set by admin-create-user Edge Function)
+      let role = session.user?.app_metadata?.role || session.user?.user_metadata?.role;
+      if (!role) {
+        // Fallback: read role from our custom storage
+        if (Platform.OS === 'web') {
+          const json = await AsyncStorage.getItem('gfm_session').catch(() => null);
+          if (json) role = JSON.parse(json).role;
+        } else {
+          const db = await dbPromise;
+          if (db) {
+            const row = await db.getFirstAsync('SELECT role FROM session LIMIT 1').catch(() => null) as any;
+            if (row) role = row.role;
+          }
+        }
+      }
+      console.log(`[sqlite] getInternalSession: SDK session OK, role=${role}`);
+      return { access_token: session.access_token, role };
+    }
+  } catch (e) {
+    console.warn('[sqlite] supabase.auth.getSession() failed, falling back to stored session:', e);
+  }
+
+  // FALLBACK: read from stored session (AsyncStorage on web, SQLite on native)
   if (Platform.OS === 'web') {
     try {
       const json = await AsyncStorage.getItem('gfm_session');
@@ -1170,11 +1198,15 @@ export const saveAttendanceTaker = async (prn: string, password: string, fullNam
 
   console.log(`[sqlite] saveAttendanceTaker: PRN=${prn}, sessionAvailable=${!!session}, role=${session?.role}`)
 
-  const { data, error } = await supabase.functions.invoke('admin-create-user', {
+  // Use direct fetch to bypass SDK anon-key injection
+  const SUPABASE_URL = (process.env.EXPO_PUBLIC_SUPABASE_URL || '').trim();
+  const response = await fetch(`${SUPABASE_URL}/functions/v1/admin-create-user`, {
+    method: 'POST',
     headers: {
-      Authorization: `Bearer ${session.access_token}`
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${session.access_token}`,
     },
-    body: {
+    body: JSON.stringify({
       email: (email || `${prn.toLowerCase()}@at.com`).trim(),
       password: password.trim(),
       role: 'attendance_taker',
@@ -1183,16 +1215,14 @@ export const saveAttendanceTaker = async (prn: string, password: string, fullNam
         full_name: (fullName || `Taker ${prn}`).trim(),
         department: department || null
       }
-    }
+    })
   });
 
-  if (error) {
-    console.error('[sqlite] Edge function error:', error)
-    throw new Error(error.message || 'Failed to call registration service')
-  }
-  if (data?.error) {
-    console.error('[sqlite] Admin create user returned error:', data.error)
-    throw new Error(data.error)
+  const result = await response.json();
+  if (!response.ok || result?.error) {
+    const msg = result?.error || `HTTP ${response.status}`;
+    console.error('[sqlite] saveAttendanceTaker error:', msg);
+    throw new Error(msg);
   }
 };
 
@@ -1205,11 +1235,15 @@ export const saveFacultyMember = async (prn: string, password: string, fullName?
 
   console.log(`[sqlite] saveFacultyMember: PRN=${prn}, sessionAvailable=${!!session}, role=${session?.role}`)
 
-  const { data, error } = await supabase.functions.invoke('admin-create-user', {
+  // Use direct fetch to bypass SDK anon-key injection
+  const SUPABASE_URL = (process.env.EXPO_PUBLIC_SUPABASE_URL || '').trim();
+  const response = await fetch(`${SUPABASE_URL}/functions/v1/admin-create-user`, {
+    method: 'POST',
     headers: {
-      Authorization: `Bearer ${session.access_token}`
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${session.access_token}`,
     },
-    body: {
+    body: JSON.stringify({
       email: (email || `${prn.toLowerCase()}@teacher.com`).trim(),
       password: password.trim(),
       role: 'teacher',
@@ -1218,16 +1252,14 @@ export const saveFacultyMember = async (prn: string, password: string, fullName?
         full_name: (fullName || `Teacher ${prn}`).trim(),
         department: department || null
       }
-    }
+    })
   });
 
-  if (error) {
-    console.error('[sqlite] Edge function error:', error)
-    throw new Error(error.message || 'Failed to call registration service')
-  }
-  if (data?.error) {
-    console.error('[sqlite] Admin create user returned error:', data.error)
-    throw new Error(data.error)
+  const result = await response.json();
+  if (!response.ok || result?.error) {
+    const msg = result?.error || `HTTP ${response.status}`;
+    console.error('[sqlite] saveFacultyMember error:', msg);
+    throw new Error(msg);
   }
 };
 
@@ -1256,11 +1288,15 @@ export const saveAdmin = async (email: string, fullName: string, password: strin
     throw new Error('Only admins can create other admins');
   }
 
-  const { data, error } = await supabase.functions.invoke('admin-create-user', {
+  // Use direct fetch to bypass SDK anon-key injection
+  const SUPABASE_URL = (process.env.EXPO_PUBLIC_SUPABASE_URL || '').trim();
+  const response = await fetch(`${SUPABASE_URL}/functions/v1/admin-create-user`, {
+    method: 'POST',
     headers: {
-      Authorization: `Bearer ${session.access_token}`
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${session.access_token}`,
     },
-    body: {
+    body: JSON.stringify({
       email: email,
       password: password,
       role: 'admin',
@@ -1269,10 +1305,13 @@ export const saveAdmin = async (email: string, fullName: string, password: strin
         full_name: fullName,
         department: 'Admin'
       }
-    }
+    })
   });
 
-  if (error || data?.error) throw new Error(error?.message || data?.error || 'Failed to add admin');
+  const result = await response.json();
+  if (!response.ok || result?.error) {
+    throw new Error(result?.error || `HTTP ${response.status}`);
+  }
 };
 
 export const deleteAdmin = async (prnOrId: string) => {
@@ -1401,11 +1440,15 @@ export const saveStudent = async (studentData: any) => {
 
   console.log(`[sqlite] saveStudent: PRN=${studentData.prn}, sessionAvailable=${!!session}, role=${session?.role}`)
 
-  const { data, error } = await supabase.functions.invoke('admin-create-user', {
+  // Use direct fetch to bypass SDK anon-key injection
+  const SUPABASE_URL = (process.env.EXPO_PUBLIC_SUPABASE_URL || '').trim();
+  const response = await fetch(`${SUPABASE_URL}/functions/v1/admin-create-user`, {
+    method: 'POST',
     headers: {
-      Authorization: `Bearer ${session.access_token}`
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${session.access_token}`,
     },
-    body: {
+    body: JSON.stringify({
       email: studentData.email.trim(),
       password: studentData.prn.trim(), // PRN as default password
       role: 'student',
@@ -1421,16 +1464,14 @@ export const saveStudent = async (studentData: any) => {
         year_of_study: studentData.yearOfStudy,
         division: studentData.division
       }
-    }
+    })
   });
 
-  if (error) {
-    console.error('[sqlite] Edge function error:', error)
-    throw new Error(error.message || 'Failed to call student registration service')
-  }
-  if (data?.error) {
-    console.error('[sqlite] Admin create student returned error:', data.error)
-    throw new Error(data.error)
+  const result = await response.json();
+  if (!response.ok || result?.error) {
+    const msg = result?.error || `HTTP ${response.status}`;
+    console.error('[sqlite] saveStudent error:', msg);
+    throw new Error(msg);
   }
 };
 
