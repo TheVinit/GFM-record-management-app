@@ -3,8 +3,6 @@ import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
-  Image,
   Platform,
   RefreshControl,
   ScrollView,
@@ -14,7 +12,8 @@ import {
   useWindowDimensions,
   View
 } from 'react-native';
-import { ChangePasswordModal } from '../../components/ChangePasswordModal';
+import { DashboardHeader } from '../../components/common/DashboardHeader';
+import { ProfileMenu } from '../../components/common/ProfileMenu';
 import { COLORS } from '../../constants/colors';
 import { clearSession, getSession, SessionUser } from '../../services/session.service';
 import { supabase } from '../../services/supabase';
@@ -30,6 +29,7 @@ export default function AdminDashboard() {
   const [adminName, setAdminName] = useState('Admin');
   const [currentUser, setCurrentUser] = useState<SessionUser | null>(null);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [stats, setStats] = useState({
     totalStudents: 0,
     totalFaculty: 0,
@@ -129,39 +129,11 @@ export default function AdminDashboard() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.headerTop}>
-          <View style={styles.headerBrand}>
-            <View style={styles.logoIcon}>
-              <Image source={require('../../assets/images/icon.png')} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
-            </View>
-            <View>
-              <Text style={styles.brandSubtitle}>Admin Control Panel</Text>
-            </View>
-          </View>
-          <View style={styles.headerRight}>
-            <TouchableOpacity
-              onPress={() => setShowPasswordModal(true)}
-              style={styles.profileIconBtn}
-            >
-              <View style={styles.avatarCircle}>
-                <Ionicons name="person" size={20} color={COLORS.primary} />
-              </View>
-            </TouchableOpacity>
-
-            <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn}>
-              <Ionicons name="log-out-outline" size={20} color={COLORS.white} />
-              {isLargeScreen && <Text style={styles.logoutText}>Logout</Text>}
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        <View style={styles.welcomeSection}>
-          <Text style={styles.welcomeLabel}>Welcome back,</Text>
-          <Text style={styles.adminName}>{adminName}</Text>
-          <Text style={styles.dateText}>{new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</Text>
-        </View>
-      </View>
+      <DashboardHeader
+        title={`Welcome, ${adminName}`}
+        subtitle="Admin Control Panel"
+        onProfilePress={() => setShowProfileMenu(true)}
+      />
 
       <ScrollView
         contentContainerStyle={styles.scrollContent}
@@ -246,21 +218,25 @@ export default function AdminDashboard() {
         </View>
       </ScrollView>
 
-      {currentUser && (
-        <ChangePasswordModal
-          visible={showPasswordModal}
-          onClose={() => setShowPasswordModal(false)}
-          onSuccess={() => {
-            setShowPasswordModal(false);
-            Alert.alert('Success', 'Password updated successfully');
-          }}
-          userId={currentUser.id}
-          userPrn={currentUser.prn}
-          userRole={currentUser.role}
-          userEmail={currentUser.email}
-          isFirstLogin={currentUser.firstLogin}
-        />
-      )}
+      <ProfileMenu
+        visible={showProfileMenu}
+        onClose={() => setShowProfileMenu(false)}
+        userName={adminName}
+        userEmail={currentUser?.email}
+        menuItems={[
+          {
+            icon: 'key-outline',
+            label: 'Change Password',
+            onPress: () => setShowPasswordModal(true)
+          },
+          {
+            icon: 'log-out-outline',
+            label: 'Logout',
+            onPress: handleLogout,
+            color: COLORS.error
+          }
+        ]}
+      />
     </View>
   );
 }
@@ -323,6 +299,40 @@ const createStyles = (width: number, isLargeScreen: boolean, isXLargeScreen: boo
   welcomeLabel: { fontSize: isLargeScreen ? 16 : 14, color: 'rgba(255,255,255,0.8)', marginBottom: 4 },
   adminName: { fontSize: isLargeScreen ? 32 : 26, fontWeight: 'bold', color: COLORS.white, marginBottom: 8 },
   dateText: { fontSize: isLargeScreen ? 14 : 13, color: 'rgba(255,255,255,0.7)' },
+  profileMenu: {
+    position: 'absolute',
+    top: 50,
+    right: 0,
+    backgroundColor: COLORS.white,
+    borderRadius: 12,
+    padding: 8,
+    minWidth: 180,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 10,
+    zIndex: 1000,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    gap: 12,
+    borderRadius: 8,
+  },
+  menuItemText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.text,
+  },
+  menuDivider: {
+    height: 1,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    marginVertical: 4,
+  },
   scrollContent: { padding: isLargeScreen ? 32 : 20 },
   statsGrid: {
     flexDirection: 'row',

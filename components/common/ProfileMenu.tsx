@@ -8,7 +8,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import { COLORS, SPACING, TYPOGRAPHY } from '../../constants/colors';
+import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '../../constants/colors';
 import { BottomSheet } from './BottomSheet';
 
 interface ProfileMenuItem {
@@ -90,6 +90,7 @@ export const ProfileMenu: React.FC<ProfileMenuProps> = ({
 const styles = StyleSheet.create({
     container: {
         flex: 1,
+        backgroundColor: COLORS.white,
     },
     header: {
         flexDirection: 'row',
@@ -98,59 +99,73 @@ const styles = StyleSheet.create({
         paddingHorizontal: SPACING.lg,
         paddingVertical: SPACING.md,
         borderBottomWidth: 1,
-        borderBottomColor: COLORS.border,
+        borderBottomColor: COLORS.borderLight,
     },
     title: {
         ...TYPOGRAPHY.h3,
         color: COLORS.text,
+        fontWeight: '700',
     },
     closeButton: {
-        padding: SPACING.sm,
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: COLORS.background,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     userInfo: {
         alignItems: 'center',
         paddingVertical: SPACING.xl,
-        borderBottomWidth: 1,
-        borderBottomColor: COLORS.border,
+        backgroundColor: COLORS.white,
     },
     avatar: {
-        width: 80,
-        height: 80,
-        borderRadius: 40,
+        width: 90,
+        height: 90,
+        borderRadius: 45,
         backgroundColor: COLORS.background,
         alignItems: 'center',
         justifyContent: 'center',
         marginBottom: SPACING.md,
         overflow: 'hidden',
+        borderWidth: 4,
+        borderColor: COLORS.background,
+        ...SHADOWS.md,
     },
     avatarImage: {
         width: '100%',
         height: '100%',
     },
     userName: {
-        ...TYPOGRAPHY.h3,
+        ...TYPOGRAPHY.h2,
         color: COLORS.text,
         marginBottom: SPACING.xs,
+        textAlign: 'center',
+        paddingHorizontal: SPACING.lg,
     },
     userEmail: {
         ...TYPOGRAPHY.bodySmall,
         color: COLORS.textSecondary,
+        fontWeight: '500',
     },
     menuContainer: {
         flex: 1,
+        paddingHorizontal: SPACING.md,
     },
     menuItem: {
         flexDirection: 'row',
         alignItems: 'center',
         paddingVertical: SPACING.md,
-        paddingHorizontal: SPACING.lg,
-        borderBottomWidth: 1,
-        borderBottomColor: COLORS.borderLight,
+        paddingHorizontal: SPACING.md,
+        backgroundColor: COLORS.white,
+        borderRadius: RADIUS.lg,
+        marginBottom: SPACING.xs,
     },
     menuLabel: {
         ...TYPOGRAPHY.body,
         color: COLORS.text,
         flex: 1,
         marginLeft: SPACING.md,
+        fontWeight: '600',
     },
 });

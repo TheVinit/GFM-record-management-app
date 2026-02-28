@@ -66,18 +66,28 @@ export const RegistrationModule = () => {
 
     const handleAddStudent = async () => {
         if (!newStudent.prn || !newStudent.fullName || !newStudent.email || !newStudent.rollNo || !newStudent.phone) {
+            console.warn('[RegistrationModule] Missing fields:', {
+                prn: !!newStudent.prn,
+                fullName: !!newStudent.fullName,
+                email: !!newStudent.email,
+                rollNo: !!newStudent.rollNo,
+                phone: !!newStudent.phone
+            });
             Alert.alert('Error', 'Please enter all required fields');
             return;
         }
         if (!validateName(newStudent.fullName)) {
+            console.warn('[RegistrationModule] Invalid Name:', newStudent.fullName);
             Alert.alert('Invalid Name', 'Student name must only contain alphabets, dots, or hyphens (2-50 chars).');
             return;
         }
         if (!validateEmail(newStudent.email)) {
+            console.warn('[RegistrationModule] Invalid Email:', newStudent.email);
             Alert.alert('Invalid Email', 'Please enter a valid email address.');
             return;
         }
         if (newStudent.phone.length !== 10) {
+            console.warn('[RegistrationModule] Invalid Phone length:', newStudent.phone.length);
             Alert.alert('Error', 'Phone number must be exactly 10 digits');
             return;
         }
@@ -100,8 +110,8 @@ export const RegistrationModule = () => {
             });
             loadData();
             Alert.alert('Success', 'Student added successfully');
-        } catch (error) {
-            Alert.alert('Error', 'Failed to add student. Ensure PRN is unique.');
+        } catch (error: any) {
+            Alert.alert('Error', error.message || 'Failed to add student. Ensure PRN is unique.');
         }
     };
 

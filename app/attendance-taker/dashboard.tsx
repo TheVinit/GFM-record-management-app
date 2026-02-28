@@ -15,7 +15,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { AppHeader } from '../../components/common/AppHeader';
+import { DashboardHeader } from '../../components/common/DashboardHeader';
 import { FilterModal } from '../../components/common/FilterModal';
 import { ProfileMenu } from '../../components/common/ProfileMenu';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '../../constants/colors';
@@ -904,14 +904,27 @@ export default function AttendanceTakerDashboard() {
 
   return (
     <View style={styles.container}>
-      <AppHeader
+      <DashboardHeader
         title={viewMode === 'home' ? 'Attendance Portal' : viewMode === 'add' ? 'Take Attendance' : 'History'}
-        showProfile={true}
+        subtitle="Attendance Control"
         onProfilePress={() => setShowProfileMenu(true)}
-        showFilter={viewMode === 'add'}
-        onFilterPress={() => setShowFilterModal(true)}
         leftIcon={viewMode !== 'home' ? 'arrow-back' : undefined}
-        onLeftIconPress={() => setViewMode('home')}
+        onLeftPress={() => setViewMode('home')}
+        rightElement={viewMode === 'add' && (
+          <TouchableOpacity
+            onPress={() => setShowFilterModal(true)}
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: 22,
+              backgroundColor: 'rgba(255,255,255,0.15)',
+              justifyContent: 'center',
+              alignItems: 'center'
+            }}
+          >
+            <Ionicons name="filter" size={22} color={COLORS.white} />
+          </TouchableOpacity>
+        )}
       />
 
       {loading ? (

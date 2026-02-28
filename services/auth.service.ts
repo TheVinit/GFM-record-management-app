@@ -72,11 +72,15 @@ export const login = async (identifier: string, pass: string) => {
 
     // Step 2: Authenticate via Supabase Auth (secure JWT)
     const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-      email,
-      password: pass,
+      email: email.trim(),
+      password: pass.trim(),
     });
 
     if (authError || !authData.session) {
+      if (authError) {
+        log(`❌ [Auth] Sign in error: ${authError.message}`);
+        throw new Error(authError.message);
+      }
       throw new Error('Invalid password. Please try again.');
     }
 

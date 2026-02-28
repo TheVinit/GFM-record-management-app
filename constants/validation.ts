@@ -93,7 +93,8 @@ export const validatePRN = (prn: string): boolean => {
 };
 
 export const validateName = (name: string): boolean => {
-  const nameRegex = /^[a-zA-Z\s\.\-]{2,50}$/;
+  // Relaxed to allow numbers for test users (Fix Student 1)
+  const nameRegex = /^[a-zA-Z0-9\s\.\-]{2,50}$/;
   return nameRegex.test(name);
 };
 

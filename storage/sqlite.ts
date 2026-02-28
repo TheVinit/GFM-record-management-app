@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SQLite from 'expo-sqlite';
 import { Platform } from 'react-native';
 import { supabase } from '../services/supabase';
@@ -42,6 +43,31 @@ const openDatabaseSafely = () => {
 };
 
 export const dbPromise = openDatabaseSafely();
+
+// Platform-agnostic session helper to avoid circular dependency with session.service
+const getInternalSession = async () => {
+  if (Platform.OS === 'web') {
+    try {
+      const json = await AsyncStorage.getItem('gfm_session');
+      if (json) {
+        const session = JSON.parse(json);
+        return { access_token: session.access_token, role: session.role };
+      }
+    } catch (e) {
+      console.error('[sqlite] Failed to get web session:', e);
+    }
+    return null;
+  }
+
+  const db = await dbPromise;
+  if (!db) return null;
+  try {
+    return await db.getFirstAsync('SELECT access_token, role FROM session LIMIT 1') as { access_token: string, role: string } | null;
+  } catch (e) {
+    console.error('[sqlite] Failed to get native session:', e);
+    return null;
+  }
+};
 
 // ============= INTERFACES =============
 
@@ -324,6 +350,15 @@ export const initDB = async () => {
       );
       `);
 
+      // 6. Attendance Cache
+      await db.runAsync(`
+      CREATE TABLE IF NOT EXISTS attendance_cache(
+        key TEXT PRIMARY KEY,
+        data TEXT,
+        updatedAt INTEGER
+      );
+      `);
+
       // Ensure cached_students has roll_no column (migration)
       try {
         await db.runAsync(`ALTER TABLE cached_students ADD COLUMN roll_no TEXT;`);
@@ -429,12 +464,12 @@ export const saveStudentInfo = async (s: Student) => {
       Authorization: `Bearer ${session.access_token}`
     },
     body: {
-      email: s.email,
-      password: s.prn, // PRN as default password
+      email: s.email.trim(),
+      password: s.prn.trim(), // PRN as default password
       role: 'student',
       profileData: {
-        prn: s.prn,
-        full_name: s.fullName,
+        prn: s.prn.trim(),
+        full_name: s.fullName.trim(),
         department: s.branch
       },
       studentData: snakeData
@@ -1127,10 +1162,98 @@ export const getAttendanceTakers = async (): Promise<FacultyMember[]> => {
 };
 
 export const saveAttendanceTaker = async (prn: string, password: string, fullName?: string, department?: string, email?: string) => {
-  const session = await dbPromise?.then((db: any) => db?.getFirstAsync('SELECT access_token, role FROM session LIMIT 1') as Promise<{ access_token: string, role: string } | null>);
+  const session = await getInternalSession();
 
   if (!session || session.role !== 'admin') {
     throw new Error('Only admins can create attendance takers directly');
+  }
+
+  console.log(`[sqlite] saveAttendanceTaker: PRN=${prn}, sessionAvailable=${!!session}, role=${session?.role}`)
+
+  const { data, error } = await supabase.functions.invoke('admin-create-user', {
+    headers: {
+      Authorization: `Bearer ${session.access_token}`
+    },
+    body: {
+      email: (email || `${prn.toLowerCase()}@at.com`).trim(),
+      password: password.trim(),
+      role: 'attendance_taker',
+      profileData: {
+        prn: prn.trim(),
+        full_name: (fullName || `Taker ${prn}`).trim(),
+        department: department || null
+      }
+    }
+  });
+
+  if (error) {
+    console.error('[sqlite] Edge function error:', error)
+    throw new Error(error.message || 'Failed to call registration service')
+  }
+  if (data?.error) {
+    console.error('[sqlite] Admin create user returned error:', data.error)
+    throw new Error(data.error)
+  }
+};
+
+export const saveFacultyMember = async (prn: string, password: string, fullName?: string, department?: string, email?: string) => {
+  const session = await getInternalSession();
+
+  if (!session || session.role !== 'admin') {
+    throw new Error('Only admins can create faculty members directly');
+  }
+
+  console.log(`[sqlite] saveFacultyMember: PRN=${prn}, sessionAvailable=${!!session}, role=${session?.role}`)
+
+  const { data, error } = await supabase.functions.invoke('admin-create-user', {
+    headers: {
+      Authorization: `Bearer ${session.access_token}`
+    },
+    body: {
+      email: (email || `${prn.toLowerCase()}@teacher.com`).trim(),
+      password: password.trim(),
+      role: 'teacher',
+      profileData: {
+        prn: prn.trim(),
+        full_name: (fullName || `Teacher ${prn}`).trim(),
+        department: department || null
+      }
+    }
+  });
+
+  if (error) {
+    console.error('[sqlite] Edge function error:', error)
+    throw new Error(error.message || 'Failed to call registration service')
+  }
+  if (data?.error) {
+    console.error('[sqlite] Admin create user returned error:', data.error)
+    throw new Error(data.error)
+  }
+};
+
+export const getAdmins = async (): Promise<FacultyMember[]> => {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('prn, role, full_name, department, email, id')
+    .eq('role', 'admin')
+    .order('full_name', { ascending: true });
+
+  if (error) return [];
+  return data.map((item: any) => ({
+    prn: item.prn || item.id,
+    fullName: item.full_name,
+    department: item.department,
+    email: item.email,
+    role: item.role,
+    isProfileComplete: true
+  })) as FacultyMember[];
+};
+
+export const saveAdmin = async (email: string, fullName: string, password: string) => {
+  const session = await getInternalSession();
+
+  if (!session || session.role !== 'admin') {
+    throw new Error('Only admins can create other admins');
   }
 
   const { data, error } = await supabase.functions.invoke('admin-create-user', {
@@ -1138,18 +1261,27 @@ export const saveAttendanceTaker = async (prn: string, password: string, fullNam
       Authorization: `Bearer ${session.access_token}`
     },
     body: {
-      email: email || `${prn.toLowerCase()}@at.com`,
+      email: email,
       password: password,
-      role: 'attendance_taker',
+      role: 'admin',
       profileData: {
-        prn: prn,
-        full_name: fullName || `Taker ${prn}`,
-        department: department || null
+        prn: `ADMIN_${Date.now()}`,
+        full_name: fullName,
+        department: 'Admin'
       }
     }
   });
 
-  if (error || data?.error) throw new Error(error?.message || data?.error || 'Failed to add attendance taker');
+  if (error || data?.error) throw new Error(error?.message || data?.error || 'Failed to add admin');
+};
+
+export const deleteAdmin = async (prnOrId: string) => {
+  const { error } = await supabase
+    .from('profiles')
+    .delete()
+    .or(`prn.eq."${prnOrId}",id.eq."${prnOrId}"`);
+
+  if (error) throw error;
 };
 
 export const deleteFacultyMember = async (prn: string) => {
@@ -1261,23 +1393,25 @@ export const getAllTeachers = async (): Promise<TeacherProfile[]> => {
 };
 
 export const saveStudent = async (studentData: any) => {
-  const session = await dbPromise?.then((db: any) => db?.getFirstAsync('SELECT access_token, role FROM session LIMIT 1') as Promise<{ access_token: string, role: string } | null>);
+  const session = await getInternalSession();
 
   if (!session || session.role !== 'admin') {
     throw new Error('Only admins can create students directly');
   }
+
+  console.log(`[sqlite] saveStudent: PRN=${studentData.prn}, sessionAvailable=${!!session}, role=${session?.role}`)
 
   const { data, error } = await supabase.functions.invoke('admin-create-user', {
     headers: {
       Authorization: `Bearer ${session.access_token}`
     },
     body: {
-      email: studentData.email,
-      password: studentData.prn, // PRN as default password
+      email: studentData.email.trim(),
+      password: studentData.prn.trim(), // PRN as default password
       role: 'student',
       profileData: {
-        prn: studentData.prn,
-        full_name: studentData.fullName,
+        prn: studentData.prn.trim(),
+        full_name: studentData.fullName.trim(),
         department: studentData.branch
       },
       studentData: {
@@ -1290,7 +1424,14 @@ export const saveStudent = async (studentData: any) => {
     }
   });
 
-  if (error || data?.error) throw new Error(error?.message || data?.error || 'Failed to add student record');
+  if (error) {
+    console.error('[sqlite] Edge function error:', error)
+    throw new Error(error.message || 'Failed to call student registration service')
+  }
+  if (data?.error) {
+    console.error('[sqlite] Admin create student returned error:', data.error)
+    throw new Error(data.error)
+  }
 };
 
 // ============= UTILITY FUNCTIONS =============

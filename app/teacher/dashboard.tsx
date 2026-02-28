@@ -6,7 +6,6 @@ import {
   Alert,
   Animated,
   Easing,
-  Image,
   Platform,
   ScrollView,
   Text,
@@ -33,6 +32,7 @@ import { BRANCH_MAPPINGS, DISPLAY_YEARS, YEAR_MAPPINGS } from '../../constants/M
 import { clearSession, getSession } from '../../services/session.service';
 
 import { ChangePasswordModal } from '../../components/ChangePasswordModal';
+import { DashboardHeader } from '../../components/common/DashboardHeader';
 import { FilterModal } from '../../components/common/FilterModal';
 import { ProfileMenu } from '../../components/common/ProfileMenu';
 import { AcademicViewModal } from '../../components/teacher/AcademicViewModal';
@@ -452,40 +452,14 @@ export default function TeacherDashboard() {
   return (
     <View style={styles.container}>
       {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          {userRole === 'admin' && (
-            <TouchableOpacity onPress={() => router.replace('/admin/dashboard')} style={{ marginRight: 15 }}>
-              <Ionicons name="arrow-back" size={26} color="#fff" />
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity
-            onPress={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 20,
-              backgroundColor: 'rgba(255,255,255,0.1)',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}
-          >
-            <Ionicons name={isSidebarCollapsed ? "grid-outline" : "close-outline"} size={22} color="#fff" />
-          </TouchableOpacity>
-          <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <Image source={require('../../assets/images/icon.png')} style={{ width: 32, height: 32 }} resizeMode="contain" />
-            <Text style={styles.tagline}>{teacherName} • Department of Computer Science</Text>
-          </View>
-        </View>
-        <TouchableOpacity
-          style={styles.profileBtn}
-          onPress={() => setShowProfileMenu(true)}
-        >
-          <View style={styles.profileIconWrapper}>
-            <Ionicons name="person" size={20} color={COLORS.primary} />
-          </View>
-        </TouchableOpacity>
-      </View>
+      <DashboardHeader
+        title={teacherName}
+        subtitle="Teacher Dashboard • GFM"
+        onProfilePress={() => setShowProfileMenu(true)}
+        leftIcon={isSidebarCollapsed ? "grid-outline" : "close-outline"}
+        onLeftPress={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+        photoUri={undefined} // Add photoUri if available in session
+      />
 
       <View style={styles.mainContent}>
         {/* Sidebar */}

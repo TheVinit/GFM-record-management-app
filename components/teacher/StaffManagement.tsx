@@ -70,8 +70,8 @@ export const StaffManagement = () => {
             setNewStaff({ prn: '', fullName: '', email: '', department: 'CSE' });
             loadData();
             Alert.alert('Success', `${activeTab === 'faculty' ? 'Faculty' : 'Taker'} added successfully`);
-        } catch (error) {
-            Alert.alert('Error', 'Failed to add staff member');
+        } catch (error: any) {
+            Alert.alert('Error', error.message || 'Failed to add staff member');
         }
     };
 

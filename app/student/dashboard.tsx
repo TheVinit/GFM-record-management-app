@@ -16,6 +16,7 @@ import {
   View
 } from 'react-native';
 import { ChangePasswordModal } from '../../components/ChangePasswordModal';
+import { DashboardHeader } from '../../components/common/DashboardHeader';
 import { ProfileMenu } from '../../components/common/ProfileMenu';
 import { COLORS } from '../../constants/colors';
 import { getFullYearName } from '../../constants/Mappings';
@@ -129,120 +130,28 @@ const getBase64Image = (source: any, timeout = 10000): Promise<string> => {
 const createStyles = (width: number, isLargeScreen: boolean, isXLargeScreen: boolean) => StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8FAFC' },
   loadingContainer: { flex: 1, backgroundColor: '#F8FAFC', justifyContent: 'center', alignItems: 'center' },
-  header: {
-    backgroundColor: COLORS.primary,
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
-    paddingBottom: 30,
-    borderBottomLeftRadius: 30,
-    borderBottomRightRadius: 30,
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.2,
-    shadowRadius: 15,
-    elevation: 10,
-  },
-  headerTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    marginBottom: 25,
-  },
-  headerBrand: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  logoCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 6,
-  },
-  headerLogo: {
-    width: '100%',
-    height: '100%',
-  },
-  brandTitle: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  brandSub: {
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 10,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-  },
-  profileIconBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.3)',
-    position: 'relative',
-    overflow: 'visible',
-  },
-  headerAvatar: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 22,
-  },
-  headerAvatarFallback: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 22,
-    backgroundColor: '#FFFFFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  onlineBadge: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#10B981',
-    borderWidth: 2,
-    borderColor: COLORS.primary,
-  },
-  welcomeSection: {
-    paddingHorizontal: 24,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  welcomeText: {
-    color: 'rgba(255,255,255,0.8)',
-    fontSize: 14,
-    fontWeight: '500',
-    marginBottom: 4,
-  },
   studentName: {
     color: '#FFFFFF',
     fontSize: 24,
     fontWeight: 'bold',
     maxWidth: width * 0.6,
   },
-  prnContainer: {
+  prnBadge: {
     backgroundColor: 'rgba(255,255,255,0.15)',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 12,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
   },
-  prnLabel: {
+  prnBadgeLabel: {
     color: 'rgba(255,255,255,0.6)',
     fontSize: 9,
     fontWeight: 'bold',
     textTransform: 'uppercase',
   },
-  prnValue: {
+  prnBadgeValue: {
     color: '#FFFFFF',
     fontSize: 13,
     fontWeight: '700',
@@ -692,40 +601,18 @@ export default function StudentDashboard() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.headerTop}>
-          <View style={styles.headerBrand}>
-            <View style={styles.logoCircle}>
-              <Image source={LOGO_LEFT_IMG} style={styles.headerLogo} resizeMode="contain" />
-            </View>
+      <DashboardHeader
+        title={profile?.fullName || 'Student'}
+        subtitle="Student Portal • Progress Hub"
+        onProfilePress={() => setShowProfileMenu(true)}
+        photoUri={profile?.photoUri}
+        rightElement={
+          <View style={styles.prnBadge}>
+            <Text style={styles.prnBadgeLabel}>PRN</Text>
+            <Text style={styles.prnBadgeValue}>{profile?.prn}</Text>
           </View>
-          <TouchableOpacity
-            style={styles.profileIconBtn}
-            onPress={() => setShowProfileMenu(true)}
-            activeOpacity={0.7}
-          >
-            {!!profile?.photoUri ? (
-              <Image source={{ uri: profile.photoUri }} style={styles.headerAvatar} />
-            ) : (
-              <View style={styles.headerAvatarFallback}>
-                <Ionicons name="person" size={20} color={COLORS.primary} />
-              </View>
-            )}
-            <View style={styles.onlineBadge} />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.welcomeSection}>
-          <View>
-            <Text style={styles.welcomeText}>Welcome back,</Text>
-            <Text style={styles.studentName} numberOfLines={1}>{profile?.fullName || 'Student'}</Text>
-          </View>
-          <View style={styles.prnContainer}>
-            <Text style={styles.prnLabel}>PRN:</Text>
-            <Text style={styles.prnValue}>{profile?.prn}</Text>
-          </View>
-        </View>
-      </View>
+        }
+      />
 
       <ScrollView
         style={styles.content}
