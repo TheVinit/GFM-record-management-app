@@ -44,27 +44,22 @@ export function ChangePasswordModal({
   const handleChangePassword = async () => {
     setError('');
 
-    // ALWAYS VALIDATE OLD PASSWORD FORM FIELD
     if (!oldPassword.trim()) {
       setError('Please enter your current password');
       return;
     }
-
     if (newPassword === oldPassword) {
       setError('New password must be different from current password');
       return;
     }
-
     if (!newPassword.trim()) {
       setError('Please enter a new password');
       return;
     }
-
     if (newPassword.length < 6) {
       setError('New password must be at least 6 characters');
       return;
     }
-
     if (newPassword !== confirmPassword) {
       setError('New passwords do not match');
       return;
@@ -73,53 +68,48 @@ export function ChangePasswordModal({
     setLoading(true);
 
     try {
-      // 🎯 [THE VERIFIED RPC STRATEGY]
-      // We use a custom database RPC (Security Definer) to perform the update.
-      // 1. It bypasses RLS recursion/restrictions.
-      // 2. It verifies the old password directly against the profiles table.
-      // 3. It works even if Supabase Auth (UUID) and Profiles (Local ID) are drifted.
       const cleanEmail = userEmail.trim().toLowerCase();
-
-      // Use the entered old password for verification
       const cleanOld = oldPassword.trim();
       const cleanNew = newPassword.trim();
 
-      console.log('🔄 [VerifiedRPC] Attempting secure password update for:', cleanEmail);
+      console.log('🔄 [AuthVerify] Verifying old password for:', cleanEmail);
 
-      const { data: successData, error: rpcError } = await supabase.rpc('verified_password_update', {
-        p_email: cleanEmail,
-        p_old_password: cleanOld,
-        p_new_password: cleanNew
+      // ✅ Step 1: Verify old password using Supabase Auth sign-in
+      // This works for ALL users (RPC-created, Edge-Function-created, etc.)
+      // because it checks Supabase Auth directly — not the profiles.password column.
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: cleanEmail,
+        password: cleanOld,
       });
 
-      if (rpcError) {
-        console.error('❌ [VerifiedRPC] RPC Failed:', rpcError.message);
-        throw new Error(rpcError.message);
+      if (signInError) {
+        console.error('❌ [AuthVerify] Old password incorrect:', signInError.message);
+        throw new Error('Verification failed. Please ensure your Current Password is correct.');
       }
 
-      if (!successData) {
-        console.error('❌ [VerifiedRPC] Logic failed (wrong old password)');
-        throw new Error('Verification failed. Please ensure your Old Password is correct.');
-      }
+      console.log('✅ [AuthVerify] Old password verified via Supabase Auth');
 
-      console.log('✅ [VerifiedRPC] Password change confirmed in Cloud DB');
-
-      // 🎯 Sync with Supabase Auth
-      // The RPC only updated the 'profiles' table. We MUST update Auth too
-      // or the user's next login will still use the old password!
+      // ✅ Step 2: Update the password in Supabase Auth
       const { error: authUpdateError } = await supabase.auth.updateUser({
         password: cleanNew
       });
 
       if (authUpdateError) {
-        console.error('❌ [AuthSync] Failed to update Supabase Auth password:', authUpdateError.message);
-        // We don't throw here to avoid confusing the user (since DB is updated)
-        // but it might cause login issues.
-      } else {
-        console.log('✅ [AuthSync] Supabase Auth password synchronized');
+        console.error('❌ [AuthUpdate] Failed to update password:', authUpdateError.message);
+        throw new Error('Failed to update password: ' + authUpdateError.message);
       }
 
-      // Sync session
+      console.log('✅ [AuthUpdate] Password updated in Supabase Auth');
+
+      // ✅ Step 3: Mark first_login = false in profiles table
+      await supabase
+        .from('profiles')
+        .update({ first_login: false })
+        .eq('email', cleanEmail);
+
+      console.log('✅ [ProfileSync] first_login cleared in profiles');
+
+      // ✅ Step 4: Sync local session
       const session = await getSession();
       if (session) {
         session.firstLogin = false;
@@ -128,7 +118,7 @@ export function ChangePasswordModal({
       }
 
       if (Platform.OS === 'web') {
-        window.alert('Password Changed!\n\nYour password has been updated successfully.');
+        window.alert('Password Changed!\n\nYour password has been updated successfully. Please use your new password the next time you log in.');
       }
 
       setOldPassword('');
