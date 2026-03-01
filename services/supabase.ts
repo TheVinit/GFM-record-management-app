@@ -44,11 +44,25 @@ export const checkSupabaseHealth = async () => {
 
   if (hasUrl && hasKey) {
     try {
+      // Use a lightweight health check
       const { error } = await supabase.from('profiles').select('id').limit(1);
-      if (!error) connectionOk = true;
-      else errorMessage = error.message;
+
+      if (!error) {
+        connectionOk = true;
+      } else {
+        errorMessage = error.message;
+        // If it's a 401/403, it's actually "connected" but unauthorized
+        if (error.code === 'PGRST301' || error.status === 401 || error.status === 403) {
+          connectionOk = true;
+          errorMessage = 'Connected (Auth Required)';
+        }
+      }
     } catch (e: any) {
-      errorMessage = e.message;
+      if (e.message?.includes('Failed to fetch')) {
+        errorMessage = 'Network Blocked or CORS Error (Failed to fetch)';
+      } else {
+        errorMessage = e.message || 'Unknown Network Error';
+      }
     }
   }
 
@@ -57,7 +71,7 @@ export const checkSupabaseHealth = async () => {
     hasKey,
     connectionOk,
     errorMessage,
-    urlPreview: supabaseUrl ? `${supabaseUrl.substring(0, 15)}...` : 'None'
+    urlPreview: supabaseUrl ? `${supabaseUrl.substring(0, 20)}...` : 'None'
   };
 };
 

@@ -54,16 +54,23 @@ export const login = async (identifier: string, pass: string) => {
   isLoggingIn = true;
 
   try {
-    // Step 1: Resolve email via secure RPC (called BEFORE auth, no auth.uid() needed)
-    const { data: resolvedEmail, error: rpcError } = await supabase.rpc(
-      'get_email_for_identifier',
-      { p_identifier: identifier.trim() }
+    // Aggressive sanitization
+    const cleanIdentifier = identifier.trim().toLowerCase();
+    const cleanPass = pass.trim();
+
+    // Timeout logic (15 seconds)
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Connection timeout. Please check your internet signal.')), 15000)
     );
 
+    // Step 1: Resolve email via secure RPC
+    const rpcPromise = supabase.rpc('get_email_for_identifier', { p_identifier: cleanIdentifier });
+    const { data: resolvedEmail, error: rpcError } = await Promise.race([rpcPromise, timeoutPromise]) as any;
+
     if (rpcError || !resolvedEmail) {
-      log(`❌ [Auth] Identifier lookup failed for: ${identifier}`);
+      log(`❌ [Auth] Identifier lookup failed for: ${cleanIdentifier}`);
       throw new Error(
-        identifier.includes('@')
+        cleanIdentifier.includes('@')
           ? 'No account found with this email. Please check your registered email.'
           : 'No account found with this EMPID / PRN. Try using your email address instead.'
       );
@@ -71,11 +78,13 @@ export const login = async (identifier: string, pass: string) => {
 
     const email = resolvedEmail as string;
 
-    // Step 2: Authenticate via Supabase Auth (secure JWT)
-    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+    // Step 2: Authenticate via Supabase Auth
+    const authPromise = supabase.auth.signInWithPassword({
       email: email.trim(),
-      password: pass.trim(),
+      password: cleanPass,
     });
+
+    const { data: authData, error: authError } = await Promise.race([authPromise, timeoutPromise]) as any;
 
     if (authError || !authData.session) {
       if (authError) {
@@ -87,12 +96,14 @@ export const login = async (identifier: string, pass: string) => {
 
     const session = authData.session;
 
-    // Step 3: Fetch profile — now we have auth.uid(), so RLS policies work
-    const { data: profile, error: profileError } = await supabase
+    // Step 3: Fetch profile
+    const profilePromise = supabase
       .from('profiles')
       .select('id, email, role, prn, full_name, department, first_login, is_profile_complete')
       .eq('id', authData.user.id)
       .single();
+
+    const { data: profile, error: profileError } = await Promise.race([profilePromise, timeoutPromise]) as any;
 
     if (profileError || !profile) {
       throw new Error('Account found but profile is missing. Please contact your administrator.');
