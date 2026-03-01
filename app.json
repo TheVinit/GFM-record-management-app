@@ -52,7 +52,9 @@
       "router": {},
       "eas": {
         "projectId": "f3789308-3e62-4874-8707-0be83e463314"
-      }
+      },
+      "supabaseUrl": "https://pgmrerxzioafpzwclqmx.supabase.co",
+      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBnbXJlcnh6aW9hZnB6d2NscW14Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgwNzMwOTQsImV4cCI6MjA4MzY0OTA5NH0.Zp5dTkhxMTzw8A5zo2zgm95d-Uu-8q7VQcvLqbjEYok"
     },
     "owner": "vinit07"
   }

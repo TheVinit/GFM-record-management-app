@@ -1,51 +1,37 @@
 import { createClient } from '@supabase/supabase-js';
+import Constants from 'expo-constants';
 import 'react-native-url-polyfill/auto';
 
-const getEnvVar = (key: string): string => {
-  // Try process.env (Node/Metro)
-  if (typeof process !== 'undefined' && process.env && process.env[key]) {
-    return process.env[key] as string;
+// 🎯 CRITICAL FOR WEB & NATIVE DEPLOYMENT:
+// 1. Literal Access: Vercel/Expo Web inlines these ONLY if written out as process.env.KEY
+// 2. Constants: EAS/Native builds prefer Constants.expoConfig.extra
+
+const getSupabaseConfig = () => {
+  // Try Literal Access (Best for Web/Vercel)
+  const webUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+  const webKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (webUrl && webKey) {
+    return { url: webUrl, key: webKey };
   }
 
-  // Try EXPO_PUBLIC prefix if not found
-  if (!key.startsWith('EXPO_PUBLIC_')) {
-    const expoKey = `EXPO_PUBLIC_${key}`;
-    if (typeof process !== 'undefined' && process.env && process.env[expoKey]) {
-      return process.env[expoKey] as string;
-    }
-  }
+  // Try Constants Fallback (Best for Native/EAS)
+  const nativeUrl = Constants.expoConfig?.extra?.supabaseUrl;
+  const nativeKey = Constants.expoConfig?.extra?.supabaseAnonKey;
 
-  // Try globalThis (Expo injected)
-  if (typeof globalThis !== 'undefined' && (globalThis as any).__EXPO_ENV__?.[key]) {
-    return (globalThis as any).__EXPO_ENV__[key];
-  }
-
-  // Fallback for common Vite prefixes in .env
-  const viteKey = key.replace('EXPO_PUBLIC_', 'VITE_');
-  if (typeof process !== 'undefined' && process.env && process.env[viteKey]) {
-    return process.env[viteKey] as string;
-  }
-
-  return '';
+  return {
+    url: nativeUrl || '',
+    key: nativeKey || ''
+  };
 };
 
-// 🎯 CRITICAL FOR WEB DEPLOYMENT:
-// Expo's static web export ONLY inlines variables if they are accessed 
-// via literal property access (e.g. process.env.EXPO_PUBLIC_URL).
-// Dynamic access like process.env[key] will FAIL in production builds.
+const config = getSupabaseConfig();
 
-export const supabaseUrl = (
-  process.env.EXPO_PUBLIC_SUPABASE_URL ||
-  ''
-).trim();
-
-export const supabaseAnonKey = (
-  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ||
-  ''
-).trim();
+export const supabaseUrl = config.url;
+export const supabaseAnonKey = config.key;
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.error("❌ Supabase URL or Anon Key is missing!");
+  console.warn("⚠️ Supabase URL or Anon Key is missing! Check environment variables.");
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
