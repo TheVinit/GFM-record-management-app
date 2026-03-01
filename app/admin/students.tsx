@@ -8,6 +8,7 @@ import {
   Alert,
   Dimensions,
   FlatList,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   ScrollView,
@@ -321,7 +322,7 @@ export default function ManageStudents() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Add Students</Text>
+        <Text style={styles.headerTitle}>Manage Students</Text>
         <View style={{ flexDirection: 'row', gap: 10 }}>
           {isWeb && (
             <TouchableOpacity onPress={() => fileInputRef.current?.click()} style={styles.importBtn}>
@@ -397,7 +398,10 @@ export default function ManageStudents() {
       />
 
       <Modal visible={modalVisible} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Add New Student</Text>
@@ -406,7 +410,11 @@ export default function ManageStudents() {
               </TouchableOpacity>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false}>
+            <ScrollView
+              showsVerticalScrollIndicator={true}
+              style={{ flexShrink: 1 }}
+              contentContainerStyle={{ paddingBottom: 10 }}
+            >
               <Text style={styles.label}>Full Name *</Text>
               <View style={styles.inputContainer}>
                 <Ionicons name="person-outline" size={20} color={COLORS.textLight} style={styles.inputIcon} />
@@ -545,7 +553,7 @@ export default function ManageStudents() {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal visible={importModalVisible} transparent animationType="slide">
@@ -744,6 +752,7 @@ const styles = StyleSheet.create({
   modalContent: {
     width: '90%',
     maxWidth: 500,
+    maxHeight: '90%',
     backgroundColor: '#fff',
     borderRadius: 20,
     padding: 25,
@@ -756,9 +765,14 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   modalTitle: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: 'bold',
-    color: COLORS.text,
+    color: COLORS.primary,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: COLORS.textLight,
+    marginBottom: 10,
   },
   label: {
     fontSize: 13,

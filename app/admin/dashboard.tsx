@@ -111,7 +111,6 @@ export default function AdminDashboard() {
   const quickActions = [
     { id: 'today', title: "Today's Status", subtitle: 'Real-time attendance', icon: 'calendar-outline', color: COLORS.primary, route: '/teacher/dashboard?module=daily-attendance' },
     { id: 'reports', title: 'Attendance History', subtitle: 'View detailed logs', icon: 'stats-chart-outline', color: COLORS.accent, route: '/teacher/dashboard?module=admin-reports' },
-    { id: 'add-students', title: 'Add Students', subtitle: 'Register & Import CSV', icon: 'person-add-outline', color: COLORS.secondary, route: '/teacher/dashboard?module=register-student' },
     { id: 'allocate', title: 'Manage Allocations', subtitle: 'Assign GFM to Batches', icon: 'git-network-outline', color: COLORS.primary, route: '/admin/manage-allocations' },
     { id: 'admins', title: 'Manage Admins', subtitle: 'Add/Remove Admins', icon: 'shield-half-outline', color: COLORS.error, route: '/admin/manage-admins' },
     { id: 'students', title: 'Manage Students', subtitle: 'View & Edit Records', icon: 'school-outline', color: '#ff9800', route: '/admin/students' },
