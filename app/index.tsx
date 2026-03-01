@@ -7,6 +7,7 @@ import {
   Dimensions,
   Image,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -17,6 +18,7 @@ import {
 } from 'react-native';
 import { COLORS } from '../constants/colors';
 import { login } from '../services/auth.service';
+import { checkSupabaseHealth } from '../services/supabase';
 
 const { width, height } = Dimensions.get('window');
 
@@ -28,7 +30,28 @@ export default function Index() {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [focusedInput, setFocusedInput] = useState<string | null>(null);
+  const [health, setHealth] = useState<any>(null);
+  const [logoTaps, setLogoTaps] = useState(0);
+  const [showDebug, setShowDebug] = useState(false);
   const passwordRef = React.useRef<TextInput>(null);
+
+  React.useEffect(() => {
+    const check = async () => {
+      const status = await checkSupabaseHealth();
+      setHealth(status);
+    };
+    check();
+  }, []);
+
+  const handleLogoTap = () => {
+    const newTaps = logoTaps + 1;
+    if (newTaps >= 5) {
+      setShowDebug(true);
+      setLogoTaps(0);
+    } else {
+      setLogoTaps(newTaps);
+    }
+  };
 
   const handleLogin = async () => {
     if (!identifier.trim()) {
@@ -81,13 +104,32 @@ export default function Index() {
             <View style={styles.headerContent}>
               <Image source={require('../assets/images/left.png')} style={styles.sideImage} resizeMode="contain" />
               <View style={styles.centerContent}>
-                <View style={styles.logoContainer}>
+                <TouchableOpacity
+                  onPress={handleLogoTap}
+                  activeOpacity={0.7}
+                  style={styles.logoContainer}
+                >
                   <Image source={require('../assets/images/icon.png')} style={styles.mainLogo} resizeMode="contain" />
-                </View>
+                </TouchableOpacity>
               </View>
               <Image source={require('../assets/images/right.png')} style={styles.sideImage} resizeMode="contain" />
             </View>
             <View style={styles.divider} />
+
+            {health && (!health.hasUrl || !health.hasKey || !health.connectionOk) && (
+              <TouchableOpacity
+                style={styles.connectionWarning}
+                onPress={() => setShowDebug(true)}
+              >
+                <Ionicons name="cloud-offline-outline" size={16} color="#FFF" />
+                <Text style={styles.connectionWarningText}>
+                  {!health.hasUrl || !health.hasKey
+                    ? "Configuration Error: Keys missing"
+                    : "Connecting to server..."}
+                </Text>
+                <Ionicons name="chevron-forward" size={14} color="#FFF" />
+              </TouchableOpacity>
+            )}
           </View>
 
           {/* Login Card */}
@@ -215,6 +257,58 @@ export default function Index() {
           </View>
         </ScrollView>
       </View>
+      <Modal
+        visible={showDebug}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowDebug(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.debugModal}>
+            <View style={styles.debugHeader}>
+              <Text style={styles.debugTitle}>System Diagnostics</Text>
+              <TouchableOpacity onPress={() => setShowDebug(false)}>
+                <Ionicons name="close" size={24} color="#333" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.debugContent}>
+              <View style={styles.debugItem}>
+                <Text style={styles.debugLabel}>Supabase Keys</Text>
+                <Text style={[styles.debugValue, (!health?.hasUrl || !health?.hasKey) && styles.errorText]}>
+                  {health?.hasUrl && health?.hasKey ? "✅ Present" : "❌ Missing (Inlining Fail)"}
+                </Text>
+              </View>
+
+              <View style={styles.debugItem}>
+                <Text style={styles.debugLabel}>Project URL</Text>
+                <Text style={styles.debugValue}>{health?.urlPreview || 'None'}</Text>
+              </View>
+
+              <View style={styles.debugItem}>
+                <Text style={styles.debugLabel}>Network Connection</Text>
+                <Text style={[styles.debugValue, !health?.connectionOk && styles.errorText]}>
+                  {health?.connectionOk ? "✅ Online" : `❌ Offline (${health?.errorMessage || 'Unknown Error'})`}
+                </Text>
+              </View>
+
+              <View style={styles.debugInfo}>
+                <Ionicons name="information-circle" size={16} color="#667eea" style={{ marginRight: 8 }} />
+                <Text style={styles.debugInfoText}>
+                  If keys are missing, ensure you have set EXPO_PUBLIC_SUPABASE_URL in Vercel.
+                </Text>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => setShowDebug(false)}
+            >
+              <Text style={styles.closeButtonText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -423,5 +517,90 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     marginLeft: 8,
+  },
+  connectionWarning: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 68, 68, 0.9)',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    marginTop: 15,
+  },
+  connectionWarningText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginHorizontal: 8,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  debugModal: {
+    backgroundColor: '#FFF',
+    borderRadius: 20,
+    width: '100%',
+    padding: 20,
+    maxWidth: 400,
+  },
+  debugHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEE',
+    paddingBottom: 10,
+  },
+  debugTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  debugContent: {
+    marginBottom: 20,
+  },
+  debugItem: {
+    marginBottom: 15,
+  },
+  debugLabel: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 4,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+  },
+  debugValue: {
+    fontSize: 14,
+    color: '#333',
+    fontWeight: '500',
+  },
+  debugInfo: {
+    flexDirection: 'row',
+    backgroundColor: '#F0F4FF',
+    padding: 12,
+    borderRadius: 10,
+    marginTop: 10,
+  },
+  debugInfoText: {
+    fontSize: 11,
+    color: '#4A5568',
+    flex: 1,
+    lineHeight: 16,
+  },
+  closeButton: {
+    backgroundColor: COLORS.primary,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  closeButtonText: {
+    color: '#FFF',
+    fontWeight: 'bold',
+    fontSize: 16,
   },
 });

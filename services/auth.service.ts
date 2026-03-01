@@ -61,6 +61,7 @@ export const login = async (identifier: string, pass: string) => {
     );
 
     if (rpcError || !resolvedEmail) {
+      log(`❌ [Auth] Identifier lookup failed for: ${identifier}`);
       throw new Error(
         identifier.includes('@')
           ? 'No account found with this email. Please check your registered email.'

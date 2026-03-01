@@ -34,15 +34,13 @@ const getEnvVar = (key: string): string => {
 // via literal property access (e.g. process.env.EXPO_PUBLIC_URL).
 // Dynamic access like process.env[key] will FAIL in production builds.
 
-const supabaseUrl = (
+export const supabaseUrl = (
   process.env.EXPO_PUBLIC_SUPABASE_URL ||
-  process.env.VITE_SUPABASE_URL ||
   ''
 ).trim();
 
-const supabaseAnonKey = (
+export const supabaseAnonKey = (
   process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ||
-  process.env.VITE_SUPABASE_ANON_KEY ||
   ''
 ).trim();
 
@@ -51,6 +49,31 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+export const checkSupabaseHealth = async () => {
+  const hasUrl = !!supabaseUrl;
+  const hasKey = !!supabaseAnonKey;
+  let connectionOk = false;
+  let errorMessage = '';
+
+  if (hasUrl && hasKey) {
+    try {
+      const { error } = await supabase.from('profiles').select('id').limit(1);
+      if (!error) connectionOk = true;
+      else errorMessage = error.message;
+    } catch (e: any) {
+      errorMessage = e.message;
+    }
+  }
+
+  return {
+    hasUrl,
+    hasKey,
+    connectionOk,
+    errorMessage,
+    urlPreview: supabaseUrl ? `${supabaseUrl.substring(0, 15)}...` : 'None'
+  };
+};
 
 export const uploadToSupabase = async (uri: string, bucket: string) => {
   try {
