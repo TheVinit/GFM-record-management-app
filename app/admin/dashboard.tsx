@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Platform,
   RefreshControl,
   ScrollView,
@@ -16,6 +17,7 @@ import { ChangePasswordModal } from '../../components/ChangePasswordModal';
 import { DashboardHeader } from '../../components/common/DashboardHeader';
 import { ProfileMenu } from '../../components/common/ProfileMenu';
 import { COLORS } from '../../constants/colors';
+import { logoutAllDevices } from '../../services/auth.service';
 import { clearSession, getSession, saveSession, SessionUser } from '../../services/session.service';
 import { supabase } from '../../services/supabase';
 
@@ -101,6 +103,15 @@ export default function AdminDashboard() {
   const handleLogout = async () => {
     await clearSession();
     router.replace('/');
+  };
+
+  const handleLogoutOthers = async () => {
+    try {
+      await logoutAllDevices();
+      Alert.alert('Success', 'Logged out from all other devices.');
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'Failed to logout from other devices.');
+    }
   };
 
   const onRefresh = () => {
@@ -241,17 +252,8 @@ export default function AdminDashboard() {
         userName={adminName}
         userEmail={currentUser?.email}
         menuItems={[
-          {
-            icon: 'key-outline',
-            label: 'Change Password',
-            onPress: () => setShowPasswordModal(true)
-          },
-          {
-            icon: 'log-out-outline',
-            label: 'Logout',
-            onPress: handleLogout,
-            color: COLORS.error
-          }
+          { icon: 'grid-outline', label: 'Dashboard', onPress: () => setShowProfileMenu(false) },
+          { icon: 'key-outline', label: 'Change Password', onPress: () => setShowPasswordModal(true) }
         ]}
       />
 

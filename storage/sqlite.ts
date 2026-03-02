@@ -90,7 +90,7 @@ const getInternalSession = async () => {
   const db = await dbPromise;
   if (!db) return null;
   try {
-    return await db.getFirstAsync('SELECT access_token, role FROM session LIMIT 1') as { access_token: string, role: string } | null;
+    return await db.getFirstAsync('SELECT access_token, role FROM session WHERE is_active = 1 LIMIT 1') as { access_token: string, role: string } | null;
   } catch (e) {
     console.error('[sqlite] Failed to get native session:', e);
     return null;
@@ -335,11 +335,10 @@ export const initDB = async () => {
       const db = await dbPromise;
       if (!db) throw new Error('SQLite database not available');
 
-      // 1. Session Table (Cached Session)
+      // 1. Session Table (Multi-Account Support)
       await db.runAsync(`
       CREATE TABLE IF NOT EXISTS session (
-        id TEXT PRIMARY KEY,
-        user_id TEXT,
+        user_id TEXT PRIMARY KEY,
         role TEXT,
         prn TEXT,
         email TEXT,
@@ -348,18 +347,21 @@ export const initDB = async () => {
         first_login INTEGER,
         access_token TEXT,
         refresh_token TEXT,
+        is_active INTEGER DEFAULT 0,
         updatedAt INTEGER
       );
     `);
 
-      // 4. Students Cache
+      // 4. Students Cache (Scoped by user_id)
       await db.runAsync(`
       CREATE TABLE IF NOT EXISTS cached_students(
-        prn TEXT PRIMARY KEY,
+        prn TEXT,
+        user_id TEXT,
         full_name TEXT,
         roll_no TEXT,
         data TEXT,
-        updatedAt INTEGER
+        updatedAt INTEGER,
+        PRIMARY KEY (prn, user_id)
       );
       `);
 
@@ -379,14 +381,27 @@ export const initDB = async () => {
       );
       `);
 
-      // 6. Attendance Cache
+      // 6. Attendance Cache (Scoped by user_id)
       await db.runAsync(`
       CREATE TABLE IF NOT EXISTS attendance_cache(
-        key TEXT PRIMARY KEY,
+        key TEXT,
+        user_id TEXT,
         data TEXT,
-        updatedAt INTEGER
+        updatedAt INTEGER,
+        PRIMARY KEY (key, user_id)
       );
       `);
+
+      // Migrations for Multi-Account Isolation
+      try {
+        await db.runAsync(`ALTER TABLE session ADD COLUMN is_active INTEGER DEFAULT 0;`);
+      } catch (e) { }
+      try {
+        await db.runAsync(`ALTER TABLE cached_students ADD COLUMN user_id TEXT;`);
+      } catch (e) { }
+      try {
+        await db.runAsync(`ALTER TABLE attendance_cache ADD COLUMN user_id TEXT;`);
+      } catch (e) { }
 
       // Ensure cached_students has roll_no column (migration)
       try {
@@ -441,11 +456,14 @@ export const clearSQLite = async () => {
 export const getStudentInfo = async (prn: string, forceRefresh: boolean = false): Promise<Student | null> => {
   const db = await dbPromise;
 
+  const session = await getInternalSession();
+  const currentUserId = session?.access_token ? (await supabase.auth.getUser(session.access_token)).data.user?.id : null;
+
   // 1. Try Cache
   try {
     const cached = await db.getFirstAsync(
-      'SELECT data, updatedAt FROM cached_students WHERE prn = ?',
-      [prn]
+      'SELECT data, updatedAt FROM cached_students WHERE prn = ? AND user_id = ?',
+      [prn, currentUserId || 'global']
     ) as { data: string, updatedAt: number } | null;
 
     // Return cache if fresh (e.g., less than 5 minutes old) and no forceRefresh
@@ -467,8 +485,8 @@ export const getStudentInfo = async (prn: string, forceRefresh: boolean = false)
   // 3. Update Cache
   try {
     await db.runAsync(
-      `INSERT OR REPLACE INTO cached_students(prn, full_name, roll_no, data, updatedAt) VALUES(?, ?, ?, ?, ?)`,
-      [prn, student.fullName, student.rollNo, JSON.stringify(student), Date.now()]
+      `INSERT OR REPLACE INTO cached_students(prn, user_id, full_name, roll_no, data, updatedAt) VALUES(?, ?, ?, ?, ?, ?)`,
+      [prn, currentUserId || 'global', student.fullName, student.rollNo, JSON.stringify(student), Date.now()]
     );
   } catch (e) { console.warn('Cache write failed:', e); }
 
@@ -1722,11 +1740,15 @@ export const getStudentsByRbtRange = async (dept: string, year: string, div: str
   const cacheKey = `students_${dept}_${year}_${div}_${from}_${to} `;
   const db = await dbPromise;
 
+  const session = await getInternalSession();
+  const currentUserId = session ? (await db.getFirstAsync('SELECT user_id FROM session WHERE is_active = 1') as any)?.user_id : null;
+  const uid = currentUserId || 'global';
+
   if (db) {
     try {
       const cached = await db.getFirstAsync(
-        'SELECT data, updatedAt FROM attendance_cache WHERE key = ?',
-        [cacheKey]
+        'SELECT data, updatedAt FROM attendance_cache WHERE key = ? AND user_id = ?',
+        [cacheKey, uid]
       ) as { data: string, updatedAt: number } | null;
       if (cached && (Date.now() - cached.updatedAt < 24 * 60 * 60 * 1000)) {
         return JSON.parse(cached.data);
@@ -1786,8 +1808,8 @@ export const getStudentsByRbtRange = async (dept: string, year: string, div: str
   if (db) {
     try {
       await db.runAsync(
-        'INSERT OR REPLACE INTO attendance_cache (key, data, updatedAt) VALUES (?, ?, ?)',
-        [cacheKey, JSON.stringify(students), Date.now()]
+        'INSERT OR REPLACE INTO attendance_cache (key, user_id, data, updatedAt) VALUES (?, ?, ?, ?)',
+        [cacheKey, uid, JSON.stringify(students), Date.now()]
       );
     } catch (e) { console.warn('Cache write failed:', e); }
   }
@@ -1800,11 +1822,15 @@ export const getStudentsByDivision = async (dept: string, year: string, div: str
   const cacheKey = `students_div_${dept}_${year}_${div} `;
   const db = await dbPromise;
 
+  const session = await getInternalSession();
+  const currentUserId = session ? (await db.getFirstAsync('SELECT user_id FROM session WHERE is_active = 1') as any)?.user_id : null;
+  const uid = currentUserId || 'global';
+
   if (db && !bypassCache) {
     try {
       const cached = await db.getFirstAsync(
-        'SELECT data, updatedAt FROM attendance_cache WHERE key = ?',
-        [cacheKey]
+        'SELECT data, updatedAt FROM attendance_cache WHERE key = ? AND user_id = ?',
+        [cacheKey, uid]
       ) as { data: string, updatedAt: number } | null;
       if (cached && (Date.now() - cached.updatedAt < 24 * 60 * 60 * 1000)) {
         return JSON.parse(cached.data);
@@ -1835,8 +1861,8 @@ export const getStudentsByDivision = async (dept: string, year: string, div: str
   if (db) {
     try {
       await db.runAsync(
-        'INSERT OR REPLACE INTO attendance_cache (key, data, updatedAt) VALUES (?, ?, ?)',
-        [cacheKey, JSON.stringify(students), Date.now()]
+        'INSERT OR REPLACE INTO attendance_cache (key, user_id, data, updatedAt) VALUES (?, ?, ?, ?)',
+        [cacheKey, uid, JSON.stringify(students), Date.now()]
       );
     } catch (e) { console.warn('Cache write failed:', e); }
   }

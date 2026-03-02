@@ -1,9 +1,12 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { clearSQLite } from '../storage/sqlite';
 import { clearSession, getSession, saveSession } from './session.service';
 import { supabase } from './supabase';
 
 const log = (...args: any[]) => { if (__DEV__) console.log(...args); };
 const warn = (...args: any[]) => { if (__DEV__) console.warn(...args); };
+
+import { Platform } from 'react-native';
 
 export interface AuthStatus {
   isLoggedIn: boolean;
@@ -121,9 +124,11 @@ export const login = async (identifier: string, pass: string) => {
       fullName: profile.full_name,
       department: profile.department,
       firstLogin: profile.first_login ?? true,
-      access_token: session.access_token,
       refresh_token: session.refresh_token,
     });
+
+    // Register this device session
+    await registerDeviceSession().catch(err => console.warn('Failed to register device session:', err));
 
     return { id: profile.id, email: profile.email, role: profile.role, prn: profile.prn };
   } catch (err: any) {
@@ -174,6 +179,72 @@ export const logout = async () => {
   await supabase.auth.signOut();
   await clearSession();
   await clearSQLite();
+};
+
+export const logoutAllDevices = async () => {
+  const { data, error } = await supabase.functions.invoke('manage-sessions', {
+    body: { action: 'revoke-all' },
+  });
+  if (error) throw error;
+
+  // Clear local session as well
+  await logout();
+};
+
+export const registerDeviceSession = async () => {
+  let deviceName = 'Unknown Device';
+  let os: string = Platform.OS;
+  let browser = 'App';
+
+  if (Platform.OS === 'web') {
+    const ua = navigator.userAgent;
+    if (ua.includes('Chrome')) browser = 'Chrome';
+    else if (ua.includes('Firefox')) browser = 'Firefox';
+    else if (ua.includes('Safari')) browser = 'Safari';
+    else if (ua.includes('Edge')) browser = 'Edge';
+
+    if (ua.includes('Windows')) os = 'Windows';
+    else if (ua.includes('Mac')) os = 'MacOS';
+    else if (ua.includes('Linux')) os = 'Linux';
+    else if (ua.includes('Android')) os = 'Android';
+    else if (ua.includes('iPhone')) os = 'iOS';
+
+    deviceName = browser + ' on ' + os;
+  } else {
+    deviceName = Platform.OS === 'ios' ? 'iPhone' : 'Android Device';
+  }
+
+  const { data, error } = await supabase.rpc('register_session', {
+    p_device_name: deviceName,
+    p_os: os,
+    p_browser: browser
+  });
+
+  if (error) throw error;
+
+  // Store the actual session_id returned from DB to identify "This device"
+  if (data?.[0]?.res_session_id) {
+    await AsyncStorage.setItem('gfm_current_session_id', data[0].res_session_id);
+  }
+};
+
+export const getCurrentSessionId = async () => {
+  return await AsyncStorage.getItem('gfm_current_session_id');
+};
+
+export const listActiveDevices = async () => {
+  const { data, error } = await supabase.functions.invoke('manage-sessions', {
+    body: { action: 'list' },
+  });
+  if (error) throw error;
+  return data.data;
+};
+
+export const revokeDeviceSession = async (sessionId: string) => {
+  const { error } = await supabase.functions.invoke('manage-sessions', {
+    body: { action: 'revoke', sessionId },
+  });
+  if (error) throw error;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

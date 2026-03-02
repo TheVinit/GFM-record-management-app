@@ -16,8 +16,9 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import { COLORS } from '../constants/colors';
+import { COLORS, SHADOWS } from '../constants/colors';
 import { login } from '../services/auth.service';
+import { clearSession, getSavedAccounts, SessionUser, switchAccount } from '../services/session.service';
 import { checkSupabaseHealth } from '../services/supabase';
 
 const { width, height } = Dimensions.get('window');
@@ -33,12 +34,15 @@ export default function Index() {
   const [health, setHealth] = useState<any>(null);
   const [logoTaps, setLogoTaps] = useState(0);
   const [showDebug, setShowDebug] = useState(false);
+  const [savedAccounts, setSavedAccounts] = useState<SessionUser[]>([]);
   const passwordRef = React.useRef<TextInput>(null);
 
   React.useEffect(() => {
     const check = async () => {
       const status = await checkSupabaseHealth();
       setHealth(status);
+      const accounts = await getSavedAccounts();
+      setSavedAccounts(accounts);
     };
     check();
   }, []);
@@ -67,24 +71,59 @@ export default function Index() {
     setLoginError(null);
     try {
       const user = await login(identifier, password);
-
-      if (user) {
-        if (user.role === 'student') router.replace('/student/dashboard');
-        else if (user.role === 'teacher') router.replace('/teacher/dashboard');
-        else if (user.role === 'admin') router.replace('/admin/dashboard');
-        else if (user.role === 'attendance_taker') router.replace('/attendance-taker/dashboard');
-      }
+      if (user) handleNavigation(user);
     } catch (error: any) {
-      const msg = error.message || 'Something went wrong. Please try again.';
-      if (msg.includes('No account found') || msg.includes('User not found') || msg.includes('Invalid password') || msg.includes('password') || msg.includes('Invalid login credentials')) {
-        setLoginError('Invalid credentials');
-      } else if (msg.includes('network') || msg.includes('fetch')) {
-        Alert.alert('Connection Error', 'Unable to connect. Please check your internet connection and try again.');
-      } else {
-        Alert.alert('Login Failed', msg);
-      }
+      handleLoginError(error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRemoveAccount = async (user: SessionUser) => {
+    Alert.alert(
+      'Remove Account',
+      `Are you sure you want to remove ${user.fullName || user.email} from this device?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            await clearSession(user.id);
+            setSavedAccounts(await getSavedAccounts());
+          }
+        }
+      ]
+    );
+  };
+
+  const handleAccountSwitch = async (user: SessionUser) => {
+    setLoading(true);
+    try {
+      await switchAccount(user.id);
+      handleNavigation(user);
+    } catch (e: any) {
+      Alert.alert('Error', 'Failed to switch account');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleNavigation = (user: SessionUser) => {
+    if (user.role === 'student') router.replace('/student/dashboard');
+    else if (user.role === 'teacher') router.replace('/teacher/dashboard');
+    else if (user.role === 'admin') router.replace('/admin/dashboard');
+    else if (user.role === 'attendance_taker') router.replace('/attendance-taker/dashboard');
+  };
+
+  const handleLoginError = (error: any) => {
+    const msg = error.message || 'Something went wrong. Please try again.';
+    if (msg.includes('No account found') || msg.includes('User not found') || msg.includes('Invalid password') || msg.includes('password') || msg.includes('Invalid login credentials')) {
+      setLoginError('Invalid credentials');
+    } else if (msg.includes('network') || msg.includes('fetch')) {
+      Alert.alert('Connection Error', 'Unable to connect. Please check your internet connection and try again.');
+    } else {
+      Alert.alert('Login Failed', msg);
     }
   };
 
@@ -129,6 +168,41 @@ export default function Index() {
                 </Text>
                 <Ionicons name="chevron-forward" size={14} color="#FFF" />
               </TouchableOpacity>
+            )}
+
+            {/* Saved Accounts List */}
+            {savedAccounts.length > 0 && (
+              <View style={styles.savedAccountsWrapper}>
+                <Text style={styles.savedAccountsTitle}>Quick Switch</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.savedAccountsList}>
+                  {savedAccounts.map((account) => (
+                    <TouchableOpacity
+                      key={account.id}
+                      style={styles.savedAccountItem}
+                      onPress={() => handleAccountSwitch(account as SessionUser)}
+                      onLongPress={() => handleRemoveAccount(account as SessionUser)}
+                    >
+                      <View style={styles.savedAvatar}>
+                        <Text style={styles.avatarInitial}>
+                          {(account.fullName || account.email || 'U')[0].toUpperCase()}
+                        </Text>
+                        <TouchableOpacity
+                          style={styles.removeIcon}
+                          onPress={() => handleRemoveAccount(account as SessionUser)}
+                        >
+                          <Ionicons name="close-circle" size={18} color={COLORS.error} />
+                        </TouchableOpacity>
+                      </View>
+                      <Text style={styles.savedAccountName} numberOfLines={1}>
+                        {account.fullName?.split(' ')[0] || account.email?.split('@')[0]}
+                      </Text>
+                      <View style={[styles.roleBadge, { backgroundColor: account.role === 'admin' ? COLORS.error : COLORS.primary }]}>
+                        <Text style={styles.roleBadgeText}>{account.role[0].toUpperCase()}</Text>
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
             )}
           </View>
 
@@ -276,7 +350,14 @@ export default function Index() {
               <View style={styles.debugItem}>
                 <Text style={styles.debugLabel}>Supabase Keys</Text>
                 <Text style={[styles.debugValue, (!health?.hasUrl || !health?.hasKey) && styles.errorText]}>
-                  {health?.hasUrl && health?.hasKey ? "✅ Present" : "❌ Missing (Inlining Fail)"}
+                  {health?.hasUrl && health?.hasKey ? `✅ Present (${health?.source})` : "❌ Missing (Inlining Fail)"}
+                </Text>
+              </View>
+
+              <View style={styles.debugItem}>
+                <Text style={styles.debugLabel}>Proxy Status</Text>
+                <Text style={styles.debugValue}>
+                  {health?.isProxied ? "🚀 Active (CF Worker)" : "⚪ Direct Connection"}
                 </Text>
               </View>
 
@@ -292,12 +373,6 @@ export default function Index() {
                 </Text>
               </View>
 
-              <View style={styles.debugInfo}>
-                <Ionicons name="information-circle" size={16} color="#667eea" style={{ marginRight: 8 }} />
-                <Text style={styles.debugInfoText}>
-                  If keys are missing, ensure you have set EXPO_PUBLIC_SUPABASE_URL in Vercel.
-                </Text>
-              </View>
             </View>
 
             <TouchableOpacity
@@ -602,5 +677,78 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontWeight: 'bold',
     fontSize: 16,
+  },
+  savedAccountsWrapper: {
+    marginTop: 20,
+    width: '100%',
+    alignItems: 'center',
+  },
+  savedAccountsTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.7)',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 12,
+  },
+  savedAccountsList: {
+    paddingHorizontal: 10,
+    gap: 15,
+  },
+  savedAccountItem: {
+    alignItems: 'center',
+    width: 70,
+  },
+  savedAvatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#FFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 6,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.3)',
+    ...SHADOWS.sm,
+  },
+  avatarInitial: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: COLORS.primary,
+  },
+  savedAccountName: {
+    fontSize: 11,
+    color: '#FFF',
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  roleBadge: {
+    position: 'absolute',
+    top: -2,
+    right: 8,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#FFF',
+  },
+  roleBadgeText: {
+    color: '#FFF',
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  removeIcon: {
+    position: 'absolute',
+    top: -5,
+    right: -5,
+    backgroundColor: '#FFF',
+    borderRadius: 10,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
   },
 });
