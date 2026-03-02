@@ -1,6 +1,7 @@
 import { Slot, useRouter, useSegments } from 'expo-router'
 import { useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, StyleSheet, View } from 'react-native'
+import { SessionWatcher } from '../components/common/SessionWatcher'
 import { clearSession, getSession } from '../services/session.service'
 import { supabase } from '../services/supabase'
 import { clearSQLite, initDB } from '../storage/sqlite'
@@ -116,7 +117,11 @@ export default function RootLayout() {
     )
   }
 
-  return <Slot />
+  return (
+    <SessionWatcher>
+      <Slot />
+    </SessionWatcher>
+  )
 }
 
 const styles = StyleSheet.create({

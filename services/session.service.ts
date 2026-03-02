@@ -15,6 +15,7 @@ export type SessionUser = {
   firstLogin?: boolean;
   access_token?: string;
   refresh_token?: string;
+  is_active?: boolean;
 };
 
 // SAVE SESSION
@@ -25,11 +26,25 @@ export const saveSession = async (user: SessionUser) => {
 
   if (Platform.OS === 'web') {
     try {
-      await AsyncStorage.setItem('gfm_session', JSON.stringify({
-        ...user,
-        updatedAt: Date.now()
-      }));
-      log("✅ [SessionService] Session saved to AsyncStorage (Web)");
+      // For Multi-Account on Web, we store a list of accounts
+      const accountsJson = await AsyncStorage.getItem('gfm_accounts') || '[]';
+      let accounts = JSON.parse(accountsJson) as (SessionUser & { is_active: boolean })[];
+
+      // Deactivate others
+      accounts = accounts.map(a => ({ ...a, is_active: false }));
+
+      const existingIndex = accounts.findIndex(a => a.id === user.id);
+      if (existingIndex > -1) {
+        accounts[existingIndex] = { ...user, is_active: true };
+      } else {
+        accounts.push({ ...user, is_active: true });
+      }
+
+      await AsyncStorage.setItem('gfm_accounts', JSON.stringify(accounts));
+      // Keep legacy gfm_session for backward compatibility of simple checks
+      await AsyncStorage.setItem('gfm_session', JSON.stringify(user));
+
+      log("✅ [SessionService] Multi-account session saved (Web)");
     } catch (e) {
       console.error("❌ [SessionService] Failed to save session to Web Storage", e);
     }
@@ -37,17 +52,21 @@ export const saveSession = async (user: SessionUser) => {
   }
 
   const db = await dbPromise;
-  if (!db) return; // Should not happen on Native if initialized correctly
+  if (!db) return;
 
   const now = Date.now();
 
   try {
+    // 1. Deactivate all
+    await db.runAsync('UPDATE session SET is_active = 0');
+
+    // 2. Insert/Replace active session
     await db.runAsync(
-      `INSERT OR REPLACE INTO session (id, user_id, email, role, prn, isProfileComplete, first_login, access_token, refresh_token, updatedAt) 
+      `INSERT OR REPLACE INTO session (user_id, email, role, prn, isProfileComplete, first_login, access_token, refresh_token, is_active, updatedAt) 
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [SESSION_ID, user.id, user.email, user.role, user.prn || null, user.isProfileComplete ? 1 : 0, user.firstLogin ? 1 : 0, user.access_token || null, user.refresh_token || null, now]
+      [user.id, user.email, user.role, user.prn || null, user.isProfileComplete ? 1 : 0, user.firstLogin ? 1 : 0, user.access_token || null, user.refresh_token || null, 1, now]
     );
-    log("✅ [SessionService] Session saved to SQLite");
+    log("✅ [SessionService] Session saved to SQLite (Active)");
   } catch (error) {
     console.error("❌ [SessionService] Failed to save session to SQLite:", error);
   }
@@ -70,7 +89,7 @@ export const getSession = async (): Promise<SessionUser | null> => {
     const db = await dbPromise;
     if (!db) return null;
 
-    const row = await db.getFirstAsync(`SELECT * FROM session WHERE id = ?`, [SESSION_ID]) as {
+    const row = await db.getFirstAsync(`SELECT * FROM session WHERE is_active = 1 LIMIT 1`) as {
       user_id: string;
       email: string;
       role: string;
@@ -148,13 +167,71 @@ export const isProfileComplete = async (): Promise<boolean> => {
 };
 
 // CLEAR SESSION (LOGOUT)
-export const clearSession = async () => {
+// GET ALL SAVED ACCOUNTS
+export const getSavedAccounts = async (): Promise<SessionUser[]> => {
   if (Platform.OS === 'web') {
-    await AsyncStorage.removeItem('gfm_session');
-    if (typeof window !== 'undefined' && window.localStorage) {
-      try {
-        localStorage.removeItem('session_extended');
-      } catch (e) { }
+    const json = await AsyncStorage.getItem('gfm_accounts');
+    return json ? JSON.parse(json) : [];
+  }
+
+  const db = await dbPromise;
+  if (!db) return [];
+  try {
+    const rows = await db.getAllAsync(`SELECT * FROM session ORDER BY updatedAt DESC`) as any[];
+    return rows.map(row => ({
+      id: row.user_id,
+      email: row.email,
+      role: row.role,
+      prn: row.prn,
+      isProfileComplete: row.isProfileComplete === 1,
+      access_token: row.access_token,
+      refresh_token: row.refresh_token
+    }));
+  } catch (e) {
+    return [];
+  }
+};
+
+// SWITCH ACCOUNT
+export const switchAccount = async (userId: string) => {
+  if (Platform.OS === 'web') {
+    const json = await AsyncStorage.getItem('gfm_accounts');
+    if (json) {
+      let accounts = JSON.parse(json) as (SessionUser & { is_active: boolean })[];
+      const target = accounts.find(a => a.id === userId);
+      if (target) {
+        accounts = accounts.map(a => ({ ...a, is_active: a.id === userId }));
+        await AsyncStorage.setItem('gfm_accounts', JSON.stringify(accounts));
+        await AsyncStorage.setItem('gfm_session', JSON.stringify(target));
+      }
+    }
+    return;
+  }
+
+  const db = await dbPromise;
+  if (!db) return;
+  try {
+    await db.runAsync('UPDATE session SET is_active = 0');
+    await db.runAsync('UPDATE session SET is_active = 1, updatedAt = ? WHERE user_id = ?', [Date.now(), userId]);
+  } catch (e) {
+    console.error("❌ [SessionService] Switch failed:", e);
+  }
+};
+
+// CLEAR SESSION (LOGOUT)
+export const clearSession = async (userId?: string) => {
+  if (Platform.OS === 'web') {
+    const json = await AsyncStorage.getItem('gfm_accounts');
+    if (json) {
+      let accounts = JSON.parse(json) as (SessionUser & { is_active: boolean })[];
+      const idToRemove = userId || accounts.find(a => a.is_active)?.id;
+      accounts = accounts.filter(a => a.id !== idToRemove);
+      await AsyncStorage.setItem('gfm_accounts', JSON.stringify(accounts));
+
+      // If we cleared the active one, clear gfm_session too
+      if (!userId || userId === (JSON.parse(await AsyncStorage.getItem('gfm_session') || '{}').id)) {
+        await AsyncStorage.removeItem('gfm_session');
+      }
     }
     return;
   }
@@ -162,9 +239,13 @@ export const clearSession = async () => {
   const db = await dbPromise;
   try {
     if (!db) return;
-    await db.runAsync(`DELETE FROM session WHERE id = ?`, [SESSION_ID]);
-    log("🧹 [SessionService] Session cleared from SQLite");
+    if (userId) {
+      await db.runAsync(`DELETE FROM session WHERE user_id = ?`, [userId]);
+    } else {
+      await db.runAsync(`DELETE FROM session WHERE is_active = 1`);
+    }
+    log("Clarified session cleared");
   } catch (error) {
-    console.error("❌ [SessionService] Failed to clear session:", error);
+    console.error("❌ [SessionService] Clear failed:", error);
   }
 };

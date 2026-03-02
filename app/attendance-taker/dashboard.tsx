@@ -252,8 +252,19 @@ export default function AttendanceTakerDashboard() {
   };
 
   const handleLogout = async () => {
-    await clearSession();
-    router.replace('/');
+    const performLogout = async () => {
+      await clearSession();
+      router.replace('/');
+    };
+
+    if (isWeb) {
+      if (window.confirm("Are you sure you want to logout?")) performLogout();
+    } else {
+      Alert.alert("Logout", "Are you sure?", [
+        { text: "Cancel" },
+        { text: "Logout", style: "destructive", onPress: performLogout }
+      ]);
+    }
   };
 
 
@@ -971,8 +982,8 @@ export default function AttendanceTakerDashboard() {
         menuItems={[
           {
             label: 'Home',
-            icon: 'home-outline',
-            onPress: () => setViewMode('home'),
+            icon: 'grid-outline',
+            onPress: () => { setViewMode('home'); setShowProfileMenu(false); },
           },
           {
             label: 'Attendance History',
@@ -980,13 +991,8 @@ export default function AttendanceTakerDashboard() {
             onPress: () => {
               setViewMode('history');
               loadHistory(selectedDate);
+              setShowProfileMenu(false);
             },
-          },
-          {
-            label: 'Logout',
-            icon: 'log-out-outline',
-            onPress: handleLogout,
-            color: COLORS.error,
           },
         ]}
       />

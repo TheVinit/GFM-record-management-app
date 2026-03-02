@@ -833,6 +833,11 @@ export default function StudentDashboard() {
         photoUri={profile?.photoUri}
         menuItems={[
           {
+            icon: 'grid-outline',
+            label: 'Dashboard',
+            onPress: () => setShowProfileMenu(false)
+          },
+          {
             icon: 'person-outline',
             label: 'Quick Profile',
             onPress: () => setProfileModalVisible(true)
@@ -846,12 +851,6 @@ export default function StudentDashboard() {
             icon: 'key-outline',
             label: 'Change Password',
             onPress: () => setShowPasswordModal(true)
-          },
-          {
-            icon: 'log-out-outline',
-            label: 'Logout',
-            onPress: handleLogout,
-            color: COLORS.error
           }
         ]}
       />

@@ -7,21 +7,34 @@ import 'react-native-url-polyfill/auto';
 // 2. Constants: EAS/Native builds prefer Constants.expoConfig.extra
 
 const getSupabaseConfig = () => {
-  // Try Literal Access (Best for Web/Vercel)
-  const webUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
-  const webKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+  // 1. Literal Access (CRITICAL for Web Bundlers/Vercel)
+  // We use separate variables to ensure the bundler identifies and inlines these strings
+  const envUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+  const envKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+  const envProxy = process.env.EXPO_PUBLIC_SUPABASE_PROXY_URL;
 
-  if (webUrl && webKey) {
-    return { url: webUrl, key: webKey };
+  if (envUrl && envKey) {
+    return {
+      url: envProxy || envUrl,
+      key: envKey,
+      source: envProxy ? 'System Active (Proxied)' : 'System Active'
+    };
   }
 
-  // Try Constants Fallback (Best for Native/EAS)
-  const nativeUrl = Constants.expoConfig?.extra?.supabaseUrl;
-  const nativeKey = Constants.expoConfig?.extra?.supabaseAnonKey;
+  // 2. Constants Fallback (Best for Native/EAS/Expo Go)
+  // This is used when process.env is not available at runtime (e.g. mobile builds)
+  const extra = Constants.expoConfig?.extra ||
+    (Constants as any).manifest2?.extra?.expoClient?.extra ||
+    (Constants as any).manifest?.extra;
+
+  const nativeUrl = extra?.supabaseUrl;
+  const nativeKey = extra?.supabaseAnonKey;
+  const nativeProxy = extra?.supabaseProxyUrl;
 
   return {
-    url: nativeUrl || '',
-    key: nativeKey || ''
+    url: nativeProxy || nativeUrl || '',
+    key: nativeKey || '',
+    source: extra ? (nativeProxy ? 'System Active (Proxied)' : 'System Active') : 'Not Configured'
   };
 };
 
@@ -45,14 +58,14 @@ export const checkSupabaseHealth = async () => {
   if (hasUrl && hasKey) {
     try {
       // Use a lightweight health check
-      const { error } = await supabase.from('profiles').select('id').limit(1);
+      const { error, status } = await supabase.from('profiles').select('id').limit(1);
 
       if (!error) {
         connectionOk = true;
       } else {
         errorMessage = error.message;
         // If it's a 401/403, it's actually "connected" but unauthorized
-        if (error.code === 'PGRST301' || error.status === 401 || error.status === 403) {
+        if (error.code === 'PGRST301' || status === 401 || status === 403) {
           connectionOk = true;
           errorMessage = 'Connected (Auth Required)';
         }
@@ -71,7 +84,9 @@ export const checkSupabaseHealth = async () => {
     hasKey,
     connectionOk,
     errorMessage,
-    urlPreview: supabaseUrl ? `${supabaseUrl.substring(0, 20)}...` : 'None'
+    urlPreview: supabaseUrl ? `${supabaseUrl.substring(0, 20)}...` : 'None',
+    source: config.source,
+    isProxied: !!process.env.EXPO_PUBLIC_SUPABASE_PROXY_URL
   };
 };
 

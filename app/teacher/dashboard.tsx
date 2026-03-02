@@ -273,17 +273,17 @@ export default function TeacherDashboard() {
   };
 
   const handleLogout = async () => {
-    const logout = async () => {
+    const performLogout = async () => {
       await clearSession();
       router.replace('/');
     };
 
     if (isWeb) {
-      if (window.confirm("Are you sure you want to logout?")) logout();
+      if (window.confirm("Are you sure you want to logout?")) performLogout();
     } else {
       Alert.alert("Logout", "Are you sure?", [
         { text: "Cancel" },
-        { text: "Logout", style: "destructive", onPress: logout }
+        { text: "Logout", style: "destructive", onPress: performLogout }
       ]);
     }
   };
@@ -581,8 +581,8 @@ export default function TeacherDashboard() {
         userName={teacherName}
         userEmail={userEmail}
         menuItems={[
-          { icon: 'key-outline', label: 'Change Password', onPress: () => setShowChangePassword(true) },
-          { icon: 'log-out-outline', label: 'Logout', onPress: handleLogout, color: COLORS.error }
+          { icon: 'grid-outline', label: 'Dashboard', onPress: () => setShowProfileMenu(false) },
+          { icon: 'key-outline', label: 'Change Password', onPress: () => setShowChangePassword(true) }
         ]}
       />
 
