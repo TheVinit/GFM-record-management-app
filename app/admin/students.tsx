@@ -23,7 +23,7 @@ import { FilterModal } from '../../components/common/FilterModal';
 import { COLORS } from '../../constants/colors';
 import { DISPLAY_BRANCHES, DISPLAY_YEARS, getFullBranchName, getFullYearName } from '../../constants/Mappings';
 import { getSession } from '../../services/session.service';
-import { deleteStudent, getAllStudents, getDistinctYearsOfStudy, saveStudent, Student } from '../../storage/sqlite';
+import { deleteStudent, getAllStudents, getDistinctYearsOfStudy, saveStudent, saveStudentInfo, Student } from '../../storage/sqlite';
 
 const { width } = Dimensions.get('window');
 const isWeb = Platform.OS === 'web';
@@ -34,6 +34,9 @@ export default function ManageStudents() {
   const [students, setStudents] = useState<Student[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [importModalVisible, setImportModalVisible] = useState(false);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importPreview, setImportPreview] = useState<any[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -125,8 +128,8 @@ export default function ManageStudents() {
   };
 
   const handleAddStudent = async () => {
-    if (!newStudent.prn || !newStudent.fullName || !newStudent.email || !newStudent.phone) {
-      Alert.alert('Error', 'Please enter PRN, Full Name, Email and Mobile Number');
+    if (!newStudent.prn || !newStudent.fullName || !newStudent.email || !newStudent.phone || !newStudent.rollNo) {
+      Alert.alert('Error', 'Please enter PRN, Full Name, Email, Mobile Number and Roll No');
       return;
     }
     if (newStudent.phone.length !== 10 || !/^[0-9]+$/.test(newStudent.phone)) {
@@ -152,12 +155,17 @@ export default function ManageStudents() {
         division: 'A'
       });
       loadData();
-      Alert.alert('Success', 'Student added successfully');
-    } catch (error: any) {
-      if (error?.message?.includes('already exists') || error?.message?.includes('duplicate')) {
-        Alert.alert('Error', 'This Email or PRN already exists. Please use unique details.');
+      if (isWeb) {
+        alert('Student added successfully');
       } else {
-        Alert.alert('Error', 'Failed to add student. Ensure PRN is unique.');
+        Alert.alert('Success', 'Student added successfully');
+      }
+    } catch (error: any) {
+      const errorMsg = error?.message || 'Failed to add student. Ensure PRN is unique.';
+      if (isWeb) {
+        alert('Error: ' + errorMsg);
+      } else {
+        Alert.alert('Error', errorMsg);
       }
     }
   };
@@ -273,30 +281,76 @@ export default function ManageStudents() {
     document.body.removeChild(link);
   };
 
-  const handleDeleteStudent = (prn: string) => {
-    Alert.alert(
-      'Confirm Delete',
-      `Are you sure you want to remove student ${prn}? This will also remove their login profile.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setLoading(true);
-              await deleteStudent(prn);
-              loadData();
-              Alert.alert('Success', 'Student removed successfully');
-            } catch (error: any) {
-              Alert.alert('Error', 'Failed to delete student: ' + (error.message || JSON.stringify(error)));
-            } finally {
-              setLoading(false);
-            }
-          }
+  const handleDeleteStudent = async (prn: string) => {
+    const doDelete = async () => {
+      try {
+        setLoading(true);
+        await deleteStudent(prn);
+        loadData();
+        if (isWeb) {
+          alert('Student removed successfully');
+        } else {
+          Alert.alert('Success', 'Student removed successfully');
         }
-      ]
-    );
+      } catch (error: any) {
+        const msg = 'Failed to delete student: ' + (error.message || JSON.stringify(error));
+        if (isWeb) {
+          alert(msg);
+        } else {
+          Alert.alert('Error', msg);
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (isWeb) {
+      if (window.confirm(`Are you sure you want to remove student ${prn}? This will also remove their login profile.`)) {
+        await doDelete();
+      }
+    } else {
+      Alert.alert(
+        'Confirm Delete',
+        `Are you sure you want to remove student ${prn}? This will also remove their login profile.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Delete', style: 'destructive', onPress: doDelete }
+        ]
+      );
+    }
+  };
+
+  const handleEditStudent = (student: Student) => {
+    setEditingStudent({ ...student });
+    setEditModalVisible(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingStudent) return;
+    const s = editingStudent;
+    if (!s.fullName || !s.email || !s.phone || !s.rollNo || !s.prn || !s.branch || !s.yearOfStudy || !s.division) {
+      const msg = 'All fields are mandatory: Full Name, Email, Phone, Roll No, PRN, Branch, Year, Division.';
+      if (isWeb) { alert('Error: ' + msg); } else { Alert.alert('Error', msg); }
+      return;
+    }
+    if (s.phone.length !== 10) {
+      const msg = 'Phone number must be exactly 10 digits.';
+      if (isWeb) { alert('Error: ' + msg); } else { Alert.alert('Error', msg); }
+      return;
+    }
+    setIsSaving(true);
+    try {
+      await saveStudentInfo(s);
+      setEditModalVisible(false);
+      setEditingStudent(null);
+      loadData();
+      if (isWeb) { alert('Student updated successfully'); } else { Alert.alert('Success', 'Student updated successfully'); }
+    } catch (error: any) {
+      const msg = error.message || 'Failed to update student.';
+      if (isWeb) { alert('Error: ' + msg); } else { Alert.alert('Error', msg); }
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const renderStudentItem = ({ item }: { item: Student }) => (
@@ -305,14 +359,19 @@ export default function ManageStudents() {
         <Ionicons name="person-circle-outline" size={40} color={COLORS.primary} />
         <View style={styles.textContainer}>
           <Text style={styles.studentName}>{item.fullName}</Text>
-          <Text style={styles.studentPrn}>PRN: {item.prn}</Text>
+          <Text style={styles.studentPrn}>PRN: {item.prn} | Roll: {item.rollNo || '—'}</Text>
           <Text style={styles.studentDetails}>{getFullBranchName(item.branch)} | {getFullYearName(item.yearOfStudy)} | Div {item.division}</Text>
           {item.email && <Text style={styles.studentEmail}>{item.email}</Text>}
         </View>
       </View>
-      <TouchableOpacity onPress={() => handleDeleteStudent(item.prn)} style={styles.deleteBtn}>
-        <Ionicons name="trash-outline" size={20} color={COLORS.error} />
-      </TouchableOpacity>
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <TouchableOpacity onPress={() => handleEditStudent(item)} style={styles.editBtn}>
+          <Ionicons name="pencil-outline" size={18} color={COLORS.primary} />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => handleDeleteStudent(item.prn)} style={styles.deleteBtn}>
+          <Ionicons name="trash-outline" size={18} color={COLORS.error} />
+        </TouchableOpacity>
+      </View>
     </View>
   );
 
@@ -471,7 +530,7 @@ export default function ManageStudents() {
 
               <View style={styles.row}>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.label}>Roll No (Optional)</Text>
+                  <Text style={styles.label}>Roll No *</Text>
                   <View style={styles.inputContainer}>
                     <Ionicons name="list-outline" size={20} color={COLORS.textLight} style={styles.inputIcon} />
                     <TextInput
@@ -556,6 +615,118 @@ export default function ManageStudents() {
         </KeyboardAvoidingView>
       </Modal>
 
+      {/* ── EDIT STUDENT MODAL ── */}
+      <Modal visible={editModalVisible} transparent animationType="slide">
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, { maxHeight: '90%' }]}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Edit Student</Text>
+                <TouchableOpacity onPress={() => { setEditModalVisible(false); setEditingStudent(null); }}>
+                  <Ionicons name="close" size={24} color={COLORS.text} />
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.modalSubtitle}>All fields are mandatory</Text>
+
+              <ScrollView showsVerticalScrollIndicator={true} style={{ flexShrink: 1 }} contentContainerStyle={{ paddingBottom: 10 }}>
+
+                <Text style={styles.label}>Full Name *</Text>
+                <View style={styles.inputContainer}>
+                  <Ionicons name="person-outline" size={20} color={COLORS.textLight} style={styles.inputIcon} />
+                  <TextInput style={styles.inputField} placeholder="Student's Full Name" placeholderTextColor="#94A3B8"
+                    value={editingStudent?.fullName || ''}
+                    onChangeText={t => setEditingStudent(s => s ? { ...s, fullName: t } : s)} />
+                </View>
+
+                <Text style={styles.label}>Email ID *</Text>
+                <View style={styles.inputContainer}>
+                  <Ionicons name="mail-outline" size={20} color={COLORS.textLight} style={styles.inputIcon} />
+                  <TextInput style={styles.inputField} placeholder="student@email.com" placeholderTextColor="#94A3B8"
+                    keyboardType="email-address" autoCapitalize="none"
+                    value={editingStudent?.email || ''}
+                    onChangeText={t => setEditingStudent(s => s ? { ...s, email: t } : s)} />
+                </View>
+
+                <Text style={styles.label}>Mobile Number *</Text>
+                <View style={styles.inputContainer}>
+                  <Ionicons name="call-outline" size={20} color={COLORS.textLight} style={styles.inputIcon} />
+                  <TextInput style={styles.inputField} placeholder="10-digit mobile" placeholderTextColor="#94A3B8"
+                    keyboardType="phone-pad" maxLength={10}
+                    value={editingStudent?.phone || ''}
+                    onChangeText={t => setEditingStudent(s => s ? { ...s, phone: t.replace(/[^0-9]/g, '') } : s)} />
+                </View>
+
+                <View style={styles.row}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.label}>Roll No *</Text>
+                    <View style={styles.inputContainer}>
+                      <Ionicons name="list-outline" size={20} color={COLORS.textLight} style={styles.inputIcon} />
+                      <TextInput style={styles.inputField} placeholder="e.g. 101" placeholderTextColor="#94A3B8"
+                        value={editingStudent?.rollNo || ''}
+                        onChangeText={t => setEditingStudent(s => s ? { ...s, rollNo: t } : s)} />
+                    </View>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.label}>PRN *</Text>
+                    <View style={[styles.inputContainer, { backgroundColor: '#F1F5F9' }]}>
+                      <Ionicons name="card-outline" size={20} color={COLORS.textLight} style={styles.inputIcon} />
+                      <TextInput style={[styles.inputField, { color: '#94A3B8' }]} editable={false}
+                        value={editingStudent?.prn || ''} />
+                    </View>
+                  </View>
+                </View>
+
+                <Text style={styles.label}>Branch *</Text>
+                <View style={styles.pickerContainer}>
+                  <Picker selectedValue={editingStudent?.branch || 'Computer Engineering'}
+                    onValueChange={v => setEditingStudent(s => s ? { ...s, branch: v } : s)}
+                    style={isWeb ? { border: 'none', background: 'transparent' } : {}}>
+                    {DISPLAY_BRANCHES.map(b => (<Picker.Item key={b.value} label={b.label} value={b.value} />))}
+                  </Picker>
+                </View>
+
+                <View style={[styles.row, { marginTop: 10 }]}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.label}>Year *</Text>
+                    <View style={styles.pickerContainer}>
+                      <Picker selectedValue={editingStudent?.yearOfStudy || 'First Year'}
+                        onValueChange={v => setEditingStudent(s => s ? { ...s, yearOfStudy: v } : s)}
+                        style={isWeb ? { border: 'none', background: 'transparent' } : {}}>
+                        {DISPLAY_YEARS.map(y => (<Picker.Item key={y.value} label={y.label} value={y.value} />))}
+                      </Picker>
+                    </View>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.label}>Division *</Text>
+                    <View style={styles.pickerContainer}>
+                      <Picker selectedValue={editingStudent?.division || 'A'}
+                        onValueChange={v => setEditingStudent(s => s ? { ...s, division: v } : s)}
+                        style={isWeb ? { border: 'none', background: 'transparent' } : {}}>
+                        {['A', 'A1', 'A2', 'A3', 'B', 'B1', 'B2', 'B3', 'C', 'C1', 'C2', 'C3'].map(d => (
+                          <Picker.Item key={d} label={d} value={d} />
+                        ))}
+                      </Picker>
+                    </View>
+                  </View>
+                </View>
+
+              </ScrollView>
+
+              <View style={styles.modalButtons}>
+                <TouchableOpacity onPress={() => { setEditModalVisible(false); setEditingStudent(null); }} style={[styles.modalBtn, styles.cancelBtn]}>
+                  <Text style={styles.modalBtnText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={handleSaveEdit} disabled={isSaving} style={[styles.modalBtn, styles.saveBtn]}>
+                  {isSaving
+                    ? <ActivityIndicator size="small" color="#fff" />
+                    : <Text style={[styles.modalBtnText, { color: '#fff' }]}>Save Changes</Text>}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
       <Modal visible={importModalVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { maxHeight: '80%' }]}>
@@ -609,7 +780,7 @@ export default function ManageStudents() {
           </View>
         </View>
       </Modal>
-    </View>
+    </View >
   );
 }
 
@@ -736,6 +907,13 @@ const styles = StyleSheet.create({
   },
   deleteBtn: {
     padding: 10,
+    backgroundColor: '#FEE2E2',
+    borderRadius: 8,
+  },
+  editBtn: {
+    padding: 10,
+    backgroundColor: '#EEF2FF',
+    borderRadius: 8,
   },
   emptyText: {
     textAlign: 'center',
