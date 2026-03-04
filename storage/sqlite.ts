@@ -45,41 +45,56 @@ const openDatabaseSafely = () => {
 export const dbPromise = openDatabaseSafely();
 
 // Platform-agnostic session helper to avoid circular dependency with session.service
-const getInternalSession = async () => {
-  // FIRST: try to get a live, auto-refreshed session from the Supabase SDK.
-  // This is the most reliable method and avoids expired token issues.
+export const getInternalSession = async (options?: { forceRefresh?: boolean }) => {
   try {
+    if (options?.forceRefresh) {
+      await supabase.auth.refreshSession();
+    }
+
     const { data: { session } } = await supabase.auth.getSession();
     if (session?.access_token) {
-      // Get role from app_metadata (set by admin-create-user Edge Function)
-      let role = session.user?.app_metadata?.role || session.user?.user_metadata?.role;
+      // Primary: app_metadata or user_metadata (populated after token refresh)
+      let role: string | undefined =
+        session.user?.app_metadata?.role ||
+        session.user?.user_metadata?.role;
+
+      // Authoritative fallback: always query profiles table for the freshest role
       if (!role) {
-        // Fallback: read role from our custom storage
-        if (Platform.OS === 'web') {
-          const json = await AsyncStorage.getItem('gfm_session').catch(() => null);
-          if (json) role = JSON.parse(json).role;
-        } else {
-          const db = await dbPromise;
-          if (db) {
-            const row = await db.getFirstAsync('SELECT role FROM session LIMIT 1').catch(() => null) as any;
-            if (row) role = row.role;
+        try {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', session.user.id)
+            .single();
+          role = profile?.role;
+        } catch (_) {
+          // profiles query failed, try local cache
+          if (Platform.OS === 'web') {
+            const json = await AsyncStorage.getItem('gfm_session').catch(() => null);
+            if (json) role = JSON.parse(json).role;
+          } else {
+            const db = await dbPromise;
+            if (db) {
+              const row = await db.getFirstAsync('SELECT role FROM session LIMIT 1').catch(() => null) as any;
+              if (row) role = row.role;
+            }
           }
         }
       }
-      console.log(`[sqlite] getInternalSession: SDK session OK, role=${role}`);
+
       return { access_token: session.access_token, role };
     }
   } catch (e) {
     console.warn('[sqlite] supabase.auth.getSession() failed, falling back to stored session:', e);
   }
 
-  // FALLBACK: read from stored session (AsyncStorage on web, SQLite on native)
+  // FALLBACK: read from stored session
   if (Platform.OS === 'web') {
     try {
       const json = await AsyncStorage.getItem('gfm_session');
       if (json) {
-        const session = JSON.parse(json);
-        return { access_token: session.access_token, role: session.role };
+        const stored = JSON.parse(json);
+        return { access_token: stored.access_token, role: stored.role };
       }
     } catch (e) {
       console.error('[sqlite] Failed to get web session:', e);
@@ -96,6 +111,7 @@ const getInternalSession = async () => {
     return null;
   }
 };
+
 
 // ============= INTERFACES =============
 
@@ -494,56 +510,41 @@ export const getStudentInfo = async (prn: string, forceRefresh: boolean = false)
 };
 
 export const saveStudentInfo = async (s: Student) => {
-  const session = await dbPromise?.then((db: any) => db?.getFirstAsync('SELECT access_token, role FROM session LIMIT 1') as Promise<{ access_token: string, role: string } | null>);
-
-  if (!session || session.role !== 'admin') {
-    throw new Error('Only admins can create students directly');
-  }
-
+  // This function is used for UPDATING existing student profiles (teacher dashboard, student personal-info).
+  // It does NOT create new auth users — that is handled by saveStudent().
   const snakeData = toSnakeCase(s);
   snakeData.last_updated = new Date().toISOString();
 
-  console.log('📝 Saving student via Edge Function:', JSON.stringify(snakeData, null, 2));
+  // Remove fields that aren't DB columns
+  delete snakeData.gfm_id;
+  delete snakeData.gfm_name;
 
-  // Call the Edge Function to create Auth User + Profiles + Students
-  const { data, error } = await supabase.functions.invoke('admin-create-user', {
-    headers: {
-      Authorization: `Bearer ${session.access_token}`
-    },
-    body: {
-      email: s.email.trim(),
-      password: s.prn.trim(), // PRN as default password
-      role: 'student',
-      profileData: {
-        prn: s.prn.trim(),
-        full_name: s.fullName.trim(),
-        department: s.branch
-      },
-      studentData: snakeData
-    }
-  });
+  const { data, error } = await supabase
+    .from('students')
+    .upsert(snakeData, { onConflict: 'prn' })
+    .select();
 
-  if (error || data?.error) {
-    console.error('❌ Supabase Edge Function error:');
-    console.error(error || data?.error);
-    throw new Error(error?.message || data?.error || 'Failed to create student via Admin API');
+  if (error) {
+    console.error('❌ saveStudentInfo error:', error);
+    throw new Error(error.message || 'Failed to update student info');
   }
 
-  // 2. Update Local Cache immediately
+  // Update local cache
   try {
     const db = await dbPromise;
     if (db) {
+      const session = await getInternalSession();
+      const currentUserId = session?.access_token ? (await supabase.auth.getUser(session.access_token)).data.user?.id : null;
       await db.runAsync(
-        `INSERT OR REPLACE INTO cached_students(prn, full_name, roll_no, data, updatedAt) VALUES(?, ?, ?, ?, ?)`,
-        [s.prn, s.fullName, s.rollNo, JSON.stringify(s), Date.now()]
+        `INSERT OR REPLACE INTO cached_students(prn, user_id, full_name, roll_no, data, updatedAt) VALUES(?, ?, ?, ?, ?, ?)`,
+        [s.prn, currentUserId || 'global', s.fullName, s.rollNo, JSON.stringify(s), Date.now()]
       );
-      console.log('📦 Local student cache updated');
     }
   } catch (e) {
     console.warn('⚠️ Local cache update failed:', e);
   }
 
-  console.log('✅ Student info saved successfully:', data);
+  console.log('✅ Student info updated successfully');
   return data;
 };
 
@@ -1218,17 +1219,13 @@ export const getAttendanceTakers = async (): Promise<FacultyMember[]> => {
 };
 
 export const saveAttendanceTaker = async (prn: string, password: string, fullName?: string, department?: string, email?: string) => {
-  const session = await getInternalSession();
+  const session = await getInternalSession({ forceRefresh: true });
 
   if (!session || session.role !== 'admin') {
     throw new Error('Only admins can create attendance takers directly');
   }
 
-  console.log(`[sqlite] saveAttendanceTaker: PRN=${prn}, sessionAvailable=${!!session}, role=${session?.role}`)
-
-  // Use direct fetch to bypass SDK anon-key injection
-  const SUPABASE_URL = (process.env.EXPO_PUBLIC_SUPABASE_URL || '').trim();
-  const response = await fetch(`${SUPABASE_URL}/functions/v1/admin-create-user`, {
+  const response = await fetch(`${supabaseUrl}/functions/v1/admin-create-user`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -1249,23 +1246,21 @@ export const saveAttendanceTaker = async (prn: string, password: string, fullNam
   const result = await response.json();
   if (!response.ok || result?.error) {
     const msg = result?.error || `HTTP ${response.status}`;
-    console.error('[sqlite] saveAttendanceTaker error:', msg);
+    if (msg.includes('already exists') || msg.includes('already registered')) {
+      throw new Error('This Email is already registered. Please use a unique email.');
+    }
     throw new Error(msg);
   }
 };
 
 export const saveFacultyMember = async (prn: string, password: string, fullName?: string, department?: string, email?: string) => {
-  const session = await getInternalSession();
+  const session = await getInternalSession({ forceRefresh: true });
 
   if (!session || session.role !== 'admin') {
     throw new Error('Only admins can create faculty members directly');
   }
 
-  console.log(`[sqlite] saveFacultyMember: PRN=${prn}, sessionAvailable=${!!session}, role=${session?.role}`)
-
-  // Use direct fetch to bypass SDK anon-key injection
-  const SUPABASE_URL = (process.env.EXPO_PUBLIC_SUPABASE_URL || '').trim();
-  const response = await fetch(`${SUPABASE_URL}/functions/v1/admin-create-user`, {
+  const response = await fetch(`${supabaseUrl}/functions/v1/admin-create-user`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -1286,7 +1281,9 @@ export const saveFacultyMember = async (prn: string, password: string, fullName?
   const result = await response.json();
   if (!response.ok || result?.error) {
     const msg = result?.error || `HTTP ${response.status}`;
-    console.error('[sqlite] saveFacultyMember error:', msg);
+    if (msg.includes('already exists') || msg.includes('already registered')) {
+      throw new Error('This Email is already registered. Please use a unique email.');
+    }
     throw new Error(msg);
   }
 };
@@ -1310,15 +1307,13 @@ export const getAdmins = async (): Promise<FacultyMember[]> => {
 };
 
 export const saveAdmin = async (email: string, fullName: string, password: string) => {
-  const session = await getInternalSession();
+  const session = await getInternalSession({ forceRefresh: true });
 
   if (!session || session.role !== 'admin') {
     throw new Error('Only admins can create other admins');
   }
 
-  // Use direct fetch to bypass SDK anon-key injection
-  const SUPABASE_URL = (process.env.EXPO_PUBLIC_SUPABASE_URL || '').trim();
-  const response = await fetch(`${SUPABASE_URL}/functions/v1/admin-create-user`, {
+  const response = await fetch(`${supabaseUrl}/functions/v1/admin-create-user`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -1342,51 +1337,92 @@ export const saveAdmin = async (email: string, fullName: string, password: strin
   }
 };
 
-export const deleteAdmin = async (prnOrId: string) => {
-  const { error } = await supabase
-    .from('profiles')
-    .delete()
-    .or(`prn.eq."${prnOrId}",id.eq."${prnOrId}"`);
 
-  if (error) throw error;
+export const deleteAdmin = async (prnOrId: string) => {
+  const session = await getInternalSession({ forceRefresh: true });
+  if (!session || session.role !== 'admin') {
+    throw new Error('Unauthorized');
+  }
+
+  const response = await fetch(`${supabaseUrl}/functions/v1/admin-delete-user`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({ prn: prnOrId })
+  });
+
+  const result = await response.json();
+  if (!response.ok || result?.error) {
+    throw new Error(result?.error || `Delete failed: HTTP ${response.status}`);
+  }
 };
 
 export const deleteFacultyMember = async (prn: string) => {
-  const { error } = await supabase
-    .from('profiles')
-    .delete()
-    .eq('prn', prn);
+  const session = await getInternalSession({ forceRefresh: true });
+  if (!session || session.role !== 'admin') {
+    throw new Error('Unauthorized');
+  }
 
-  if (error) throw error;
+  const response = await fetch(`${supabaseUrl}/functions/v1/admin-delete-user`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({ prn })
+  });
+
+  const result = await response.json();
+  if (!response.ok || result?.error) {
+    throw new Error(result?.error || `Delete failed: HTTP ${response.status}`);
+  }
 };
 
 export const deleteAttendanceTaker = async (prn: string) => {
-  const { error } = await supabase
-    .from('profiles')
-    .delete()
-    .eq('prn', prn);
+  const session = await getInternalSession({ forceRefresh: true });
+  if (!session || session.role !== 'admin') {
+    throw new Error('Unauthorized');
+  }
 
-  if (error) throw error;
+  const response = await fetch(`${supabaseUrl}/functions/v1/admin-delete-user`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({ prn })
+  });
+
+  const result = await response.json();
+  if (!response.ok || result?.error) {
+    throw new Error(result?.error || `Delete failed: HTTP ${response.status}`);
+  }
 };
 
 export const deleteStudent = async (prn: string) => {
-  // 1. Delete from profiles (login)
-  const { error: profileError } = await supabase
-    .from('profiles')
-    .delete()
-    .eq('prn', prn);
+  const session = await getInternalSession({ forceRefresh: true });
 
-  if (profileError) console.error('Error deleting student profile:', profileError);
+  if (!session || session.role !== 'admin') {
+    throw new Error('Only admins can delete students');
+  }
 
-  // 2. Delete from students table
-  const { error: studentError } = await supabase
-    .from('students')
-    .delete()
-    .eq('prn', prn);
+  const response = await fetch(`${supabaseUrl}/functions/v1/admin-delete-user`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({ prn })
+  });
 
-  if (studentError) throw studentError;
+  const result = await response.json();
+  if (!response.ok || result?.error) {
+    throw new Error(result?.error || `Delete failed: HTTP ${response.status}`);
+  }
 
-  // 3. Clear from local cache
+  // Clear from local cache
   const db = await dbPromise;
   if (db) {
     await db.runAsync('DELETE FROM cached_students WHERE prn = ?', [prn]);
@@ -1460,17 +1496,13 @@ export const getAllTeachers = async (): Promise<TeacherProfile[]> => {
 };
 
 export const saveStudent = async (studentData: any) => {
-  const session = await getInternalSession();
+  const session = await getInternalSession({ forceRefresh: true });
 
   if (!session || session.role !== 'admin') {
     throw new Error('Only admins can create students directly');
   }
 
-  console.log(`[sqlite] saveStudent: PRN=${studentData.prn}, sessionAvailable=${!!session}, role=${session?.role}`)
-
-  // Use direct fetch to bypass SDK anon-key injection
-  const SUPABASE_URL = (process.env.EXPO_PUBLIC_SUPABASE_URL || '').trim();
-  const response = await fetch(`${SUPABASE_URL}/functions/v1/admin-create-user`, {
+  const response = await fetch(`${supabaseUrl}/functions/v1/admin-create-user`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -1498,7 +1530,10 @@ export const saveStudent = async (studentData: any) => {
   const result = await response.json();
   if (!response.ok || result?.error) {
     const msg = result?.error || `HTTP ${response.status}`;
-    console.error('[sqlite] saveStudent error:', msg);
+    // Return user-friendly messages for known errors
+    if (msg.includes('already exists') || msg.includes('already registered')) {
+      throw new Error('This Email or PRN is already registered. Please use unique details.');
+    }
     throw new Error(msg);
   }
 };

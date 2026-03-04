@@ -124,6 +124,7 @@ export const login = async (identifier: string, pass: string) => {
       fullName: profile.full_name,
       department: profile.department,
       firstLogin: profile.first_login ?? true,
+      access_token: session.access_token,
       refresh_token: session.refresh_token,
     });
 
