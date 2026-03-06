@@ -23,7 +23,8 @@ import { FilterModal } from '../../components/common/FilterModal';
 import { COLORS } from '../../constants/colors';
 import { DISPLAY_BRANCHES, DISPLAY_YEARS, getFullBranchName, getFullYearName } from '../../constants/Mappings';
 import { getSession } from '../../services/session.service';
-import { deleteStudent, getAllStudents, getDistinctYearsOfStudy, saveStudent, saveStudentInfo, Student } from '../../storage/sqlite';
+import { supabase } from '../../services/supabase';
+import { deleteStudent, getAllStudents, getDistinctYearsOfStudy, saveStudentInfo, Student } from '../../storage/sqlite';
 
 const { width } = Dimensions.get('window');
 const isWeb = Platform.OS === 'web';
@@ -127,6 +128,7 @@ export default function ManageStudents() {
     }
   };
 
+
   const handleAddStudent = async () => {
     if (!newStudent.prn || !newStudent.fullName || !newStudent.email || !newStudent.phone || !newStudent.rollNo) {
       Alert.alert('Error', 'Please enter PRN, Full Name, Email, Mobile Number and Roll No');
@@ -137,38 +139,26 @@ export default function ManageStudents() {
       return;
     }
     try {
-      await saveStudent({
-        ...newStudent,
-        gfmId: '',
-        gfmName: ''
+      const { data: result, error: fnError } = await supabase.functions.invoke('admin-bulk-import', {
+        body: { students: [newStudent] }
       });
+      if (fnError) throw new Error(fnError.message || 'Failed to add student.');
+      if (!result || result?.error) throw new Error(result?.error || 'Failed to add student.');
+      if (result.failed > 0) throw new Error(result.failures?.[0]?.error || 'Failed to add student.');
+
       setModalVisible(false);
       setNewStudent({
-        prn: '',
-        fullName: '',
-        email: '',
-        phone: '',
-        parentMobile: '',
-        rollNo: '',
-        branch: 'Computer Engineering',
-        yearOfStudy: 'First Year',
-        division: 'A'
+        prn: '', fullName: '', email: '', phone: '', parentMobile: '',
+        rollNo: '', branch: 'Computer Engineering', yearOfStudy: 'First Year', division: 'A'
       });
       loadData();
-      if (isWeb) {
-        alert('Student added successfully');
-      } else {
-        Alert.alert('Success', 'Student added successfully');
-      }
+      if (isWeb) { alert('Student added successfully'); } else { Alert.alert('Success', 'Student added successfully'); }
     } catch (error: any) {
       const errorMsg = error?.message || 'Failed to add student. Ensure PRN is unique.';
-      if (isWeb) {
-        alert('Error: ' + errorMsg);
-      } else {
-        Alert.alert('Error', errorMsg);
-      }
+      if (isWeb) { alert('Error: ' + errorMsg); } else { Alert.alert('Error', errorMsg); }
     }
   };
+
 
   const handleFileSelect = async (e: any) => {
     const file = e.target.files?.[0];
@@ -246,29 +236,72 @@ export default function ManageStudents() {
 
     setImporting(true);
     setImportProgress(0);
-    let successCount = 0;
-    let failCount = 0;
 
-    for (let i = 0; i < importPreview.length; i++) {
-      const student = importPreview[i];
-      try {
-        await saveStudent({
-          ...student,
-          gfmId: '',
-          gfmName: ''
-        });
-        successCount++;
-      } catch (e) {
-        failCount++;
+    try {
+      const CHUNK_SIZE = 20;
+      const chunks = [];
+      for (let i = 0; i < importPreview.length; i += CHUNK_SIZE) {
+        chunks.push(importPreview.slice(i, i + CHUNK_SIZE));
       }
-      setImportProgress(Math.round(((i + 1) / importPreview.length) * 100));
-    }
 
-    setImporting(false);
-    setImportModalVisible(false);
-    setImportPreview([]);
-    loadData();
-    Alert.alert('Import Complete', `Successfully added ${successCount} students. ${failCount > 0 ? `${failCount} failed (duplicate PRN/Email).` : ''}`);
+      let totalCreated = 0;
+      let totalUpdated = 0;
+      let totalFailed = 0;
+      let allFailures: any[] = [];
+
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+
+        const { data: result, error: fnError } = await supabase.functions.invoke('admin-bulk-import', {
+          body: { students: chunk }
+        });
+
+        if (fnError || result?.error) {
+          const errMsg = result?.error || fnError?.message || 'Unknown error';
+          if (isWeb) alert(`Import failed at chunk ${i + 1}: ` + errMsg);
+          else Alert.alert('Import Failed', `Error at chunk ${i + 1}: ` + errMsg);
+          return;
+        }
+
+        const { created = 0, updated = 0, failed = 0, failures = [] } = result;
+        totalCreated += created;
+        totalUpdated += updated;
+        totalFailed += failed;
+        allFailures = allFailures.concat(failures);
+
+        // Update progress
+        const progress = Math.round(((i + 1) / chunks.length) * 100);
+        setImportProgress(progress);
+      }
+
+      const successCount = totalCreated + totalUpdated;
+
+      setImportModalVisible(false);
+      setImportPreview([]);
+      loadData();
+
+      let msg = `✅ ${successCount} student(s) imported successfully.`;
+      if (totalCreated > 0) msg += `\n• ${totalCreated} new account(s) created`;
+      if (totalUpdated > 0) msg += `\n• ${totalUpdated} existing account(s) updated`;
+      if (totalFailed > 0) {
+        msg += `\n\n⚠️ ${totalFailed} failed:`;
+        allFailures.slice(0, 5).forEach((f: any) => {
+          msg += `\n• ${f.prn}: ${f.error}`;
+        });
+        if (allFailures.length > 5) msg += `\n...and ${allFailures.length - 5} more`;
+      }
+
+      if (isWeb) alert(msg);
+      else Alert.alert('Import Complete', msg);
+
+    } catch (err: any) {
+      const errMsg = err?.message || 'Network error. Please check your connection.';
+      if (isWeb) alert('Import error: ' + errMsg);
+      else Alert.alert('Import Error', errMsg);
+    } finally {
+      setImporting(false);
+      setImportProgress(0);
+    }
   };
 
   const downloadTemplate = () => {

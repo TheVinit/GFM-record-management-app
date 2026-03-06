@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SQLite from 'expo-sqlite';
 import { Platform } from 'react-native';
-import { supabase } from '../services/supabase';
+import { supabase, supabaseUrl } from '../services/supabase';
 import { getLocalDateString } from '../utils/date';
 import { safeFeePayment, safeStudent } from '../utils/validation';
 
@@ -1496,7 +1496,10 @@ export const getAllTeachers = async (): Promise<TeacherProfile[]> => {
 };
 
 export const saveStudent = async (studentData: any) => {
-  const session = await getInternalSession({ forceRefresh: true });
+  // Do NOT force-refresh the token here. Bulk CSV imports call this in a loop
+  // and forceRefresh:true triggers supabase.auth.refreshSession() for EVERY student,
+  // flooding the auth proxy with requests and causing HTTP 429 (Too Many Requests).
+  const session = await getInternalSession();
 
   if (!session || session.role !== 'admin') {
     throw new Error('Only admins can create students directly');

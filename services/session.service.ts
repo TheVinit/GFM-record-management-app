@@ -4,6 +4,12 @@ import { dbPromise } from '../storage/sqlite';
 
 const SESSION_ID = 'current_user';
 
+// ── Session-restore guard ──────────────────────────────────────────────────
+// Prevents calling supabase.auth.setSession() on EVERY getSession() call.
+// Without this, bulk operations (e.g. CSV import loop) fire a token refresh
+// on every iteration, flooding the auth proxy and triggering HTTP 429.
+let _sessionRestored = false;
+
 export type SessionUser = {
   id: string;
   email: string;
@@ -23,6 +29,7 @@ const log = (...args: any[]) => { if (__DEV__) console.log(...args); };
 
 export const saveSession = async (user: SessionUser) => {
   log(`💾 [SessionService] Saving session for: ${user.email} (${user.role})`);
+  _sessionRestored = false; // Reset so next getSession() restores JWT once
 
   if (Platform.OS === 'web') {
     try {
@@ -103,17 +110,17 @@ export const getSession = async (): Promise<SessionUser | null> => {
 
     if (!row) return null;
 
-    // Restore Supabase Session if tokens exist
-    if (row.access_token && row.refresh_token) {
-      // We import supabase dynamically or use the global one if possible, 
-      // but importing strictly adds circular deps? no.
+    // Restore Supabase Session if tokens exist — but only ONCE per app boot.
+    // Calling setSession on every getSession() hammers the auth endpoint with
+    // token-refresh requests and triggers 429 errors during bulk operations.
+    if (row.access_token && row.refresh_token && !_sessionRestored) {
       const { supabase } = require('./supabase');
-      // We don't await this to keep UI snappy, but it's important for subsequent requests
       try {
         await supabase.auth.setSession({
           access_token: row.access_token,
           refresh_token: row.refresh_token
         });
+        _sessionRestored = true; // mark so we never call this again this session
       } catch (err) {
         console.warn('Failed to restore Supabase session', err);
       }
@@ -220,6 +227,7 @@ export const switchAccount = async (userId: string) => {
 
 // CLEAR SESSION (LOGOUT)
 export const clearSession = async (userId?: string) => {
+  _sessionRestored = false; // Allow fresh restore on next login
   if (Platform.OS === 'web') {
     const json = await AsyncStorage.getItem('gfm_accounts');
     if (json) {

@@ -2,45 +2,30 @@ import { createClient } from '@supabase/supabase-js';
 import Constants from 'expo-constants';
 import 'react-native-url-polyfill/auto';
 
-// 🎯 CRITICAL FOR WEB & NATIVE DEPLOYMENT:
-// 1. Literal Access: Vercel/Expo Web inlines these ONLY if written out as process.env.KEY
-// 2. Constants: EAS/Native builds prefer Constants.expoConfig.extra
-
 const getSupabaseConfig = () => {
-  // 1. Literal Access (CRITICAL for Web Bundlers/Vercel)
-  // We use separate variables to ensure the bundler identifies and inlines these strings
+  // Direct project URL — never use a proxy so auth tokens are valid for Edge Functions
   const envUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
   const envKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
-  const envProxy = process.env.EXPO_PUBLIC_SUPABASE_PROXY_URL;
 
   if (envUrl && envKey) {
-    return {
-      url: envProxy || envUrl,
-      key: envKey,
-      source: envProxy ? 'System Active (Proxied)' : 'System Active'
-    };
+    return { url: envUrl, projectUrl: envUrl, key: envKey };
   }
 
-  // 2. Constants Fallback (Best for Native/EAS/Expo Go)
-  // This is used when process.env is not available at runtime (e.g. mobile builds)
+  // Constants fallback (for native/EAS builds)
   const extra = Constants.expoConfig?.extra ||
     (Constants as any).manifest2?.extra?.expoClient?.extra ||
     (Constants as any).manifest?.extra;
 
-  const nativeUrl = extra?.supabaseUrl;
-  const nativeKey = extra?.supabaseAnonKey;
-  const nativeProxy = extra?.supabaseProxyUrl;
+  const nativeUrl = extra?.supabaseUrl || '';
+  const nativeKey = extra?.supabaseAnonKey || '';
 
-  return {
-    url: nativeProxy || nativeUrl || '',
-    key: nativeKey || '',
-    source: extra ? (nativeProxy ? 'System Active (Proxied)' : 'System Active') : 'Not Configured'
-  };
+  return { url: nativeUrl, projectUrl: nativeUrl, key: nativeKey };
 };
 
 const config = getSupabaseConfig();
 
 export const supabaseUrl = config.url;
+export const supabaseProjectUrl = config.projectUrl;
 export const supabaseAnonKey = config.key;
 
 if (!supabaseUrl || !supabaseAnonKey) {
@@ -85,8 +70,8 @@ export const checkSupabaseHealth = async () => {
     connectionOk,
     errorMessage,
     urlPreview: supabaseUrl ? `${supabaseUrl.substring(0, 20)}...` : 'None',
-    source: config.source,
-    isProxied: !!process.env.EXPO_PUBLIC_SUPABASE_PROXY_URL
+    source: 'Direct',
+    isProxied: false
   };
 };
 
